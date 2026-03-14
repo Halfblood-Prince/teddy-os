@@ -7,6 +7,7 @@
 - the terminal and explorer are MVP implementations
 - TeddyFS is intentionally simple and fixed-layout
 - the updater is not implemented yet because Phase 7 was skipped for now
+- networking is still at the diagnostics/foundation stage; DNS, generic sockets, and HTTP/HTTPS are not implemented yet
 - this phase set was not compiled or VMware-tested in the current shell because `cargo` and `rustup` were unavailable on `PATH`
 
 ## Near-Term Roadmap

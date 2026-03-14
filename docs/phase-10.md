@@ -67,9 +67,10 @@ paths including DHCP Discover and DHCP Request. It now also keeps track of
 offered/configured addressing details from DHCP replies so lease progress is
 visible from inside the terminal.
 
-It does not yet complete a full DHCP renew/rebind state machine, DNS resolution,
-TCP/UDP data transfer, or HTTP/HTTPS fetches. Those remain the next networking
-steps on top of this device-discovery and hardware-init foundation.
+It does not yet complete the full Phase 10 roadmap. DNS resolution, a general
+TCP/UDP socket interface, and HTTP/HTTPS fetches are still missing. This phase
+should therefore be treated as a networking foundation milestone rather than a
+finished internet stack.
 
 ## Terminal Commands
 
@@ -78,8 +79,8 @@ steps on top of this device-discovery and hardware-init foundation.
 - `netsend` queues a small broadcast test Ethernet frame on RTL8139
 - `arp <ipv4>` queues a broadcast ARP request for the target IPv4 address
 - `dhcp` queues a DHCP Discover broadcast first, then a DHCP Request once an offer is available
-- `dns <host>` reports the current DNS-resolver scaffolding status
-- `fetch <url>` reports the current transport/fetch scaffolding status
+- `dns <host>` reports that DNS is not implemented yet in the current build
+- `fetch <url>` reports that HTTP/HTTPS fetch is not implemented yet in the current build
 
 ## VMware Test Instructions
 
@@ -96,7 +97,7 @@ steps on top of this device-discovery and hardware-init foundation.
 11. If a DHCP Offer is seen, run `dhcp` again and confirm the DHCP request counter changes.
 12. If a DHCP reply is seen, confirm `netdiag` shows IPv4/UDP/DHCP counters, the offered IPv4, DHCP server, and any router/DNS values.
 13. If a DHCP Ack is seen, confirm `netinfo` reports a non-zero configured IPv4 address and `netdiag` reports `ready yes`.
-14. Run `dns example.com` and `fetch https://example.com` to confirm the higher-level networking surface is still reachable from inside the OS.
+14. Run `dns example.com` and `fetch https://example.com` to confirm the shell surfaces these features as not implemented yet instead of pretending the network stack is complete.
 
 ## Known Limitations
 

@@ -32,19 +32,30 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     }
 
     logger::init(boot_info);
+    logln!("Boot step: logger online");
     memory::init(boot_info);
+    logln!("Boot step: memory online");
     timer::init();
+    logln!("Boot step: timer online");
     let network_info = network::init();
+    logln!("Boot step: network probe complete");
     let storage_info = storage::init();
+    logln!("Boot step: storage probe complete");
     let mount_status = fs::init();
+    logln!("Boot step: filesystem probe complete");
     input::init(
         boot_info.framebuffer.width as usize,
         boot_info.framebuffer.height as usize,
     );
+    logln!("Boot step: input online");
     file_explorer::init();
+    logln!("Boot step: explorer online");
     terminal::init();
+    logln!("Boot step: terminal online");
     runtime::init(boot_info);
+    logln!("Boot step: runtime online");
     interrupts::init();
+    logln!("Boot step: interrupts online");
 
     logln!("Teddy-OS kernel entered.");
     logln!(

@@ -29,23 +29,24 @@
 
 ## Terminal Behavior
 
-The terminal is currently the main interactive application in Teddy-OS.
+At the end of Phase 4, the terminal was the main interactive application in
+Teddy-OS.
 
 It supports:
 
 - prompt rendering with the current working directory
 - command history cycling with up/down arrows
-- simple in-memory directory traversal
-- file creation and deletion in a temporary session-only filesystem
+- simple directory traversal
+- file creation and deletion
 - basic output and multi-line command responses
 
 ## Filesystem Integration Strategy
 
-Phase 4 does not implement the persistent filesystem yet. Instead, the terminal
-uses a small in-memory VFS-style layer so the command set works now without
-pretending Phase 5 is complete.
+This document captures the Phase 4 milestone before Phase 5 landed. The current
+repository has since replaced the temporary in-memory filesystem with the
+persistent TeddyFS implementation described in `docs/phase-5.md`.
 
-That means:
+At Phase 4 time that meant:
 
 - `ls`, `cd`, `pwd`, `cat`, `mkdir`, `rm`, and `touch` all work
 - changes are session-only
@@ -86,8 +87,7 @@ Release build:
 ## Known Limitations
 
 - the terminal currently runs in kernel space
-- the filesystem used by the terminal is in-memory only
-- no persistent storage yet
+- this document is historical; the current tree now mounts persistent TeddyFS
 - no terminal process spawning yet
 - `reboot` and `shutdown` are still low-level kernel actions rather than full
   OS-managed power flows

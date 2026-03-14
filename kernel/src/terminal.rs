@@ -199,7 +199,7 @@ impl TerminalApp {
 
     fn run_command(&mut self, command: &str, parser: &mut CommandParser<'_>) {
         match command {
-            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo netdiag netsend arp dhcp dns fetch df diskinfo fsck reboot shutdown"),
+            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo netdiag netsend arp dhcp dns(stub) fetch(stub) df diskinfo fsck reboot shutdown"),
             "echo" => self.echo_command(parser.rest()),
             "clear" => self.clear(),
             "ls" => match fs::ls(parser.next(), &mut self.scratch) {
@@ -276,7 +276,7 @@ impl TerminalApp {
             "df" => self.disk_free_command(),
             "diskinfo" => self.disk_info_command(),
             "fsck" => self.fsck_command(),
-            "uname" => self.println("Teddy-OS x86_64 phase10"),
+            "uname" => self.println("Teddy-OS x86_64 phase14-foundation"),
             "reboot" => {
                 self.println("Rebooting Teddy-OS...");
                 reboot_system();
@@ -597,10 +597,12 @@ impl TerminalApp {
             self.println("dns: no NIC");
             return;
         }
-        let mut line = FsTextBuffer::new();
-        line.push_str("dns: resolver scaffolding present for ");
-        line.push_str(host);
-        self.push_line(line);
+        self.println("dns: not implemented yet");
+        let mut detail = FsTextBuffer::new();
+        detail.push_str("dns target ");
+        detail.push_str(host);
+        detail.push_str(" queued for a future resolver");
+        self.push_line(detail);
     }
 
     fn fetch_command(&mut self, url: Option<&str>) {
@@ -613,10 +615,12 @@ impl TerminalApp {
             self.println("fetch: no NIC");
             return;
         }
-        let mut line = FsTextBuffer::new();
-        line.push_str("fetch: transport scaffolding present for ");
-        line.push_str(url);
-        self.push_line(line);
+        self.println("fetch: http/https transport not implemented yet");
+        let mut detail = FsTextBuffer::new();
+        detail.push_str("fetch target ");
+        detail.push_str(url);
+        detail.push_str(" recorded for a future client");
+        self.push_line(detail);
     }
 
     fn render(&self, surface: &mut FramebufferSurface, rect: Rect, focused: bool) {

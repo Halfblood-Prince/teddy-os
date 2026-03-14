@@ -1,4 +1,6 @@
 const COM1: u16 = 0x3F8;
+const SERIAL_READY_MASK: u8 = 0x20;
+const SERIAL_WAIT_SPINS: usize = 100_000;
 
 pub fn init() {
     unsafe {
@@ -23,9 +25,20 @@ pub fn write_str(text: &str) {
 
 fn write_byte(byte: u8) {
     unsafe {
-        while (inb(COM1 + 5) & 0x20) == 0 {}
+        if !wait_for_transmit_ready() {
+            return;
+        }
         outb(COM1, byte);
     }
+}
+
+unsafe fn wait_for_transmit_ready() -> bool {
+    for _ in 0..SERIAL_WAIT_SPINS {
+        if (inb(COM1 + 5) & SERIAL_READY_MASK) != 0 {
+            return true;
+        }
+    }
+    false
 }
 
 unsafe fn outb(port: u16, value: u8) {
