@@ -1,0 +1,75 @@
+name: Build Teddy-OS ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Build profile
+        required: true
+        default: debug
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+
+    env:
+      PROFILE: ${{ inputs.profile }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xorriso mtools
+        shell: bash
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-unknown-uefi
+          components: rust-src, llvm-tools-preview
+
+      - name: Cache Cargo registry + build output
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: teddy-os-${{ runner.os }}-${{ env.PROFILE }}
+
+      - name: Build ISO
+        run: |
+          ./scripts/build.ps1 -Profile $env:PROFILE
+        shell: pwsh
+
+      - name: Verify ISO output
+        run: |
+          $iso = "build/dist/teddy-os-$env:PROFILE.iso"
+          $sha = "$iso.sha256"
+          $manifest = "build/dist/build-$env:PROFILE.json"
+
+          if (-not (Test-Path $iso)) {
+            throw "Missing ISO: $iso"
+          }
+          if (-not (Test-Path $sha)) {
+            throw "Missing checksum: $sha"
+          }
+          if (-not (Test-Path $manifest)) {
+            throw "Missing build manifest: $manifest"
+          }
+
+          Write-Host "ISO ready: $iso"
+        shell: pwsh
+
+      - name: Upload ISO artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: teddy-os-${{ env.PROFILE }}-iso
+          path: |
+            build/dist/teddy-os-${{ env.PROFILE }}.iso
+            build/dist/teddy-os-${{ env.PROFILE }}.iso.sha256
+            build/dist/build-${{ env.PROFILE }}.json
+          if-no-files-found: error
