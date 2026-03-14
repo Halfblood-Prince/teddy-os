@@ -8,28 +8,25 @@ use core::{mem, ptr};
 use teddy_boot_proto::{
     BootInfo, FramebufferInfo, MemoryRegion, MemoryRegionKind, PixelFormat, MAX_MEMORY_REGIONS,
 };
-use uefi::alloc::Allocator;
+use uefi::boot::{self, AllocateType, MemoryType};
 use uefi::cstr16;
+use uefi::mem::memory_map::MemoryMap;
 use uefi::prelude::*;
 use uefi::proto::console::gop::{GraphicsOutput, PixelFormat as GopPixelFormat};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileInfo, FileMode, FileType, RegularFile};
 use uefi::proto::media::fs::SimpleFileSystem;
-use uefi::table::boot::{AllocateType, MemoryType};
 use uefi::table::cfg::{ACPI2_GUID, ACPI_GUID};
 use xmas_elf::{
     program::{ProgramHeader, Type},
     ElfFile,
 };
 
-#[global_allocator]
-static ALLOCATOR: Allocator = Allocator;
-
 const KERNEL_PATH: &uefi::CStr16 = cstr16!(r"\EFI\BOOT\KERNEL.ELF");
 
 #[entry]
-fn efi_main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
-    if uefi::helpers::init(&mut system_table).is_err() {
+fn efi_main() -> Status {
+    if uefi::helpers::init().is_err() {
         serial_write_str("UEFI helper init failed.\n");
         return Status::LOAD_ERROR;
     }
@@ -38,7 +35,7 @@ fn efi_main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status
     uefi::println!("Teddy-OS bootloader");
     serial_write_str("Teddy-OS bootloader\n");
 
-    match boot(image_handle, system_table) {
+    match boot() {
         Ok(()) => Status::SUCCESS,
         Err(status) => {
             uefi::println!("Boot failed: {:?}", status);
@@ -48,13 +45,13 @@ fn efi_main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status
     }
 }
 
-fn boot(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Result<(), Status> {
-    let bs = system_table.boot_services();
+fn boot() -> Result<(), Status> {
+    let image_handle = boot::image_handle();
 
-    let kernel_file = read_kernel_file(image_handle, bs)?;
+    let kernel_file = read_kernel_file(image_handle)?;
     serial_write_str("Kernel image loaded from EFI partition.\n");
 
-    let framebuffer = init_framebuffer(bs)?;
+    let framebuffer = init_framebuffer()?;
     uefi::println!(
         "Framebuffer: {}x{} stride {}",
         framebuffer.width,
@@ -63,7 +60,7 @@ fn boot(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Result<(),
     );
     serial_write_str("Framebuffer initialized.\n");
 
-    let loaded_kernel = load_kernel_elf(bs, &kernel_file)?;
+    let loaded_kernel = load_kernel_elf(&kernel_file)?;
     uefi::println!(
         "Kernel ELF loaded: start={:#x}, end={:#x}, entry={:#x}",
         loaded_kernel.start,
@@ -72,7 +69,7 @@ fn boot(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Result<(),
     );
     serial_write_str("Kernel ELF segments placed in memory.\n");
 
-    let rsdp_addr = find_rsdp(&system_table);
+    let rsdp_addr = find_rsdp();
     let mut boot_info = Box::new(BootInfo::new());
     let mut memory_regions = Box::new([MemoryRegion::EMPTY; MAX_MEMORY_REGIONS]);
 
@@ -81,15 +78,10 @@ fn boot(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Result<(),
     boot_info.kernel_start = loaded_kernel.start;
     boot_info.kernel_end = loaded_kernel.end;
 
-    let map_size = bs.memory_map_size();
-    let mut mmap_storage = vec![0u8; map_size.map_size + (map_size.entry_size * 8)];
-
-    let (_runtime_table, descriptors) = system_table
-        .exit_boot_services(MemoryType::LOADER_DATA, &mut mmap_storage[..])
-        .map_err(|err| err.status())?;
+    let memory_map = unsafe { boot::exit_boot_services(MemoryType::LOADER_DATA) };
 
     let mut count = 0usize;
-    for descriptor in descriptors {
+    for descriptor in memory_map.entries() {
         if count >= MAX_MEMORY_REGIONS {
             break;
         }
@@ -107,7 +99,7 @@ fn boot(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Result<(),
 
     let boot_info_ptr = Box::into_raw(boot_info);
     let _memory_regions_ptr = Box::into_raw(memory_regions);
-    mem::forget(mmap_storage);
+    mem::forget(memory_map);
 
     let entry: extern "sysv64" fn(&'static BootInfo) -> ! =
         unsafe { mem::transmute(loaded_kernel.entry as usize) };
@@ -118,13 +110,11 @@ fn boot(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Result<(),
 
 fn read_kernel_file(
     image_handle: Handle,
-    bs: &uefi::table::boot::BootServices,
 ) -> Result<Vec<u8>, Status> {
-    let loaded_image = bs
-        .open_protocol_exclusive::<LoadedImage>(image_handle)
+    let loaded_image = boot::open_protocol_exclusive::<LoadedImage>(image_handle)
         .map_err(|err| err.status())?;
-    let mut fs = bs
-        .open_protocol_exclusive::<SimpleFileSystem>(loaded_image.device())
+    let device_handle = loaded_image.device().ok_or(Status::LOAD_ERROR)?;
+    let mut fs = boot::open_protocol_exclusive::<SimpleFileSystem>(device_handle)
         .map_err(|err| err.status())?;
     let mut root = fs.open_volume().map_err(|err| err.status())?;
     let handle = root
@@ -150,15 +140,13 @@ fn read_regular_file(file: &mut RegularFile) -> Result<Vec<u8>, Status> {
     Ok(data)
 }
 
-fn init_framebuffer(bs: &uefi::table::boot::BootServices) -> Result<FramebufferInfo, Status> {
-    let gop_handle = bs
-        .get_handle_for_protocol::<GraphicsOutput>()
+fn init_framebuffer() -> Result<FramebufferInfo, Status> {
+    let gop_handle = boot::get_handle_for_protocol::<GraphicsOutput>()
         .map_err(|err| err.status())?;
-    let mut gop = bs
-        .open_protocol_exclusive::<GraphicsOutput>(gop_handle)
+    let mut gop = boot::open_protocol_exclusive::<GraphicsOutput>(gop_handle)
         .map_err(|err| err.status())?;
     let mode = gop.current_mode_info();
-    let fb = gop.frame_buffer();
+    let mut fb = gop.frame_buffer();
 
     Ok(FramebufferInfo {
         base: fb.as_mut_ptr() as u64,
@@ -179,10 +167,7 @@ fn map_pixel_format(format: GopPixelFormat) -> PixelFormat {
     }
 }
 
-fn load_kernel_elf(
-    bs: &uefi::table::boot::BootServices,
-    image: &[u8],
-) -> Result<LoadedKernel, Status> {
+fn load_kernel_elf(image: &[u8]) -> Result<LoadedKernel, Status> {
     let elf = ElfFile::new(image).map_err(|_| Status::LOAD_ERROR)?;
 
     let mut kernel_start = u64::MAX;
@@ -193,7 +178,7 @@ fn load_kernel_elf(
             continue;
         }
 
-        load_segment(bs, image, &header)?;
+        load_segment(image, &header)?;
 
         kernel_start = kernel_start.min(header.physical_addr());
         kernel_end = kernel_end.max(header.physical_addr() + header.mem_size());
@@ -210,11 +195,7 @@ fn load_kernel_elf(
     })
 }
 
-fn load_segment(
-    bs: &uefi::table::boot::BootServices,
-    image: &[u8],
-    header: &ProgramHeader<'_>,
-) -> Result<(), Status> {
+fn load_segment(image: &[u8], header: &ProgramHeader<'_>) -> Result<(), Status> {
     let target = header.physical_addr() as usize;
     let mem_size = header.mem_size() as usize;
     let file_size = header.file_size() as usize;
@@ -222,7 +203,7 @@ fn load_segment(
     let pages = ((mem_size + 0xfff) / 0x1000) as usize;
 
     unsafe {
-        bs.allocate_pages(
+        boot::allocate_pages(
             AllocateType::Address(target as u64),
             MemoryType::LOADER_DATA,
             pages,
@@ -253,14 +234,16 @@ fn map_memory_kind(kind: MemoryType) -> MemoryRegionKind {
     }
 }
 
-fn find_rsdp(system_table: &SystemTable<Boot>) -> u64 {
-    for entry in system_table.config_table() {
-        if entry.guid == ACPI2_GUID || entry.guid == ACPI_GUID {
-            return entry.address as u64;
+fn find_rsdp() -> u64 {
+    uefi::system::with_config_table(|config_table| {
+        for entry in config_table {
+            if entry.guid == ACPI2_GUID || entry.guid == ACPI_GUID {
+                return entry.address as u64;
+            }
         }
-    }
 
-    0
+        0
+    })
 }
 
 struct LoadedKernel {
