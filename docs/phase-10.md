@@ -24,6 +24,9 @@
   - source MAC
   - destination MAC
   - EtherType
+- ARP support:
+  - parse received ARP frame metadata
+  - transmit broadcast ARP requests from the terminal
 - test transmit path for a broadcast Ethernet frame
 - basic NIC metadata reporting:
   - vendor/device IDs
@@ -34,10 +37,12 @@
   - RX/TX DMA buffer addresses
   - RX/TX completion counters
   - last received frame metadata
+  - last observed ARP metadata
 - terminal diagnostic commands:
   - `netinfo`
   - `netdiag`
   - `netsend`
+  - `arp <ipv4>`
   - `dhcp`
   - `dns`
   - `fetch`
@@ -47,7 +52,7 @@
 This Phase 10 implementation now includes both PCI NIC detection and a concrete
 device-specific initialization path for RTL8139, including RX/TX DMA buffer
 programming, poll-based runtime status tracking, basic received-frame metadata
-parsing, and a controlled test transmit path.
+parsing, ARP frame handling, and controlled transmit paths.
 
 It does not yet complete a packet path, DHCP lease acquisition, DNS resolution,
 TCP/UDP data transfer, or HTTP/HTTPS fetches. Those remain the next networking
@@ -58,6 +63,7 @@ steps on top of this device-discovery and hardware-init foundation.
 - `netinfo` prints the detected NIC, PCI location, BAR information, and MAC when available
 - `netdiag` prints IRQ, selected NIC register state, DMA buffer addresses, packet counters, and last-frame metadata
 - `netsend` queues a small broadcast test Ethernet frame on RTL8139
+- `arp <ipv4>` queues a broadcast ARP request for the target IPv4 address
 - `dhcp` reports the current DHCP-client scaffolding status
 - `dns <host>` reports the current DNS-resolver scaffolding status
 - `fetch <url>` reports the current transport/fetch scaffolding status
@@ -71,11 +77,13 @@ steps on top of this device-discovery and hardware-init foundation.
 5. Confirm that a supported NIC is detected and that PCI/BAR information is shown.
 6. Run `netdiag` and confirm IRQ/register state, DMA addresses, packet counters, and frame metadata are shown for RTL8139 when that device is selected.
 7. Run `netsend` and confirm the transmit-attempt counter changes.
-8. Run `dhcp`, `dns example.com`, and `fetch https://example.com` to confirm the networking surface is reachable from inside the OS.
+8. Run `arp 192.168.1.1` and confirm the transmit-attempt counter changes again.
+9. If other guests or the host network generate ARP traffic, confirm `netdiag` shows ARP counters and last ARP metadata.
+10. Run `dhcp`, `dns example.com`, and `fetch https://example.com` to confirm the networking surface is reachable from inside the OS.
 
 ## Known Limitations
 
-- there is no completed protocol stack above raw Ethernet frame handling yet
+- there is no completed IPv4/UDP/TCP stack above Ethernet and ARP yet
 - DHCP, DNS, TCP, UDP, and HTTP/HTTPS are not finished yet
 - the current work is a networking foundation and diagnostics pass, not a full updater-ready internet stack
 - compile and VMware verification were not possible in this shell because the Rust toolchain is not available on `PATH`

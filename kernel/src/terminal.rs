@@ -199,7 +199,7 @@ impl TerminalApp {
 
     fn run_command(&mut self, command: &str, parser: &mut CommandParser<'_>) {
         match command {
-            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo netdiag netsend dhcp dns fetch df diskinfo fsck reboot shutdown"),
+            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo netdiag netsend arp dhcp dns fetch df diskinfo fsck reboot shutdown"),
             "echo" => self.echo_command(parser.rest()),
             "clear" => self.clear(),
             "ls" => match fs::ls(parser.next(), &mut self.scratch) {
@@ -269,6 +269,7 @@ impl TerminalApp {
             "netinfo" => self.netinfo_command(),
             "netdiag" => self.netdiag_command(),
             "netsend" => self.netsend_command(),
+            "arp" => self.arp_command(parser.next()),
             "dhcp" => self.dhcp_command(),
             "dns" => self.dns_command(parser.next()),
             "fetch" => self.fetch_command(parser.next()),
@@ -469,11 +470,40 @@ impl TerminalApp {
         macs.push_str(" dst ");
         push_mac(&mut macs, info.last_rx_destination.bytes());
         self.push_line(macs);
+
+        let mut arp = FsTextBuffer::new();
+        arp.push_str("arp ");
+        push_u64(&mut arp, info.arp_packets);
+        arp.push_str(" op ");
+        push_hex_u16(&mut arp, info.last_arp_opcode);
+        self.push_line(arp);
+
+        let mut arp_addr = FsTextBuffer::new();
+        arp_addr.push_str("arp src ");
+        push_ipv4(&mut arp_addr, info.last_arp_sender_ip.octets());
+        arp_addr.push_str(" tgt ");
+        push_ipv4(&mut arp_addr, info.last_arp_target_ip.octets());
+        self.push_line(arp_addr);
     }
 
     fn netsend_command(&mut self) {
         match network::send_test_frame() {
             Ok(()) => self.println("netsend: broadcast test frame queued"),
+            Err(error) => self.println(error),
+        }
+    }
+
+    fn arp_command(&mut self, ip_text: Option<&str>) {
+        let Some(ip_text) = ip_text else {
+            self.println("arp: missing IPv4 address");
+            return;
+        };
+        let Some(ip) = parse_ipv4(ip_text) else {
+            self.println("arp: invalid IPv4 address");
+            return;
+        };
+        match network::send_arp_request(network::Ipv4Address::from_octets(ip)) {
+            Ok(()) => self.println("arp: request queued"),
             Err(error) => self.println(error),
         }
     }
@@ -722,4 +752,45 @@ fn nibble_to_hex(nibble: u8) -> u8 {
         0..=9 => b'0' + nibble,
         _ => b'a' + (nibble - 10),
     }
+}
+
+fn push_ipv4(buffer: &mut FsTextBuffer, octets: [u8; 4]) {
+    for (index, octet) in octets.iter().enumerate() {
+        push_usize(buffer, *octet as usize);
+        if index + 1 != octets.len() {
+            buffer.push_str(".");
+        }
+    }
+}
+
+fn parse_ipv4(text: &str) -> Option<[u8; 4]> {
+    let mut octets = [0u8; 4];
+    let mut count = 0usize;
+    for part in text.split('.') {
+        if count >= 4 || part.is_empty() {
+            return None;
+        }
+        let value = parse_decimal(part)?;
+        if value > 255 {
+            return None;
+        }
+        octets[count] = value as u8;
+        count += 1;
+    }
+    if count == 4 {
+        Some(octets)
+    } else {
+        None
+    }
+}
+
+fn parse_decimal(text: &str) -> Option<usize> {
+    let mut value = 0usize;
+    for byte in text.as_bytes() {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add((byte - b'0') as usize)?;
+    }
+    Some(value)
 }

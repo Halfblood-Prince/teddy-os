@@ -31,6 +31,9 @@ const RTL8139_RX_RING_LEN: usize = 8192;
 const RTL8139_TX_BUFFER_LEN: usize = 1536;
 const RTL8139_TX_SLOTS: usize = 4;
 const ETHERNET_HEADER_LEN: usize = 14;
+const ETHERTYPE_ARP: u16 = 0x0806;
+const ETHERTYPE_TEDDY_TEST: u16 = 0x88B5;
+const ARP_PACKET_LEN: usize = 28;
 
 #[derive(Clone, Copy)]
 pub enum NicKind {
@@ -75,6 +78,10 @@ pub struct Ipv4Address {
 impl Ipv4Address {
     pub const fn unspecified() -> Self {
         Self { octets: [0, 0, 0, 0] }
+    }
+
+    pub const fn from_octets(octets: [u8; 4]) -> Self {
+        Self { octets }
     }
 
     pub fn octets(&self) -> [u8; 4] {
@@ -134,6 +141,11 @@ pub struct NetworkInfo {
     pub last_rx_ethertype: u16,
     pub last_rx_source: MacAddress,
     pub last_rx_destination: MacAddress,
+    pub arp_packets: u64,
+    pub last_arp_opcode: u16,
+    pub last_arp_sender_mac: MacAddress,
+    pub last_arp_sender_ip: Ipv4Address,
+    pub last_arp_target_ip: Ipv4Address,
     pub current_rx_offset: u16,
     pub current_rx_read: u16,
     pub last_tx_length: u16,
@@ -196,6 +208,11 @@ static NETWORK: Mutex<NetworkState> = Mutex::new(NetworkState {
         last_rx_ethertype: 0,
         last_rx_source: MacAddress::zero(),
         last_rx_destination: MacAddress::zero(),
+        arp_packets: 0,
+        last_arp_opcode: 0,
+        last_arp_sender_mac: MacAddress::zero(),
+        last_arp_sender_ip: Ipv4Address::unspecified(),
+        last_arp_target_ip: Ipv4Address::unspecified(),
         current_rx_offset: 0,
         current_rx_read: 0,
         last_tx_length: 0,
@@ -249,6 +266,11 @@ pub fn init() -> NetworkInfo {
         last_rx_ethertype: 0,
         last_rx_source: MacAddress::zero(),
         last_rx_destination: MacAddress::zero(),
+        arp_packets: 0,
+        last_arp_opcode: 0,
+        last_arp_sender_mac: MacAddress::zero(),
+        last_arp_sender_ip: Ipv4Address::unspecified(),
+        last_arp_target_ip: Ipv4Address::unspecified(),
         current_rx_offset: 0,
         current_rx_read: 0,
         last_tx_length: 0,
@@ -277,8 +299,7 @@ pub fn send_test_frame() -> Result<(), &'static str> {
         let buffer = &mut RTL8139_TX_BUFFERS[slot].0;
         buffer[..6].fill(0xFF);
         buffer[6..12].copy_from_slice(&state.info.mac.bytes());
-        buffer[12] = 0x88;
-        buffer[13] = 0xB5;
+        buffer[12..14].copy_from_slice(&ETHERTYPE_TEDDY_TEST.to_be_bytes());
         buffer[ETHERNET_HEADER_LEN..frame_len].copy_from_slice(payload);
 
         let io_base = state.info.io_base as u16;
@@ -287,6 +308,41 @@ pub fn send_test_frame() -> Result<(), &'static str> {
 
     state.info.tx_attempts = state.info.tx_attempts.saturating_add(1);
     state.info.last_tx_length = frame_len as u16;
+    Ok(())
+}
+
+pub fn send_arp_request(target: Ipv4Address) -> Result<(), &'static str> {
+    let mut state = NETWORK.lock();
+    if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
+        return Err("network: rtl8139 not ready");
+    }
+
+    let slot = state.tx_slot;
+    let frame_len = ETHERNET_HEADER_LEN + ARP_PACKET_LEN;
+    unsafe {
+        let buffer = &mut RTL8139_TX_BUFFERS[slot].0;
+        buffer[..6].fill(0xFF);
+        buffer[6..12].copy_from_slice(&state.info.mac.bytes());
+        buffer[12..14].copy_from_slice(&ETHERTYPE_ARP.to_be_bytes());
+
+        let arp = &mut buffer[ETHERNET_HEADER_LEN..ETHERNET_HEADER_LEN + ARP_PACKET_LEN];
+        arp[0..2].copy_from_slice(&1u16.to_be_bytes());
+        arp[2..4].copy_from_slice(&0x0800u16.to_be_bytes());
+        arp[4] = 6;
+        arp[5] = 4;
+        arp[6..8].copy_from_slice(&1u16.to_be_bytes());
+        arp[8..14].copy_from_slice(&state.info.mac.bytes());
+        arp[14..18].copy_from_slice(&state.info.ip.octets());
+        arp[18..24].fill(0);
+        arp[24..28].copy_from_slice(&target.octets());
+
+        let io_base = state.info.io_base as u16;
+        Port::<u32>::new(io_base + RTL8139_TX_STATUS0 + (slot as u16 * 4)).write(frame_len as u32);
+    }
+
+    state.info.tx_attempts = state.info.tx_attempts.saturating_add(1);
+    state.info.last_tx_length = frame_len as u16;
+    state.info.last_arp_target_ip = target;
     Ok(())
 }
 
@@ -386,6 +442,11 @@ fn detect_supported_nic() -> Option<NetworkInfo> {
                     last_rx_ethertype: 0,
                     last_rx_source: MacAddress::zero(),
                     last_rx_destination: MacAddress::zero(),
+                    arp_packets: 0,
+                    last_arp_opcode: 0,
+                    last_arp_sender_mac: MacAddress::zero(),
+                    last_arp_sender_ip: Ipv4Address::unspecified(),
+                    last_arp_target_ip: Ipv4Address::unspecified(),
                     current_rx_offset: 0,
                     current_rx_read: 0,
                     last_tx_length: 0,
@@ -530,6 +591,9 @@ fn consume_rtl8139_packet(info: &mut NetworkInfo, io_base: u16) -> bool {
         let type_hi = packet[(header_offset + 12) % RTL8139_RX_RING_LEN];
         let type_lo = packet[(header_offset + 13) % RTL8139_RX_RING_LEN];
         info.last_rx_ethertype = u16::from_be_bytes([type_hi, type_lo]);
+        if info.last_rx_ethertype == ETHERTYPE_ARP && length as usize >= ETHERNET_HEADER_LEN + ARP_PACKET_LEN + 4 {
+            parse_arp_packet(info, packet, (header_offset + ETHERNET_HEADER_LEN) % RTL8139_RX_RING_LEN);
+        }
     }
 
     let advance = ((length as usize + 4 + 3) & !3) % RTL8139_RX_RING_LEN;
@@ -548,6 +612,25 @@ fn read_mac_from_ring(packet: &[u8; RTL8139_RX_BUFFER_LEN], offset: usize) -> Ma
         *byte = packet[(offset + index) % RTL8139_RX_RING_LEN];
     }
     MacAddress { bytes: mac }
+}
+
+fn parse_arp_packet(info: &mut NetworkInfo, packet: &[u8; RTL8139_RX_BUFFER_LEN], offset: usize) {
+    info.arp_packets = info.arp_packets.saturating_add(1);
+    let opcode_hi = packet[(offset + 6) % RTL8139_RX_RING_LEN];
+    let opcode_lo = packet[(offset + 7) % RTL8139_RX_RING_LEN];
+    info.last_arp_opcode = u16::from_be_bytes([opcode_hi, opcode_lo]);
+    info.last_arp_sender_mac = read_mac_from_ring(packet, (offset + 8) % RTL8139_RX_RING_LEN);
+    info.last_arp_sender_ip = read_ipv4_from_ring(packet, (offset + 14) % RTL8139_RX_RING_LEN);
+    info.last_arp_target_ip = read_ipv4_from_ring(packet, (offset + 24) % RTL8139_RX_RING_LEN);
+}
+
+fn read_ipv4_from_ring(packet: &[u8; RTL8139_RX_BUFFER_LEN], offset: usize) -> Ipv4Address {
+    Ipv4Address::from_octets([
+        packet[offset % RTL8139_RX_RING_LEN],
+        packet[(offset + 1) % RTL8139_RX_RING_LEN],
+        packet[(offset + 2) % RTL8139_RX_RING_LEN],
+        packet[(offset + 3) % RTL8139_RX_RING_LEN],
+    ])
 }
 
 fn pci_read_u32(bus: u8, slot: u8, function: u8, offset: u8) -> u32 {
