@@ -10,7 +10,6 @@ mod interrupts;
 mod logger;
 mod memory;
 mod memory_intrinsics;
-mod network;
 mod runtime;
 mod serial;
 mod shell;
@@ -37,9 +36,6 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     logln!("Boot step: memory online");
     timer::init();
     logln!("Boot step: timer online");
-    logln!("Boot step: entering network init");
-    let network_info = network::init();
-    logln!("Boot step: network probe complete");
     logln!("Boot step: entering storage init");
     let storage_info = storage::init();
     logln!("Boot step: storage probe complete");
@@ -87,7 +83,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let stats = memory::stats();
     logln!("");
-    logln!("Phase 10 networking foundation initialized.");
+    logln!("Teddy-OS kernel services initialized.");
     logln!(
         "Memory: total={} bytes usable={} bytes reserved={} bytes bootloader={} bytes kernel={} bytes",
         stats.total_bytes,
@@ -112,24 +108,6 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         interrupts::is_initialized(),
         interrupts::timer_frequency_hz()
     );
-    logln!(
-        "Network: detected={} prepared={} driver_ready={} device={} vendor={:#06x} device_id={:#06x}",
-        network_info.detected,
-        network_info.prepared,
-        network_info.driver_ready,
-        network_info.name.as_str(),
-        network_info.vendor_id,
-        network_info.device_id
-    );
-    if network_info.detected {
-        logln!(
-            "Network io={:#010x} mmio={:#010x} irq={} state={}",
-            network_info.io_base,
-            network_info.mmio_base,
-            network_info.irq_line,
-            network_info.driver_state.as_str()
-        );
-    }
     logln!(
         "Storage: present={} persistent_fs={} formatted={}",
         storage_info.present,

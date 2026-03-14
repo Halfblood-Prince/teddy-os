@@ -22,7 +22,7 @@ complete updater-ready internet stack.
 - Phase 7 deferred: updater, release manifest handling, and staged install flow
 - Phase 8 complete: reproducible build scripts, release manifest generation, and VMware helper
 - Phase 9 complete: architecture/build/VMware/release/theming/app docs
-- Phase 10 partial: PCI NIC detection, RTL8139 bring-up, and networking diagnostics foundation
+- Phase 10 deferred: networking support removed from the active boot path for stability
 - Phase 11 complete: desktop input routing, focus, window controls, and resizing
 - Phase 14 complete: storage diagnostics and TeddyFS integrity reporting
 

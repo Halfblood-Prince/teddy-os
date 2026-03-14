@@ -5,7 +5,6 @@ use crate::{
     fs::{self, FsTextBuffer, MAX_OUTPUT_LINES},
     input::{KeyKind, KeyboardEvent},
     interrupts,
-    network,
     storage,
     timer,
 };
@@ -199,7 +198,7 @@ impl TerminalApp {
 
     fn run_command(&mut self, command: &str, parser: &mut CommandParser<'_>) {
         match command {
-            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo netdiag netsend arp dhcp dns(stub) fetch(stub) df diskinfo fsck reboot shutdown"),
+            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname df diskinfo fsck reboot shutdown"),
             "echo" => self.echo_command(parser.rest()),
             "clear" => self.clear(),
             "ls" => match fs::ls(parser.next(), &mut self.scratch) {
@@ -266,13 +265,6 @@ impl TerminalApp {
                     self.println("touch: missing path");
                 }
             }
-            "netinfo" => self.netinfo_command(),
-            "netdiag" => self.netdiag_command(),
-            "netsend" => self.netsend_command(),
-            "arp" => self.arp_command(parser.next()),
-            "dhcp" => self.dhcp_command(),
-            "dns" => self.dns_command(parser.next()),
-            "fetch" => self.fetch_command(parser.next()),
             "df" => self.disk_free_command(),
             "diskinfo" => self.disk_info_command(),
             "fsck" => self.fsck_command(),
@@ -372,255 +364,6 @@ impl TerminalApp {
             }
             Err(error) => self.println(error),
         }
-    }
-
-    fn netinfo_command(&mut self) {
-        let info = network::info();
-        if !info.detected {
-            self.println("network: no supported VMware NIC detected");
-            return;
-        }
-
-        let mut line = FsTextBuffer::new();
-        line.push_str("nic ");
-        line.push_str(info.name.as_str());
-        line.push_str(" bus ");
-        push_usize(&mut line, info.bus as usize);
-        line.push_str(" slot ");
-        push_usize(&mut line, info.slot as usize);
-        line.push_str(" fn ");
-        push_usize(&mut line, info.function as usize);
-        self.push_line(line);
-
-        let mut bars = FsTextBuffer::new();
-        bars.push_str("prepared ");
-        bars.push_str(if info.prepared { "yes" } else { "no" });
-        bars.push_str(" driver ");
-        bars.push_str(if info.driver_ready { "yes" } else { "no" });
-        bars.push_str(" io ");
-        push_u32(&mut bars, info.io_base);
-        bars.push_str(" mmio ");
-        push_u32(&mut bars, info.mmio_base);
-        self.push_line(bars);
-
-        let mut mac = FsTextBuffer::new();
-        mac.push_str("mac ");
-        push_mac(&mut mac, info.mac.bytes());
-        self.push_line(mac);
-
-        let mut state = FsTextBuffer::new();
-        state.push_str("state ");
-        state.push_str(info.driver_state.as_str());
-        self.push_line(state);
-
-        let mut config = FsTextBuffer::new();
-        config.push_str("ip ");
-        push_ipv4(&mut config, info.ip.octets());
-        config.push_str(" gw ");
-        push_ipv4(&mut config, info.router.octets());
-        config.push_str(" dns ");
-        push_ipv4(&mut config, info.dns.octets());
-        self.push_line(config);
-    }
-
-    fn netdiag_command(&mut self) {
-        let info = network::info();
-        if !info.detected {
-            self.println("netdiag: no supported NIC");
-            return;
-        }
-
-        let mut line = FsTextBuffer::new();
-        line.push_str("irq ");
-        push_usize(&mut line, info.irq_line as usize);
-        line.push_str(" cmd ");
-        push_hex_u8(&mut line, info.command_register);
-        line.push_str(" isr ");
-        push_hex_u16(&mut line, info.interrupt_status);
-        self.push_line(line);
-
-        let mut cfg = FsTextBuffer::new();
-        cfg.push_str("rcr ");
-        push_hex_u32(&mut cfg, info.rx_config);
-        cfg.push_str(" tcr ");
-        push_hex_u32(&mut cfg, info.tx_config);
-        self.push_line(cfg);
-
-        let mut dma = FsTextBuffer::new();
-        dma.push_str("rxbuf ");
-        push_hex_u32(&mut dma, info.rx_buffer_addr);
-        dma.push_str(" cbr ");
-        push_hex_u16(&mut dma, info.current_rx_read);
-        dma.push_str(" rxok ");
-        push_u64(&mut dma, info.rx_packets);
-        self.push_line(dma);
-
-        let mut tx = FsTextBuffer::new();
-        tx.push_str("txok ");
-        push_u64(&mut tx, info.tx_completions);
-        tx.push_str(" txtry ");
-        push_u64(&mut tx, info.tx_attempts);
-        tx.push_str(" txlen ");
-        push_usize(&mut tx, info.last_tx_length as usize);
-        tx.push_str(" tsad0 ");
-        push_hex_u32(&mut tx, info.tx_buffer_addr[0]);
-        self.push_line(tx);
-
-        let mut rx = FsTextBuffer::new();
-        rx.push_str("rxlen ");
-        push_usize(&mut rx, info.last_rx_length as usize);
-        rx.push_str(" type ");
-        push_hex_u16(&mut rx, info.last_rx_ethertype);
-        self.push_line(rx);
-
-        let mut macs = FsTextBuffer::new();
-        macs.push_str("src ");
-        push_mac(&mut macs, info.last_rx_source.bytes());
-        macs.push_str(" dst ");
-        push_mac(&mut macs, info.last_rx_destination.bytes());
-        self.push_line(macs);
-
-        let mut arp = FsTextBuffer::new();
-        arp.push_str("arp ");
-        push_u64(&mut arp, info.arp_packets);
-        arp.push_str(" op ");
-        push_hex_u16(&mut arp, info.last_arp_opcode);
-        self.push_line(arp);
-
-        let mut arp_addr = FsTextBuffer::new();
-        arp_addr.push_str("arp src ");
-        push_ipv4(&mut arp_addr, info.last_arp_sender_ip.octets());
-        arp_addr.push_str(" tgt ");
-        push_ipv4(&mut arp_addr, info.last_arp_target_ip.octets());
-        self.push_line(arp_addr);
-
-        let mut ipv4 = FsTextBuffer::new();
-        ipv4.push_str("ip ");
-        push_u64(&mut ipv4, info.ipv4_packets);
-        ipv4.push_str(" proto ");
-        push_hex_u8(&mut ipv4, info.last_ipv4_protocol);
-        self.push_line(ipv4);
-
-        let mut ipv4_addr = FsTextBuffer::new();
-        ipv4_addr.push_str("ip src ");
-        push_ipv4(&mut ipv4_addr, info.last_ipv4_source.octets());
-        ipv4_addr.push_str(" dst ");
-        push_ipv4(&mut ipv4_addr, info.last_ipv4_destination.octets());
-        self.push_line(ipv4_addr);
-
-        let mut udp = FsTextBuffer::new();
-        udp.push_str("udp ");
-        push_u64(&mut udp, info.udp_packets);
-        udp.push_str(" sport ");
-        push_usize(&mut udp, info.last_udp_source_port as usize);
-        udp.push_str(" dport ");
-        push_usize(&mut udp, info.last_udp_destination_port as usize);
-        udp.push_str(" len ");
-        push_usize(&mut udp, info.last_udp_length as usize);
-        self.push_line(udp);
-
-        let mut dhcp = FsTextBuffer::new();
-        dhcp.push_str("dhcp rx ");
-        push_u64(&mut dhcp, info.dhcp_packets);
-        dhcp.push_str(" discover ");
-        push_u64(&mut dhcp, info.dhcp_discover_attempts);
-        dhcp.push_str(" request ");
-        push_u64(&mut dhcp, info.dhcp_request_attempts);
-        dhcp.push_str(" type ");
-        push_usize(&mut dhcp, info.last_dhcp_message_type as usize);
-        dhcp.push_str(" ready ");
-        dhcp.push_str(if info.dhcp_ready { "yes" } else { "no" });
-        self.push_line(dhcp);
-
-        let mut lease = FsTextBuffer::new();
-        lease.push_str("offer ");
-        push_ipv4(&mut lease, info.dhcp_offer_ip.octets());
-        lease.push_str(" server ");
-        push_ipv4(&mut lease, info.dhcp_server.octets());
-        self.push_line(lease);
-
-        let mut config = FsTextBuffer::new();
-        config.push_str("lease ip ");
-        push_ipv4(&mut config, info.ip.octets());
-        config.push_str(" gw ");
-        push_ipv4(&mut config, info.router.octets());
-        config.push_str(" dns ");
-        push_ipv4(&mut config, info.dns.octets());
-        self.push_line(config);
-    }
-
-    fn netsend_command(&mut self) {
-        match network::send_test_frame() {
-            Ok(()) => self.println("netsend: broadcast test frame queued"),
-            Err(error) => self.println(error),
-        }
-    }
-
-    fn arp_command(&mut self, ip_text: Option<&str>) {
-        let Some(ip_text) = ip_text else {
-            self.println("arp: missing IPv4 address");
-            return;
-        };
-        let Some(ip) = parse_ipv4(ip_text) else {
-            self.println("arp: invalid IPv4 address");
-            return;
-        };
-        match network::send_arp_request(network::Ipv4Address::from_octets(ip)) {
-            Ok(()) => self.println("arp: request queued"),
-            Err(error) => self.println(error),
-        }
-    }
-
-    fn dhcp_command(&mut self) {
-        let info = network::info();
-        let result = if info.dhcp_offer_ip.octets() != network::Ipv4Address::unspecified().octets()
-            && !info.dhcp_ready
-        {
-            network::send_dhcp_request().map(|()| "dhcp: request queued")
-        } else {
-            network::send_dhcp_discover().map(|()| "dhcp: discover queued")
-        };
-
-        match result {
-            Ok(message) => self.println(message),
-            Err(error) => self.println(error),
-        }
-    }
-
-    fn dns_command(&mut self, host: Option<&str>) {
-        let Some(host) = host else {
-            self.println("dns: missing host");
-            return;
-        };
-        let info = network::info();
-        if !info.detected {
-            self.println("dns: no NIC");
-            return;
-        }
-        self.println("dns: not implemented yet");
-        let mut detail = FsTextBuffer::new();
-        detail.push_str("dns target ");
-        detail.push_str(host);
-        detail.push_str(" queued for a future resolver");
-        self.push_line(detail);
-    }
-
-    fn fetch_command(&mut self, url: Option<&str>) {
-        let Some(url) = url else {
-            self.println("fetch: missing url");
-            return;
-        };
-        let info = network::info();
-        if !info.detected {
-            self.println("fetch: no NIC");
-            return;
-        }
-        self.println("fetch: http/https transport not implemented yet");
-        let mut detail = FsTextBuffer::new();
-        detail.push_str("fetch target ");
-        detail.push_str(url);
-        detail.push_str(" recorded for a future client");
-        self.push_line(detail);
     }
 
     fn render(&self, surface: &mut FramebufferSurface, rect: Rect, focused: bool) {
@@ -761,10 +504,6 @@ fn push_usize(buffer: &mut FsTextBuffer, value: usize) {
     }
 }
 
-fn push_u32(buffer: &mut FsTextBuffer, value: u32) {
-    push_usize(buffer, value as usize);
-}
-
 fn push_u64(buffer: &mut FsTextBuffer, value: u64) {
     let mut digits = [0u8; 20];
     let mut count = 0usize;
@@ -785,86 +524,3 @@ fn push_u64(buffer: &mut FsTextBuffer, value: u64) {
     }
 }
 
-fn push_mac(buffer: &mut FsTextBuffer, mac: [u8; 6]) {
-    for (index, byte) in mac.iter().enumerate() {
-        push_hex_byte(buffer, *byte);
-        if index + 1 != mac.len() {
-            buffer.push_str(":");
-        }
-    }
-}
-
-fn push_hex_u8(buffer: &mut FsTextBuffer, value: u8) {
-    buffer.push_str("0x");
-    push_hex_byte(buffer, value);
-}
-
-fn push_hex_u16(buffer: &mut FsTextBuffer, value: u16) {
-    buffer.push_str("0x");
-    push_hex_byte(buffer, (value >> 8) as u8);
-    push_hex_byte(buffer, (value & 0x00FF) as u8);
-}
-
-fn push_hex_u32(buffer: &mut FsTextBuffer, value: u32) {
-    buffer.push_str("0x");
-    push_hex_byte(buffer, (value >> 24) as u8);
-    push_hex_byte(buffer, ((value >> 16) & 0xFF) as u8);
-    push_hex_byte(buffer, ((value >> 8) & 0xFF) as u8);
-    push_hex_byte(buffer, (value & 0xFF) as u8);
-}
-
-fn push_hex_byte(buffer: &mut FsTextBuffer, value: u8) {
-    let high = nibble_to_hex((value >> 4) & 0x0F);
-    let low = nibble_to_hex(value & 0x0F);
-    let bytes = [high, low];
-    let text = core::str::from_utf8(&bytes).unwrap_or("00");
-    buffer.push_str(text);
-}
-
-fn nibble_to_hex(nibble: u8) -> u8 {
-    match nibble {
-        0..=9 => b'0' + nibble,
-        _ => b'a' + (nibble - 10),
-    }
-}
-
-fn push_ipv4(buffer: &mut FsTextBuffer, octets: [u8; 4]) {
-    for (index, octet) in octets.iter().enumerate() {
-        push_usize(buffer, *octet as usize);
-        if index + 1 != octets.len() {
-            buffer.push_str(".");
-        }
-    }
-}
-
-fn parse_ipv4(text: &str) -> Option<[u8; 4]> {
-    let mut octets = [0u8; 4];
-    let mut count = 0usize;
-    for part in text.split('.') {
-        if count >= 4 || part.is_empty() {
-            return None;
-        }
-        let value = parse_decimal(part)?;
-        if value > 255 {
-            return None;
-        }
-        octets[count] = value as u8;
-        count += 1;
-    }
-    if count == 4 {
-        Some(octets)
-    } else {
-        None
-    }
-}
-
-fn parse_decimal(text: &str) -> Option<usize> {
-    let mut value = 0usize;
-    for byte in text.as_bytes() {
-        if !byte.is_ascii_digit() {
-            return None;
-        }
-        value = value.checked_mul(10)?.checked_add((byte - b'0') as usize)?;
-    }
-    Some(value)
-}
