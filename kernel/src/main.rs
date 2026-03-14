@@ -37,16 +37,24 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     timer::init();
     logln!("Boot step: timer online");
     logln!("Boot step: entering storage init");
-    let storage_info = storage::init();
+    storage::init();
     logln!("Boot step: storage probe complete");
     logln!("Boot step: entering filesystem init");
     let mount_status = fs::init();
-    logln!("Boot step: filesystem probe complete");
-    input::init(
+    let storage_info = storage::stats();
+    logln!(
+        "Boot step: filesystem probe complete (mounted={} persistent={})",
+        mount_status.mounted,
+        mount_status.persistent
+    );
+    let input_status = input::init(
         boot_info.framebuffer.width as usize,
         boot_info.framebuffer.height as usize,
     );
-    logln!("Boot step: input online");
+    logln!(
+        "Boot step: input online (mouse_ready={})",
+        input_status.mouse_ready
+    );
     file_explorer::init();
     logln!("Boot step: explorer online");
     terminal::init();
@@ -111,7 +119,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     logln!(
         "Storage: present={} persistent_fs={} formatted={}",
         storage_info.present,
-        mount_status.mounted,
+        mount_status.persistent,
         mount_status.formatted
     );
     if storage_info.present {

@@ -207,12 +207,19 @@ impl InputState {
 
 static INPUT: Mutex<Option<InputState>> = Mutex::new(None);
 
-pub fn init(screen_width: usize, screen_height: usize) {
+#[derive(Clone, Copy)]
+pub struct InputInitReport {
+    pub mouse_ready: bool,
+}
+
+pub fn init(screen_width: usize, screen_height: usize) -> InputInitReport {
     interrupts::without_interrupts(|| {
         *INPUT.lock() = Some(InputState::new(screen_width, screen_height));
     });
 
-    initialize_ps2_mouse();
+    InputInitReport {
+        mouse_ready: initialize_ps2_mouse(),
+    }
 }
 
 pub fn handle_scancode(scancode: u8) {
@@ -346,40 +353,42 @@ fn decoded_key_meta(key: DecodedKey, unicode: Option<char>) -> (KeyKind, &'stati
     }
 }
 
-fn initialize_ps2_mouse() {
+fn initialize_ps2_mouse() -> bool {
     unsafe {
         if !wait_for_write() {
-            return;
+            return false;
         }
         Port::<u8>::new(0x64).write(0xA8);
 
         if !wait_for_write() {
-            return;
+            return false;
         }
         Port::<u8>::new(0x64).write(0x20);
         if !wait_for_read() {
-            return;
+            return false;
         }
         let mut status: u8 = Port::<u8>::new(0x60).read();
         status |= 0x02;
 
         if !wait_for_write() {
-            return;
+            return false;
         }
         Port::<u8>::new(0x64).write(0x60);
         if !wait_for_write() {
-            return;
+            return false;
         }
         Port::<u8>::new(0x60).write(status);
 
         if !write_mouse_command(0xF6) {
-            return;
+            return false;
         }
-        let _ = read_mouse_ack();
+        if read_mouse_ack() != Some(0xFA) {
+            return false;
+        }
         if !write_mouse_command(0xF4) {
-            return;
+            return false;
         }
-        let _ = read_mouse_ack();
+        read_mouse_ack() == Some(0xFA)
     }
 }
 

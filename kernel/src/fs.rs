@@ -143,21 +143,26 @@ pub struct FsCheckReport {
 
 struct TeddyFs {
     entries: [FsEntry; ENTRY_COUNT],
+    data: [[u8; MAX_FILE_BYTES]; ENTRY_COUNT],
     cwd: usize,
     mounted: bool,
+    persistent: bool,
 }
 
 impl TeddyFs {
     fn new() -> Self {
         Self {
             entries: [FsEntry::empty(); ENTRY_COUNT],
+            data: [[0; MAX_FILE_BYTES]; ENTRY_COUNT],
             cwd: 0,
             mounted: false,
+            persistent: false,
         }
     }
 
     fn format(&mut self) -> Result<(), &'static str> {
         self.entries = [FsEntry::empty(); ENTRY_COUNT];
+        self.data = [[0; MAX_FILE_BYTES]; ENTRY_COUNT];
         self.cwd = 0;
         self.entries[0].used = true;
         self.entries[0].kind = EntryKind::Directory;
@@ -182,8 +187,11 @@ impl TeddyFs {
     fn mount(&mut self) -> Result<bool, &'static str> {
         if !storage::is_ready() {
             self.mounted = false;
+            self.persistent = false;
             return Ok(false);
         }
+
+        self.persistent = true;
 
         let mut sector = [0u8; 512];
         storage::read_sector(SUPERBLOCK_LBA, &mut sector)?;
@@ -206,6 +214,28 @@ impl TeddyFs {
         self.cwd = 0;
         self.mounted = true;
         Ok(false)
+    }
+
+    fn mount_ephemeral(&mut self) {
+        self.entries = [FsEntry::empty(); ENTRY_COUNT];
+        self.data = [[0; MAX_FILE_BYTES]; ENTRY_COUNT];
+        self.cwd = 0;
+        self.entries[0].used = true;
+        self.entries[0].kind = EntryKind::Directory;
+        self.entries[0].parent = 0;
+        self.entries[0].set_name("");
+        self.mounted = true;
+        self.persistent = false;
+
+        let _ = self.create_entry(0, "docs", EntryKind::Directory, 0);
+        let _ = self.create_entry(0, "data", EntryKind::Directory, 0);
+        if let Ok(readme) = self.create_entry(0, "readme.txt", EntryKind::File, 0) {
+            let _ = self.write_bytes(
+                readme,
+                b"Welcome to TeddyFS.\nNo writable VMware disk was detected, so Teddy-OS booted with an in-memory volume.",
+                0,
+            );
+        }
     }
 
     fn pwd(&self) -> FsTextBuffer {
@@ -525,6 +555,10 @@ impl TeddyFs {
     }
 
     fn read_bytes(&self, index: usize, output: &mut [u8; MAX_FILE_BYTES]) -> Result<(), &'static str> {
+        if !self.persistent {
+            output.copy_from_slice(&self.data[index]);
+            return Ok(());
+        }
         let mut sector = [0u8; 512];
         for sector_offset in 0..FILE_SECTORS {
             storage::read_sector(data_lba_for(index, sector_offset), &mut sector)?;
@@ -536,15 +570,20 @@ impl TeddyFs {
 
     fn write_bytes(&mut self, index: usize, bytes: &[u8], tick: u64) -> Result<(), &'static str> {
         let write_len = bytes.len().min(MAX_FILE_BYTES);
-        let mut sector = [0u8; 512];
-        for sector_offset in 0..FILE_SECTORS {
-            sector.fill(0);
-            let start = sector_offset as usize * 512;
-            let end = (start + 512).min(write_len);
-            if start < end {
-                sector[..end - start].copy_from_slice(&bytes[start..end]);
+        if self.persistent {
+            let mut sector = [0u8; 512];
+            for sector_offset in 0..FILE_SECTORS {
+                sector.fill(0);
+                let start = sector_offset as usize * 512;
+                let end = (start + 512).min(write_len);
+                if start < end {
+                    sector[..end - start].copy_from_slice(&bytes[start..end]);
+                }
+                storage::write_sector(data_lba_for(index, sector_offset), &sector)?;
             }
-            storage::write_sector(data_lba_for(index, sector_offset), &sector)?;
+        } else {
+            self.data[index].fill(0);
+            self.data[index][..write_len].copy_from_slice(&bytes[..write_len]);
         }
 
         self.entries[index].size = write_len;
@@ -552,7 +591,11 @@ impl TeddyFs {
         Ok(())
     }
 
-    fn clear_data(&self, index: usize) -> Result<(), &'static str> {
+    fn clear_data(&mut self, index: usize) -> Result<(), &'static str> {
+        if !self.persistent {
+            self.data[index].fill(0);
+            return Ok(());
+        }
         let zero = [0u8; 512];
         for sector_offset in 0..FILE_SECTORS {
             storage::write_sector(data_lba_for(index, sector_offset), &zero)?;
@@ -561,6 +604,9 @@ impl TeddyFs {
     }
 
     fn persist_entry(&self, index: usize) -> Result<(), &'static str> {
+        if !self.persistent {
+            return Ok(());
+        }
         let sector_lba = 1 + (index as u32 / (512 / ENTRY_SIZE) as u32);
         let entry_slot = index % (512 / ENTRY_SIZE);
         let mut sector = [0u8; 512];
@@ -570,6 +616,9 @@ impl TeddyFs {
     }
 
     fn persist_all(&self) -> Result<(), &'static str> {
+        if !self.persistent {
+            return Ok(());
+        }
         let mut sector = [0u8; 512];
         sector[..8].copy_from_slice(MAGIC);
         sector[8..12].copy_from_slice(&(ENTRY_COUNT as u32).to_le_bytes());
@@ -595,15 +644,33 @@ impl TeddyFs {
 static FS: Mutex<Option<TeddyFs>> = Mutex::new(None);
 
 pub fn init() -> MountStatus {
-    // Keep boot deterministic by deferring disk-backed filesystem mounting until
-    // the storage path is stable on VMware. The shell can still boot and render
-    // with an unmounted volume.
-    *FS.lock() = Some(TeddyFs::new());
-    MountStatus {
-        mounted: false,
-        formatted: false,
-        persistent: false,
-    }
+    let mut fs = TeddyFs::new();
+    let status = if storage::is_ready() {
+        match fs.mount() {
+            Ok(formatted) => MountStatus {
+                mounted: true,
+                formatted,
+                persistent: true,
+            },
+            Err(_) => {
+                fs.mount_ephemeral();
+                MountStatus {
+                    mounted: true,
+                    formatted: false,
+                    persistent: false,
+                }
+            }
+        }
+    } else {
+        fs.mount_ephemeral();
+        MountStatus {
+            mounted: true,
+            formatted: false,
+            persistent: false,
+        }
+    };
+    *FS.lock() = Some(fs);
+    status
 }
 
 pub fn is_ready() -> bool {
