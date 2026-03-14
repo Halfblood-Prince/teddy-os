@@ -69,6 +69,12 @@ jobs:
           Write-Host "ISO ready: $iso"
         shell: pwsh
 
+      - name: Verify ISO UEFI boot metadata
+        run: |
+          $iso = "build/dist/teddy-os-$env:PROFILE.iso"
+          ./scripts/inspect-iso.ps1 -IsoPath $iso
+        shell: pwsh
+
       - name: Upload ISO artifacts
         uses: actions/upload-artifact@v4
         with:

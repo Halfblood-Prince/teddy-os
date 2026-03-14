@@ -37,6 +37,25 @@ For headless startup:
 ./scripts/run-vmware.ps1 -VmxPath C:\VMs\Teddy-OS\Teddy-OS.vmx -NoGui
 ```
 
+
+## Quick Diagnosis For PXE / "Operating System not found"
+
+If VMware shows repeated PXE text like in your screenshot, the VM is not booting
+from the Teddy-OS UEFI ISO. Check these in order:
+
+1. **VM firmware is UEFI (not BIOS/Legacy).**
+2. **CD/DVD is connected at power-on** and points to `teddy-os-<profile>.iso`.
+3. **Secure Boot is disabled** for this unsigned hobby boot path.
+4. **You extracted the GitHub artifact ZIP** and attached the actual `.iso` file, not the ZIP itself.
+
+You can validate the ISO contains UEFI boot metadata:
+
+```powershell
+./scripts/inspect-iso.ps1 -IsoPath build/dist/teddy-os-debug.iso
+```
+
+Expected: an EFI El Torito entry and `/EFI/BOOT/BOOTX64.EFI` listed.
+
 ## What To Verify
 
 - UEFI launches `BOOTX64.EFI`
