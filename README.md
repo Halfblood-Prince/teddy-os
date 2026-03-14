@@ -21,6 +21,8 @@ deferred.
 - Phase 7 deferred: updater, release manifest handling, and staged install flow
 - Phase 8 complete: reproducible build scripts, release manifest generation, and VMware helper
 - Phase 9 complete: architecture/build/VMware/release/theming/app docs
+- Phase 10 pending: networking
+- Phase 11 complete: desktop input routing, focus, window controls, and resizing
 
 ## Repository Layout
 
@@ -56,6 +58,7 @@ deferred.
 - `docs/adding-apps.md` - how to integrate future apps/components
 - `docs/theming.md` - shell styling and Teddy-OS branding notes
 - `docs/limitations-and-roadmap.md` - current limits and next milestones
+- `docs/phase-11.md` - Phase 11 window manager and input dispatch improvements
 
 ## Build
 
