@@ -6,7 +6,7 @@ on:
       profile:
         description: Build profile
         required: true
-        default: debug
+        default: release
         type: choice
         options:
           - debug
@@ -24,14 +24,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system dependencies
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y \
             xorriso \
             mtools \
             qemu-system-x86 \
-            ovmf
-        shell: bash
+            ovmf \
+            p7zip-full
 
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -45,46 +47,88 @@ jobs:
           shared-key: teddy-os-${{ runner.os }}-${{ env.PROFILE }}
 
       - name: Build ISO
+        shell: pwsh
         run: |
           if ($env:PROFILE -eq 'release') {
             ./scripts/build.ps1 -Profile release
-          }
-          else {
+          } else {
             ./scripts/build.ps1
           }
-        shell: pwsh
 
       - name: Verify ISO output
-        run: |
-          $iso = "build/dist/teddy-os-$env:PROFILE.iso"
-          if (-not (Test-Path $iso)) {
-            throw "Missing ISO: $iso"
-          }
-          Write-Host "ISO ready: $iso"
-        shell: pwsh
-
-      - name: Boot ISO in QEMU
+        shell: bash
         run: |
           set -euo pipefail
 
           ISO="build/dist/teddy-os-${PROFILE}.iso"
-          OVMF_CODE="/usr/share/OVMF/OVMF_CODE.fd"
-          OVMF_VARS="OVMF_VARS.fd"
+          if [ ! -f "$ISO" ]; then
+            echo "Missing ISO: $ISO"
+            echo "Contents of build/dist:"
+            ls -la build/dist || true
+            exit 1
+          fi
 
-          cp /usr/share/OVMF/OVMF_VARS.fd "${OVMF_VARS}"
+          echo "ISO ready: $ISO"
 
+      - name: Boot ISO in QEMU
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ISO="build/dist/teddy-os-${PROFILE}.iso"
           mkdir -p qemu-logs
 
-          # Run QEMU headless and capture serial output.
-          # GitHub-hosted runners generally do not provide KVM, so use TCG.
+          find_ovmf_file() {
+            for f in "$@"; do
+              if [ -f "$f" ]; then
+                printf '%s\n' "$f"
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          OVMF_CODE="$(find_ovmf_file \
+            /usr/share/OVMF/OVMF_CODE.fd \
+            /usr/share/OVMF/OVMF_CODE_4M.fd \
+            /usr/share/OVMF/OVMF_CODE.4m.fd \
+            /usr/share/edk2/ovmf/OVMF_CODE.fd \
+            /usr/share/edk2/ovmf/OVMF_CODE_4M.fd \
+            /usr/share/qemu/OVMF_CODE.fd
+          )" || {
+            echo "Could not find OVMF_CODE file"
+            find /usr/share -maxdepth 4 \( -name 'OVMF*' -o -name 'QEMU*.fd' \) 2>/dev/null | sort || true
+            exit 1
+          }
+
+          OVMF_VARS_SRC="$(find_ovmf_file \
+            /usr/share/OVMF/OVMF_VARS.fd \
+            /usr/share/OVMF/OVMF_VARS_4M.fd \
+            /usr/share/OVMF/OVMF_VARS.4m.fd \
+            /usr/share/edk2/ovmf/OVMF_VARS.fd \
+            /usr/share/edk2/ovmf/OVMF_VARS_4M.fd \
+            /usr/share/qemu/OVMF_VARS.fd
+          )" || {
+            echo "Could not find OVMF_VARS file"
+            find /usr/share -maxdepth 4 \( -name 'OVMF*' -o -name 'QEMU*.fd' \) 2>/dev/null | sort || true
+            exit 1
+          }
+
+          cp "$OVMF_VARS_SRC" OVMF_VARS.fd
+
+          echo "Using ISO: $ISO"
+          echo "Using OVMF_CODE: $OVMF_CODE"
+          echo "Using OVMF_VARS: $OVMF_VARS_SRC"
+
+          STATUS=0
           timeout 30s qemu-system-x86_64 \
             -machine q35,accel=tcg \
             -cpu qemu64 \
             -m 1024 \
             -smp 2 \
-            -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}" \
-            -drive if=pflash,format=raw,file="${OVMF_VARS}" \
-            -cdrom "${ISO}" \
+            -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+            -drive if=pflash,format=raw,file=OVMF_VARS.fd \
+            -cdrom "$ISO" \
             -boot d \
             -serial file:qemu-logs/serial.log \
             -display none \
@@ -92,21 +136,16 @@ jobs:
             -no-reboot \
             -net none || STATUS=$?
 
-          STATUS="${STATUS:-0}"
+          echo "QEMU exit status: $STATUS"
 
-          echo "QEMU exit status: ${STATUS}"
-
-          # Treat timeout as success because the point is to prove the ISO boots
-          # far enough to stay alive under QEMU.
-          if [ "${STATUS}" -ne 0 ] && [ "${STATUS}" -ne 124 ]; then
+          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
             echo "QEMU failed before timeout."
             [ -f qemu-logs/serial.log ] && cat qemu-logs/serial.log
-            exit "${STATUS}"
+            exit "$STATUS"
           fi
 
           echo "QEMU boot completed or remained running until timeout."
           [ -f qemu-logs/serial.log ] && cat qemu-logs/serial.log || true
-        shell: bash
 
       - name: Upload QEMU logs
         if: always()
@@ -114,6 +153,6 @@ jobs:
         with:
           name: teddy-os-${{ env.PROFILE }}-qemu-logs
           path: |
-            qemu-logs/serial.log
+            qemu-logs/**
             OVMF_VARS.fd
           if-no-files-found: warn
