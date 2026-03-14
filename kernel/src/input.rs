@@ -5,6 +5,7 @@ use spin::Mutex;
 use x86_64::instructions::{interrupts, port::Port};
 
 const INPUT_QUEUE_CAPACITY: usize = 64;
+const PS2_WAIT_TIMEOUT: usize = 100_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyKind {
@@ -347,47 +348,78 @@ fn decoded_key_meta(key: DecodedKey, unicode: Option<char>) -> (KeyKind, &'stati
 
 fn initialize_ps2_mouse() {
     unsafe {
-        wait_for_write();
+        if !wait_for_write() {
+            return;
+        }
         Port::<u8>::new(0x64).write(0xA8);
 
-        wait_for_write();
+        if !wait_for_write() {
+            return;
+        }
         Port::<u8>::new(0x64).write(0x20);
-        wait_for_read();
+        if !wait_for_read() {
+            return;
+        }
         let mut status: u8 = Port::<u8>::new(0x60).read();
         status |= 0x02;
 
-        wait_for_write();
+        if !wait_for_write() {
+            return;
+        }
         Port::<u8>::new(0x64).write(0x60);
-        wait_for_write();
+        if !wait_for_write() {
+            return;
+        }
         Port::<u8>::new(0x60).write(status);
 
-        write_mouse_command(0xF6);
+        if !write_mouse_command(0xF6) {
+            return;
+        }
         let _ = read_mouse_ack();
-        write_mouse_command(0xF4);
+        if !write_mouse_command(0xF4) {
+            return;
+        }
         let _ = read_mouse_ack();
     }
 }
 
-unsafe fn write_mouse_command(command: u8) {
-    wait_for_write();
+unsafe fn write_mouse_command(command: u8) -> bool {
+    if !wait_for_write() {
+        return false;
+    }
     Port::<u8>::new(0x64).write(0xD4);
-    wait_for_write();
+    if !wait_for_write() {
+        return false;
+    }
     Port::<u8>::new(0x60).write(command);
+    true
 }
 
-unsafe fn read_mouse_ack() -> u8 {
-    wait_for_read();
-    Port::<u8>::new(0x60).read()
+unsafe fn read_mouse_ack() -> Option<u8> {
+    if !wait_for_read() {
+        return None;
+    }
+    Some(Port::<u8>::new(0x60).read())
 }
 
-unsafe fn wait_for_write() {
+unsafe fn wait_for_write() -> bool {
     let mut status = Port::<u8>::new(0x64);
-    while status.read() & 0x02 != 0 {}
+    for _ in 0..PS2_WAIT_TIMEOUT {
+        if status.read() & 0x02 == 0 {
+            return true;
+        }
+    }
+    false
 }
 
-unsafe fn wait_for_read() {
+unsafe fn wait_for_read() -> bool {
     let mut status = Port::<u8>::new(0x64);
-    while status.read() & 0x01 == 0 {}
+    for _ in 0..PS2_WAIT_TIMEOUT {
+        if status.read() & 0x01 != 0 {
+            return true;
+        }
+    }
+    false
 }
 
 fn signed_delta(value: u8, negative: bool) -> isize {
