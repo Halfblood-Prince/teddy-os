@@ -9,6 +9,7 @@ mod input;
 mod interrupts;
 mod logger;
 mod memory;
+mod memory_intrinsics;
 mod network;
 mod runtime;
 mod serial;

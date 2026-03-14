@@ -85,6 +85,7 @@ try {
         "+nightly",
         "build",
         "-Z", "build-std=core,compiler_builtins",
+        "-Z", "json-target-spec",
         "-p", "teddy-kernel",
         "--target", "kernel/x86_64-teddy-kernel.json"
     )
