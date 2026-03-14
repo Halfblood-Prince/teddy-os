@@ -53,6 +53,8 @@ New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 Reset-Directory $isoRoot
 $isoEfiDir = Join-Path $isoRoot "EFI"
 New-Item -ItemType Directory -Force -Path $isoEfiDir | Out-Null
+$isoEfiBootDir = Join-Path $isoEfiDir "BOOT"
+New-Item -ItemType Directory -Force -Path $isoEfiBootDir | Out-Null
 
 if (Test-Path $espImage) {
     Remove-Item -Force $espImage
@@ -87,14 +89,19 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Copy-Item $espImage (Join-Path $isoEfiDir "efiboot.img") -Force
+Copy-Item (Join-Path $espRoot "EFI/BOOT/BOOTX64.EFI") (Join-Path $isoEfiBootDir "BOOTX64.EFI") -Force
+Copy-Item (Join-Path $espRoot "EFI/BOOT/KERNEL.ELF") (Join-Path $isoEfiBootDir "KERNEL.ELF") -Force
 
 & xorriso -as mkisofs `
     -R `
     -J `
     -volid "TEDDYOS" `
+    -eltorito-catalog EFI/BOOT/boot.cat `
     -eltorito-alt-boot `
+    -eltorito-platform efi `
     -e EFI/efiboot.img `
     -no-emul-boot `
+    -boot-load-size 4 `
     -isohybrid-gpt-basdat `
     -o $isoPath `
     $isoRoot
