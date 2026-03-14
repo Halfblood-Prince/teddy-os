@@ -5,8 +5,11 @@ edition = "2021"
 
 [dependencies]
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
+pc-keyboard = "0.8"
+pic8259 = "0.10"
 spin = "0.9"
 teddy-boot-proto = { path = "../libs/boot_proto" }
+x86_64 = "0.15"
 
 [[bin]]
 name = "teddy-kernel"

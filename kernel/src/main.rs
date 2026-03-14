@@ -1,9 +1,15 @@
+#![feature(abi_x86_interrupt)]
 #![no_std]
 #![no_main]
 
 mod framebuffer;
+mod input;
+mod interrupts;
 mod logger;
+mod memory;
+mod runtime;
 mod serial;
+mod timer;
 
 use core::panic::PanicInfo;
 
@@ -19,6 +25,11 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     }
 
     logger::init(boot_info);
+    memory::init(boot_info);
+    timer::init();
+    input::init();
+    runtime::init(boot_info);
+    interrupts::init();
 
     logln!("Teddy-OS kernel entered.");
     logln!(
@@ -45,16 +56,49 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         );
     }
 
+    let stats = memory::stats();
     logln!("");
-    logln!("Phase 1 foundation initialized.");
-    logln!("System halted intentionally until Phase 2 adds interrupts and input.");
+    logln!("Phase 2 kernel subsystems initialized.");
+    logln!(
+        "Memory: total={} bytes usable={} bytes reserved={} bytes bootloader={} bytes kernel={} bytes",
+        stats.total_bytes,
+        stats.usable_bytes,
+        stats.reserved_bytes,
+        stats.bootloader_bytes,
+        stats.kernel_bytes
+    );
 
-    halt_forever();
+    if let Some(allocation) = memory::allocate_frames(4) {
+        logln!(
+            "Boot frame allocator test: allocated {} frames at {:#018x}",
+            allocation.frames,
+            allocation.start
+        );
+    } else {
+        logln!("Boot frame allocator test: no usable frames available.");
+    }
+
+    logln!(
+        "Interrupts online: {}. PIT frequency {} Hz.",
+        interrupts::is_initialized(),
+        interrupts::timer_frequency_hz()
+    );
+    logln!("Keyboard IRQ handler armed. Entering cooperative runtime loop.");
+
+    interrupts::enable();
+
+    loop {
+        runtime::run_next_task();
+        unsafe {
+            core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
+        }
+    }
 }
 
 #[panic_handler]
 fn panic(info: &PanicInfo<'_>) -> ! {
     serial::write_str("\nKERNEL PANIC\n");
+    interrupts::disable();
     logln!("");
     logln!("KERNEL PANIC: {}", info);
     halt_forever();
@@ -67,4 +111,3 @@ fn halt_forever() -> ! {
         }
     }
 }
-
