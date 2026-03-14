@@ -91,11 +91,15 @@ try {
     if ($Profile -eq "release") {
         $kernelArgs += "--release"
     }
-    $kernelArgs += "--"
-    $kernelArgs += "-C"
-    $kernelArgs += "link-arg=-Tkernel/linker.ld"
+    $previousRustFlags = $env:RUSTFLAGS
+    if ([string]::IsNullOrWhiteSpace($previousRustFlags)) {
+        $env:RUSTFLAGS = "-Clink-arg=-Tkernel/linker.ld"
+    } else {
+        $env:RUSTFLAGS = "$previousRustFlags -Clink-arg=-Tkernel/linker.ld"
+    }
 
     & cargo @kernelArgs
+    $env:RUSTFLAGS = $previousRustFlags
     if ($LASTEXITCODE -ne 0) {
         throw "Kernel build failed."
     }
