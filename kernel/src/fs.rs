@@ -1,4 +1,5 @@
 use spin::Mutex;
+use core::fmt;
 
 use crate::storage;
 
@@ -43,6 +44,13 @@ impl FsTextBuffer {
 
     pub fn as_str(&self) -> &str {
         core::str::from_utf8(&self.bytes[..self.len]).unwrap_or("?")
+    }
+}
+
+impl fmt::Write for FsTextBuffer {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.push_str(s);
+        Ok(())
     }
 }
 
@@ -338,7 +346,7 @@ impl TeddyFs {
         Ok(current)
     }
 
-    fn resolve_parent(&self, path: &str) -> Result<(usize, &str), &'static str> {
+    fn resolve_parent<'a>(&self, path: &'a str) -> Result<(usize, &'a str), &'static str> {
         let trimmed = path.trim_end_matches('/');
         if trimmed.is_empty() {
             return Err("invalid path");

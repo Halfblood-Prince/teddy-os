@@ -221,12 +221,13 @@ pub fn handle_scancode(scancode: u8) {
     };
 
     if let Ok(Some(key_event)) = state.keyboard.add_byte(scancode) {
+        let pressed = !matches!(key_event.state, KeyState::Up);
         if let Some(decoded) = state.keyboard.process_keyevent(key_event) {
             let unicode = decoded_key_to_char(decoded);
             let (key_kind, key_name) = decoded_key_meta(decoded, unicode);
             let event = KeyboardEvent {
                 scancode,
-                pressed: !matches!(key_event.state, KeyState::Up),
+                pressed,
                 unicode,
                 key_name,
                 key_kind,
@@ -331,7 +332,7 @@ fn decoded_key_meta(key: DecodedKey, unicode: Option<char>) -> (KeyKind, &'stati
             }
         }
         DecodedKey::RawKey(code) => match code {
-            KeyCode::Enter => (KeyKind::Enter, "Enter"),
+            KeyCode::Return | KeyCode::NumpadEnter => (KeyKind::Enter, "Enter"),
             KeyCode::Backspace => (KeyKind::Backspace, "Backspace"),
             KeyCode::Tab => (KeyKind::Tab, "Tab"),
             KeyCode::Escape => (KeyKind::Escape, "Escape"),
