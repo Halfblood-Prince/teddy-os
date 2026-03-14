@@ -2,6 +2,7 @@ use pc_keyboard::{
     DecodedKey, HandleControl, KeyCode, KeyState, Keyboard, ScancodeSet1, layouts,
 };
 use spin::Mutex;
+use core::sync::atomic::{AtomicBool, Ordering};
 use x86_64::instructions::{interrupts, port::Port};
 
 const INPUT_QUEUE_CAPACITY: usize = 64;
@@ -206,6 +207,7 @@ impl InputState {
 }
 
 static INPUT: Mutex<Option<InputState>> = Mutex::new(None);
+static MOUSE_READY: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy)]
 pub struct InputInitReport {
@@ -217,9 +219,15 @@ pub fn init(screen_width: usize, screen_height: usize) -> InputInitReport {
         *INPUT.lock() = Some(InputState::new(screen_width, screen_height));
     });
 
-    InputInitReport {
+    let report = InputInitReport {
         mouse_ready: initialize_ps2_mouse(),
-    }
+    };
+    MOUSE_READY.store(report.mouse_ready, Ordering::SeqCst);
+    report
+}
+
+pub fn mouse_ready() -> bool {
+    MOUSE_READY.load(Ordering::SeqCst)
 }
 
 pub fn handle_scancode(scancode: u8) {

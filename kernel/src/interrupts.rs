@@ -2,8 +2,11 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use pic8259::ChainedPics;
 use spin::{Mutex, Once};
+use x86_64::registers::control::Cr2;
 use x86_64::instructions::{interrupts as cpu_interrupts, port::Port};
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
+use x86_64::structures::idt::{
+    InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode,
+};
 
 use crate::{input, logln, timer};
 
@@ -42,6 +45,7 @@ pub fn init() {
         }
     }
 
+    configure_irq_masks(input::mouse_ready());
     initialize_pit(PIT_FREQUENCY_HZ);
     INITIALIZED.store(true, Ordering::SeqCst);
 }
@@ -66,6 +70,11 @@ fn build_idt() -> InterruptDescriptorTable {
     let mut idt = InterruptDescriptorTable::new();
     idt.breakpoint.set_handler_fn(breakpoint_handler);
     idt.double_fault.set_handler_fn(double_fault_handler);
+    idt.divide_error.set_handler_fn(divide_error_handler);
+    idt.general_protection_fault
+        .set_handler_fn(general_protection_fault_handler);
+    idt.page_fault.set_handler_fn(page_fault_handler);
+    idt.invalid_opcode.set_handler_fn(invalid_opcode_handler);
     idt[InterruptIndex::Timer.as_u8()].set_handler_fn(timer_interrupt_handler);
     idt[InterruptIndex::Keyboard.as_u8()].set_handler_fn(keyboard_interrupt_handler);
     idt[InterruptIndex::Mouse.as_u8()].set_handler_fn(mouse_interrupt_handler);
@@ -81,6 +90,33 @@ extern "x86-interrupt" fn double_fault_handler(
     error_code: u64,
 ) -> ! {
     panic!("EXCEPTION: DOUBLE FAULT ({error_code})\n{stack_frame:#?}");
+}
+
+extern "x86-interrupt" fn divide_error_handler(stack_frame: InterruptStackFrame) {
+    panic!("EXCEPTION: DIVIDE ERROR\n{stack_frame:#?}");
+}
+
+extern "x86-interrupt" fn general_protection_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    panic!(
+        "EXCEPTION: GENERAL PROTECTION FAULT ({error_code:#x})\n{stack_frame:#?}"
+    );
+}
+
+extern "x86-interrupt" fn page_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: PageFaultErrorCode,
+) {
+    let fault_address = Cr2::read();
+    panic!(
+        "EXCEPTION: PAGE FAULT addr={fault_address:?} error={error_code:?}\n{stack_frame:#?}"
+    );
+}
+
+extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: InterruptStackFrame) {
+    panic!("EXCEPTION: INVALID OPCODE\n{stack_frame:#?}");
 }
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
@@ -111,6 +147,23 @@ fn initialize_pit(frequency_hz: u32) {
         command.write(0x36);
         data.write((divisor & 0x00FF) as u8);
         data.write((divisor >> 8) as u8);
+    }
+}
+
+fn configure_irq_masks(mouse_ready: bool) {
+    let mut master_mask: u8 = 0xFF;
+    let mut slave_mask: u8 = 0xFF;
+
+    master_mask &= !(1 << 0);
+    master_mask &= !(1 << 1);
+    master_mask &= !(1 << 2);
+    if mouse_ready {
+        slave_mask &= !(1 << 4);
+    }
+
+    unsafe {
+        Port::<u8>::new(0x21).write(master_mask);
+        Port::<u8>::new(0xA1).write(slave_mask);
     }
 }
 
