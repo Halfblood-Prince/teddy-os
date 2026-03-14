@@ -1,12 +1,11 @@
 # File Explorer App
 
-This directory will hold the Teddy-OS graphical file explorer.
+This directory tracks the Teddy-OS graphical file explorer.
 
-Initial scope:
+Current Phase 6 implementation notes:
 
-- path navigation
-- directory listing
-- selection and open behavior
-- create, rename, and delete operations
-- integration with the shell windowing model
-
+- the current MVP explorer is implemented in-kernel for simplicity
+- it browses the TeddyFS persistent volume
+- it supports path navigation, selection, open behavior, preview, create,
+  rename, and delete
+- copy/move remain future work

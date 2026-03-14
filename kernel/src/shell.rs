@@ -4,13 +4,14 @@ use spin::Mutex;
 use teddy_boot_proto::FramebufferInfo;
 
 use crate::{
+    file_explorer,
     framebuffer::{Color, FramebufferSurface, Point, Rect},
     input::{KeyboardEvent, MouseEvent, mouse_snapshot},
     terminal,
     timer,
 };
 
-const MAX_WINDOWS: usize = 3;
+const MAX_WINDOWS: usize = 4;
 const TASKBAR_HEIGHT: usize = 42;
 const LAUNCHER_WIDTH: usize = 90;
 const CLOCK_WIDTH: usize = 112;
@@ -21,6 +22,7 @@ const MENU_HEIGHT: usize = 162;
 #[derive(Clone, Copy)]
 enum WindowKind {
     Terminal,
+    Explorer,
     Info,
     Roadmap,
 }
@@ -109,14 +111,14 @@ impl ShellState {
                     body_lines: [
                         "Kernel MVP services online",
                         "Timer, keyboard, mouse active",
-                        "Frame allocator ready",
-                        "VMware is the primary target",
+                        "TeddyFS mounted for explorer",
+                        "VMware remains the primary target",
                     ],
                     rect: Rect {
-                        x: 470,
-                        y: 96,
-                        width: 266,
-                        height: 176,
+                        x: 548,
+                        y: 72,
+                        width: 244,
+                        height: 162,
                     },
                     accent: Color::rgb(0x69, 0x57, 0x8E),
                     kind: WindowKind::Info,
@@ -124,34 +126,46 @@ impl ShellState {
                 DesktopWindow {
                     title: "Roadmap",
                     body_lines: [
-                        "Phase 5: filesystem complete",
-                        "Phase 6: file explorer",
+                        "Phase 6: file explorer complete",
                         "Phase 7: updater",
                         "Phase 8: build and release",
+                        "Phase 9: documentation",
                     ],
                     rect: Rect {
-                        x: 520,
-                        y: 288,
-                        width: 252,
+                        x: 560,
+                        y: 252,
+                        width: 238,
                         height: 148,
                     },
                     accent: Color::rgb(0x7B, 0x5B, 0x26),
                     kind: WindowKind::Roadmap,
                 },
                 DesktopWindow {
+                    title: "Teddy Explorer",
+                    body_lines: ["", "", "", ""],
+                    rect: Rect {
+                        x: 42,
+                        y: 54,
+                        width: 500,
+                        height: 342,
+                    },
+                    accent: Color::rgb(0x5D, 0x79, 0xB2),
+                    kind: WindowKind::Explorer,
+                },
+                DesktopWindow {
                     title: "Teddy Terminal",
                     body_lines: ["", "", "", ""],
                     rect: Rect {
-                        x: 56,
-                        y: 70,
-                        width: 566,
-                        height: 324,
+                        x: 98,
+                        y: 122,
+                        width: 470,
+                        height: 262,
                     },
                     accent: Color::rgb(0x2F, 0x7C, 0x55),
                     kind: WindowKind::Terminal,
                 },
             ],
-            active_window: 2,
+            active_window: 3,
             dragging: None,
             launcher_open: false,
             last_mouse_x: 0,
@@ -219,10 +233,24 @@ pub fn handle_mouse_event(event: MouseEvent) {
                 offset_x,
                 offset_y,
             });
-        } else if shell.launcher_open && !launcher_menu_rect(surface_info).contains(event.x, event.y) {
+        } else if shell.launcher_open
+            && !launcher_menu_rect(surface_info).contains(event.x, event.y)
+        {
             shell.launcher_open = false;
         } else if let Some(index) = window_hit_test(&shell.windows, event.x, event.y) {
             bring_to_front(&mut shell.windows, &mut shell.active_window, index);
+            if matches!(shell.windows[shell.active_window].kind, WindowKind::Explorer) {
+                let frame = shell.windows[shell.active_window].rect;
+                let body = window_body(frame);
+                if body.contains(event.x, event.y) {
+                    file_explorer::handle_click(
+                        event.x.saturating_sub(body.x),
+                        event.y.saturating_sub(body.y),
+                        body,
+                        timer::ticks(),
+                    );
+                }
+            }
         } else {
             shell.launcher_open = false;
         }
@@ -388,17 +416,10 @@ fn draw_windows(
             window.accent,
         );
 
-        let body = Rect {
-            x: frame.x + 6,
-            y: frame.y + TITLE_BAR_HEIGHT + 4,
-            width: frame.width.saturating_sub(12),
-            height: frame.height.saturating_sub(TITLE_BAR_HEIGHT + 10),
-        };
-
+        let body = window_body(frame);
         match window.kind {
-            WindowKind::Terminal => {
-                terminal::render(surface, body, index == active_window);
-            }
+            WindowKind::Terminal => terminal::render(surface, body, index == active_window),
+            WindowKind::Explorer => file_explorer::render(surface, body, index == active_window),
             WindowKind::Info | WindowKind::Roadmap => {
                 let mut line_y = body.y + 12;
                 for line in window.body_lines {
@@ -460,22 +481,27 @@ fn draw_taskbar(
         launcher_color,
     );
 
-    surface.fill_rect(
-        Rect {
-            x: 116,
-            y: taskbar_y + 6,
-            width: 136,
-            height: TASKBAR_HEIGHT - 12,
-        },
-        Color::rgb(0x2B, 0x36, 0x45),
-    );
-    surface.draw_text(
-        "Teddy Terminal",
-        126,
-        taskbar_y + 14,
-        Color::rgb(0xF0, 0xF5, 0xFA),
-        Color::rgb(0x2B, 0x36, 0x45),
-    );
+    let labels = ["Explorer", "Terminal"];
+    let mut x = 116;
+    for label in labels {
+        surface.fill_rect(
+            Rect {
+                x,
+                y: taskbar_y + 6,
+                width: 126,
+                height: TASKBAR_HEIGHT - 12,
+            },
+            Color::rgb(0x2B, 0x36, 0x45),
+        );
+        surface.draw_text(
+            label,
+            x + 14,
+            taskbar_y + 14,
+            Color::rgb(0xF0, 0xF5, 0xFA),
+            Color::rgb(0x2B, 0x36, 0x45),
+        );
+        x += 134;
+    }
 
     surface.fill_rect(
         Rect {
@@ -528,7 +554,7 @@ fn draw_launcher(surface: &mut FramebufferSurface, _width: usize, height: usize,
         theme.active_title,
     );
 
-    let items = ["Terminal  Ready", "Files  Phase 6", "Updater  Phase 7", "Settings  Later"];
+    let items = ["Explorer  Ready", "Terminal  Ready", "Updater  Phase 7", "Settings  Later"];
     let mut y = menu.y + 48;
     for item in items {
         surface.fill_rect(
@@ -699,6 +725,15 @@ fn launcher_menu_rect(info: FramebufferInfo) -> Rect {
         y: info.height as usize - (TASKBAR_HEIGHT + MENU_HEIGHT + 8),
         width: MENU_WIDTH,
         height: MENU_HEIGHT,
+    }
+}
+
+fn window_body(frame: Rect) -> Rect {
+    Rect {
+        x: frame.x + 6,
+        y: frame.y + TITLE_BAR_HEIGHT + 4,
+        width: frame.width.saturating_sub(12),
+        height: frame.height.saturating_sub(TITLE_BAR_HEIGHT + 10),
     }
 }
 

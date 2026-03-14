@@ -4,6 +4,7 @@ use crate::storage;
 
 pub const LINE_CAPACITY: usize = 96;
 pub const MAX_OUTPUT_LINES: usize = 24;
+pub const MAX_DIR_ENTRIES: usize = 24;
 
 const MAGIC: &[u8; 8] = b"TEDDYFS1";
 const SUPERBLOCK_LBA: u32 = 0;
@@ -96,6 +97,13 @@ pub struct Metadata {
     pub size: usize,
     pub created_tick: u64,
     pub modified_tick: u64,
+}
+
+#[derive(Clone, Copy)]
+pub struct DirectoryEntry {
+    pub name: FsTextBuffer,
+    pub is_dir: bool,
+    pub size: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -339,6 +347,49 @@ impl TeddyFs {
         })
     }
 
+    fn list_dir_entries(
+        &self,
+        path: &str,
+        out: &mut [DirectoryEntry; MAX_DIR_ENTRIES],
+    ) -> Result<usize, &'static str> {
+        let index = self.resolve(path)?;
+        if !matches!(self.entries[index].kind, EntryKind::Directory) {
+            return Err("list: not a directory");
+        }
+
+        let mut count = 0usize;
+        for entry in self.entries.iter() {
+            if entry.used && entry.parent as usize == index && entry.name_len > 0 && count < out.len() {
+                let mut name = FsTextBuffer::new();
+                name.push_str(entry.name());
+                out[count] = DirectoryEntry {
+                    name,
+                    is_dir: matches!(entry.kind, EntryKind::Directory),
+                    size: entry.size,
+                };
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    fn rename(&mut self, path: &str, new_name: &str, tick: u64) -> Result<(), &'static str> {
+        if new_name.is_empty() || new_name.contains('/') {
+            return Err("rename: invalid name");
+        }
+        let index = self.resolve(path)?;
+        if index == 0 {
+            return Err("rename: refusing to rename root");
+        }
+        let parent = self.entries[index].parent as usize;
+        if self.find_child(parent, new_name).is_some() {
+            return Err("rename: target already exists");
+        }
+        self.entries[index].set_name(new_name);
+        self.entries[index].modified_tick = tick;
+        self.persist_entry(index)
+    }
+
     fn find_child(&self, parent: usize, name: &str) -> Option<usize> {
         self.entries.iter().enumerate().find_map(|(index, entry)| {
             if entry.used && entry.parent as usize == parent && entry.name() == name {
@@ -532,6 +583,27 @@ pub fn metadata(path: &str) -> Result<Metadata, &'static str> {
         return Err("fs: volume not mounted");
     }
     fs.metadata(path)
+}
+
+pub fn list_dir_entries(
+    path: &str,
+    out: &mut [DirectoryEntry; MAX_DIR_ENTRIES],
+) -> Result<usize, &'static str> {
+    let guard = FS.lock();
+    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.list_dir_entries(path, out)
+}
+
+pub fn rename(path: &str, new_name: &str, tick: u64) -> Result<(), &'static str> {
+    let mut guard = FS.lock();
+    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.rename(path, new_name, tick)
 }
 
 fn path_for(entries: &[FsEntry; ENTRY_COUNT], index: usize) -> FsTextBuffer {

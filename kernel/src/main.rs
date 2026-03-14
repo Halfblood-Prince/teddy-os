@@ -3,6 +3,7 @@
 #![no_main]
 
 mod framebuffer;
+mod file_explorer;
 mod fs;
 mod input;
 mod interrupts;
@@ -37,6 +38,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         boot_info.framebuffer.width as usize,
         boot_info.framebuffer.height as usize,
     );
+    file_explorer::init();
     terminal::init();
     runtime::init(boot_info);
     interrupts::init();
@@ -68,7 +70,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let stats = memory::stats();
     logln!("");
-    logln!("Phase 5 filesystem subsystems initialized.");
+    logln!("Phase 6 file explorer subsystems initialized.");
     logln!(
         "Memory: total={} bytes usable={} bytes reserved={} bytes bootloader={} bytes kernel={} bytes",
         stats.total_bytes,
