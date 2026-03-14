@@ -28,9 +28,6 @@ impl InterruptIndex {
         self as u8
     }
 
-    fn as_usize(self) -> usize {
-        usize::from(self.as_u8())
-    }
 }
 
 pub fn init() {
@@ -69,9 +66,9 @@ fn build_idt() -> InterruptDescriptorTable {
     let mut idt = InterruptDescriptorTable::new();
     idt.breakpoint.set_handler_fn(breakpoint_handler);
     idt.double_fault.set_handler_fn(double_fault_handler);
-    idt[InterruptIndex::Timer.as_usize()].set_handler_fn(timer_interrupt_handler);
-    idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
-    idt[InterruptIndex::Mouse.as_usize()].set_handler_fn(mouse_interrupt_handler);
+    idt[InterruptIndex::Timer.as_u8()].set_handler_fn(timer_interrupt_handler);
+    idt[InterruptIndex::Keyboard.as_u8()].set_handler_fn(keyboard_interrupt_handler);
+    idt[InterruptIndex::Mouse.as_u8()].set_handler_fn(mouse_interrupt_handler);
     idt
 }
 

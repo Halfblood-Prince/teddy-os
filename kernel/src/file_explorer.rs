@@ -5,7 +5,6 @@ use spin::Mutex;
 use crate::{
     framebuffer::{Color, FramebufferSurface, Rect},
     fs::{self, DirectoryEntry, FsTextBuffer, MAX_DIR_ENTRIES, MAX_OUTPUT_LINES},
-    timer,
 };
 
 const HEADER_HEIGHT: usize = 30;
