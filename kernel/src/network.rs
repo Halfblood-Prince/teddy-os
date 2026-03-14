@@ -6,11 +6,15 @@ const PCI_CONFIG_DATA: u16 = 0xCFC;
 const MAX_TEXT: usize = 48;
 const RTL8139_IDR0: u16 = 0x00;
 const RTL8139_COMMAND: u16 = 0x37;
+const RTL8139_RBSTART: u16 = 0x30;
 const RTL8139_CAPR: u16 = 0x38;
+const RTL8139_CBR: u16 = 0x3A;
 const RTL8139_IMR: u16 = 0x3C;
 const RTL8139_ISR: u16 = 0x3E;
 const RTL8139_TCR: u16 = 0x40;
 const RTL8139_RCR: u16 = 0x44;
+const RTL8139_TX_STATUS0: u16 = 0x10;
+const RTL8139_TX_ADDR0: u16 = 0x20;
 const RTL8139_CONFIG1: u16 = 0x52;
 const RTL8139_MSR: u16 = 0x58;
 const RTL8139_RESET: u8 = 0x10;
@@ -19,6 +23,11 @@ const RTL8139_TX_ENABLE: u8 = 0x04;
 const RTL8139_ACCEPT_BROADCAST: u32 = 1 << 3;
 const RTL8139_ACCEPT_PHYSICAL_MATCH: u32 = 1 << 1;
 const RTL8139_WRAP: u32 = 1 << 7;
+const RTL8139_ISR_RX_OK: u16 = 0x0001;
+const RTL8139_ISR_TX_OK: u16 = 0x0004;
+const RTL8139_RX_BUFFER_LEN: usize = 8192 + 16 + 1500;
+const RTL8139_TX_BUFFER_LEN: usize = 1536;
+const RTL8139_TX_SLOTS: usize = 4;
 
 #[derive(Clone, Copy)]
 pub enum NicKind {
@@ -112,12 +121,34 @@ pub struct NetworkInfo {
     pub interrupt_status: u16,
     pub rx_config: u32,
     pub tx_config: u32,
+    pub rx_buffer_addr: u32,
+    pub tx_buffer_addr: [u32; RTL8139_TX_SLOTS],
+    pub rx_packets: u64,
+    pub tx_completions: u64,
+    pub last_rx_status: u16,
+    pub current_rx_offset: u16,
+    pub current_rx_read: u16,
 }
 
 #[derive(Clone, Copy)]
 struct NetworkState {
     info: NetworkInfo,
+    tx_slot: usize,
 }
+
+#[repr(align(16))]
+struct Rtl8139RxBuffer([u8; RTL8139_RX_BUFFER_LEN]);
+
+#[repr(align(16))]
+struct Rtl8139TxBuffer([u8; RTL8139_TX_BUFFER_LEN]);
+
+static mut RTL8139_RX_BUFFER: Rtl8139RxBuffer = Rtl8139RxBuffer([0; RTL8139_RX_BUFFER_LEN]);
+static mut RTL8139_TX_BUFFERS: [Rtl8139TxBuffer; RTL8139_TX_SLOTS] = [
+    Rtl8139TxBuffer([0; RTL8139_TX_BUFFER_LEN]),
+    Rtl8139TxBuffer([0; RTL8139_TX_BUFFER_LEN]),
+    Rtl8139TxBuffer([0; RTL8139_TX_BUFFER_LEN]),
+    Rtl8139TxBuffer([0; RTL8139_TX_BUFFER_LEN]),
+];
 
 static NETWORK: Mutex<NetworkState> = Mutex::new(NetworkState {
     info: NetworkInfo {
@@ -146,7 +177,15 @@ static NETWORK: Mutex<NetworkState> = Mutex::new(NetworkState {
         interrupt_status: 0,
         rx_config: 0,
         tx_config: 0,
+        rx_buffer_addr: 0,
+        tx_buffer_addr: [0; RTL8139_TX_SLOTS],
+        rx_packets: 0,
+        tx_completions: 0,
+        last_rx_status: 0,
+        current_rx_offset: 0,
+        current_rx_read: 0,
     },
+    tx_slot: 0,
 });
 
 pub fn init() -> NetworkInfo {
@@ -185,12 +224,48 @@ pub fn init() -> NetworkInfo {
         interrupt_status: 0,
         rx_config: 0,
         tx_config: 0,
+        rx_buffer_addr: 0,
+        tx_buffer_addr: [0; RTL8139_TX_SLOTS],
+        rx_packets: 0,
+        tx_completions: 0,
+        last_rx_status: 0,
+        current_rx_offset: 0,
+        current_rx_read: 0,
     });
     state.info
 }
 
 pub fn info() -> NetworkInfo {
     NETWORK.lock().info
+}
+
+pub fn poll() {
+    let mut state = NETWORK.lock();
+    if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
+        return;
+    }
+
+    let io_base = state.info.io_base as u16;
+    unsafe {
+        let mut isr = Port::<u16>::new(io_base + RTL8139_ISR);
+        let pending = isr.read();
+        if pending == 0 {
+            return;
+        }
+
+        state.info.interrupt_status = pending;
+        if pending & RTL8139_ISR_RX_OK != 0 {
+            state.info.rx_packets = state.info.rx_packets.saturating_add(1);
+            state.info.last_rx_status = read_rx_status(io_base, state.info.current_rx_offset);
+            state.info.current_rx_read = Port::<u16>::new(io_base + RTL8139_CBR).read();
+        }
+        if pending & RTL8139_ISR_TX_OK != 0 {
+            state.info.tx_completions = state.info.tx_completions.saturating_add(1);
+            state.tx_slot = (state.tx_slot + 1) % RTL8139_TX_SLOTS;
+        }
+
+        isr.write(pending);
+    }
 }
 
 fn detect_supported_nic() -> Option<NetworkInfo> {
@@ -247,6 +322,13 @@ fn detect_supported_nic() -> Option<NetworkInfo> {
                     interrupt_status: 0,
                     rx_config: 0,
                     tx_config: 0,
+                    rx_buffer_addr: 0,
+                    tx_buffer_addr: [0; RTL8139_TX_SLOTS],
+                    rx_packets: 0,
+                    tx_completions: 0,
+                    last_rx_status: 0,
+                    current_rx_offset: 0,
+                    current_rx_read: 0,
                 };
 
                 prepare_pci_device(bus, slot, function, nic_kind, &mut info);
@@ -326,6 +408,17 @@ fn initialize_rtl8139(io_base: u16, info: &mut NetworkInfo) {
         Port::<u16>::new(io_base + RTL8139_IMR).write(0x0000);
         Port::<u16>::new(io_base + RTL8139_ISR).write(0xFFFF);
         Port::<u16>::new(io_base + RTL8139_CAPR).write(0x0000);
+        Port::<u16>::new(io_base + RTL8139_CBR).write(0x0000);
+
+        info.rx_buffer_addr = core::ptr::addr_of!(RTL8139_RX_BUFFER.0) as u32;
+        Port::<u32>::new(io_base + RTL8139_RBSTART).write(info.rx_buffer_addr);
+
+        for index in 0..RTL8139_TX_SLOTS {
+            let tx_addr = core::ptr::addr_of!(RTL8139_TX_BUFFERS[index].0) as u32;
+            info.tx_buffer_addr[index] = tx_addr;
+            Port::<u32>::new(io_base + RTL8139_TX_ADDR0 + (index as u16 * 4)).write(tx_addr);
+            Port::<u32>::new(io_base + RTL8139_TX_STATUS0 + (index as u16 * 4)).write(0);
+        }
 
         let rx_config = RTL8139_ACCEPT_BROADCAST | RTL8139_ACCEPT_PHYSICAL_MATCH | RTL8139_WRAP;
         Port::<u32>::new(io_base + RTL8139_RCR).write(rx_config);
@@ -336,6 +429,7 @@ fn initialize_rtl8139(io_base: u16, info: &mut NetworkInfo) {
         info.interrupt_status = Port::<u16>::new(io_base + RTL8139_ISR).read();
         info.rx_config = Port::<u32>::new(io_base + RTL8139_RCR).read();
         info.tx_config = tx_config;
+        info.current_rx_read = Port::<u16>::new(io_base + RTL8139_CBR).read();
 
         let link_ok = Port::<u8>::new(io_base + RTL8139_MSR).read() & 0x04 != 0;
         info.driver_ready = info.command_register & (RTL8139_RX_ENABLE | RTL8139_TX_ENABLE)
@@ -344,9 +438,9 @@ fn initialize_rtl8139(io_base: u16, info: &mut NetworkInfo) {
             let mut text = NetworkTextBuffer::new();
             if info.driver_ready {
                 if link_ok {
-                    text.push_str("rtl8139 ready link-up");
+                    text.push_str("rtl8139 rx/tx ready link-up");
                 } else {
-                    text.push_str("rtl8139 ready link-down");
+                    text.push_str("rtl8139 rx/tx ready link-down");
                 }
             } else {
                 text.push_str("rtl8139 init failed");
@@ -354,6 +448,10 @@ fn initialize_rtl8139(io_base: u16, info: &mut NetworkInfo) {
             text
         };
     }
+}
+
+unsafe fn read_rx_status(io_base: u16, _offset: u16) -> u16 {
+    Port::<u16>::new(io_base + RTL8139_CAPR).read()
 }
 
 fn pci_read_u32(bus: u8, slot: u8, function: u8, offset: u8) -> u32 {

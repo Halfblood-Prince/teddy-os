@@ -434,6 +434,22 @@ impl TerminalApp {
         cfg.push_str(" tcr ");
         push_hex_u32(&mut cfg, info.tx_config);
         self.push_line(cfg);
+
+        let mut dma = FsTextBuffer::new();
+        dma.push_str("rxbuf ");
+        push_hex_u32(&mut dma, info.rx_buffer_addr);
+        dma.push_str(" cbr ");
+        push_hex_u16(&mut dma, info.current_rx_read);
+        dma.push_str(" rxok ");
+        push_u64(&mut dma, info.rx_packets);
+        self.push_line(dma);
+
+        let mut tx = FsTextBuffer::new();
+        tx.push_str("txok ");
+        push_u64(&mut tx, info.tx_completions);
+        tx.push_str(" tsad0 ");
+        push_hex_u32(&mut tx, info.tx_buffer_addr[0]);
+        self.push_line(tx);
     }
 
     fn dhcp_command(&mut self) {

@@ -1,9 +1,9 @@
 use spin::Mutex;
 use teddy_boot_proto::BootInfo;
 
-use crate::{input, shell, timer};
+use crate::{input, network, shell, timer};
 
-const MAX_TASKS: usize = 3;
+const MAX_TASKS: usize = 4;
 
 #[derive(Clone, Copy)]
 pub struct TaskContext {
@@ -24,7 +24,7 @@ struct Scheduler {
 impl Scheduler {
     const fn new() -> Self {
         Self {
-            tasks: [None, None, None],
+            tasks: [None, None, None, None],
             task_count: 0,
             next_index: 0,
         }
@@ -62,6 +62,9 @@ pub fn init(boot_info: &BootInfo) {
         callback: pump_mouse_task,
     });
     scheduler.register(Task {
+        callback: pump_network_task,
+    });
+    scheduler.register(Task {
         callback: render_task,
     });
 }
@@ -81,6 +84,10 @@ fn pump_mouse_task(_context: TaskContext) {
     while let Some(event) = input::pop_mouse_event() {
         shell::handle_mouse_event(event);
     }
+}
+
+fn pump_network_task(_context: TaskContext) {
+    network::poll();
 }
 
 fn render_task(context: TaskContext) {
