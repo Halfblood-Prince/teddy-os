@@ -200,12 +200,33 @@ fn load_segment(image: &[u8], header: &ProgramHeader<'_>) -> Result<(), Status> 
     let mem_size = header.mem_size() as usize;
     let file_size = header.file_size() as usize;
     let offset = header.offset() as usize;
+
+    if mem_size == 0 {
+        return Ok(());
+    }
+
+    if file_size > mem_size {
+        serial_write_str("ELF segment has file_size larger than mem_size.\n");
+        return Err(Status::LOAD_ERROR);
+    }
+
+    let file_end = offset.checked_add(file_size).ok_or(Status::LOAD_ERROR)?;
+    if file_end > image.len() {
+        serial_write_str("ELF segment exceeds kernel image bounds.\n");
+        return Err(Status::LOAD_ERROR);
+    }
+
     let pages = ((mem_size + 0xfff) / 0x1000) as usize;
+    let memory_type = if header.flags().is_execute() {
+        MemoryType::LOADER_CODE
+    } else {
+        MemoryType::LOADER_DATA
+    };
 
     unsafe {
         boot::allocate_pages(
             AllocateType::Address(target as u64),
-            MemoryType::LOADER_DATA,
+            memory_type,
             pages,
         )
         .map_err(|err| err.status())?;
