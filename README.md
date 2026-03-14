@@ -3,17 +3,18 @@
 Teddy-OS is a hobby x86_64 operating system built in Rust for educational use.
 The target environment is UEFI boot on VMware from a reproducible ISO image.
 
-This repository is being developed in phases. Phase 2 is now implemented as a
-minimal kernel MVP on top of the bootable foundation, with interrupts, timer,
-keyboard input, framebuffer primitives, early memory management, and a simple
-cooperative runtime.
+This repository is being developed in phases. Phase 3 is now implemented as a
+minimal graphical desktop shell on top of the kernel MVP, with a Teddy-OS
+wallpaper, taskbar, launcher, clock, mouse cursor, draggable windows, and a
+simple in-kernel shell runtime.
 
 ## Current Status
 
 - Phase 0 complete: architecture and repo layout
 - Phase 1 complete: bootloader, kernel handoff, framebuffer logging, ISO scripts
 - Phase 2 complete: interrupts, timer, keyboard input, memory stats, runtime loop
-- Phase 3 next: desktop shell, compositor, taskbar, launcher, and windows
+- Phase 3 complete: desktop shell, taskbar, launcher, clock, cursor, and dragging
+- Phase 4 next: terminal app, text rendering, command parsing, and shell commands
 
 ## Repository Layout
 
@@ -36,6 +37,7 @@ cooperative runtime.
 - `docs/phase-0.md` - Phase 0 deliverables and next steps
 - `docs/phase-1.md` - Phase 1 implementation, build, and VMware test steps
 - `docs/phase-2.md` - Phase 2 kernel MVP implementation and test steps
+- `docs/phase-3.md` - Phase 3 desktop shell implementation and VMware test steps
 
 ## Build
 

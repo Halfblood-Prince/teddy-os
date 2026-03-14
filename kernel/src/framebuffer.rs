@@ -33,6 +33,15 @@ pub struct Rect {
     pub height: usize,
 }
 
+impl Rect {
+    pub fn contains(&self, x: usize, y: usize) -> bool {
+        x >= self.x
+            && y >= self.y
+            && x < self.x.saturating_add(self.width)
+            && y < self.y.saturating_add(self.height)
+    }
+}
+
 pub struct FramebufferSurface {
     info: FramebufferInfo,
 }
@@ -181,6 +190,44 @@ impl FramebufferSurface {
                     self.draw_char(ch, cursor_x, cursor_y, fg, bg);
                     cursor_x += CHAR_WIDTH;
                 }
+            }
+        }
+    }
+
+    pub fn draw_circle(&mut self, center: Point, radius: usize, color: Color) {
+        let mut x = radius as isize;
+        let mut y = 0isize;
+        let mut decision = 1 - x;
+
+        while y <= x {
+            self.plot_circle_points(center, x, y, color);
+            y += 1;
+            if decision <= 0 {
+                decision += 2 * y + 1;
+            } else {
+                x -= 1;
+                decision += 2 * (y - x) + 1;
+            }
+        }
+    }
+
+    fn plot_circle_points(&mut self, center: Point, x: isize, y: isize, color: Color) {
+        let cx = center.x as isize;
+        let cy = center.y as isize;
+        let points = [
+            (cx + x, cy + y),
+            (cx + y, cy + x),
+            (cx - y, cy + x),
+            (cx - x, cy + y),
+            (cx - x, cy - y),
+            (cx - y, cy - x),
+            (cx + y, cy - x),
+            (cx + x, cy - y),
+        ];
+
+        for (px, py) in points {
+            if px >= 0 && py >= 0 {
+                self.write_pixel(px as usize, py as usize, color);
             }
         }
     }

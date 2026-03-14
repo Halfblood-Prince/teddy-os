@@ -20,6 +20,7 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,
     Keyboard = PIC_1_OFFSET + 1,
+    Mouse = PIC_2_OFFSET + 4,
 }
 
 impl InterruptIndex {
@@ -70,6 +71,7 @@ fn build_idt() -> InterruptDescriptorTable {
     idt.double_fault.set_handler_fn(double_fault_handler);
     idt[InterruptIndex::Timer.as_usize()].set_handler_fn(timer_interrupt_handler);
     idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
+    idt[InterruptIndex::Mouse.as_usize()].set_handler_fn(mouse_interrupt_handler);
     idt
 }
 
@@ -94,6 +96,13 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     let scancode = unsafe { port.read() };
     input::handle_scancode(scancode);
     notify_end_of_interrupt(InterruptIndex::Keyboard);
+}
+
+extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    let mut port = Port::<u8>::new(0x60);
+    let byte = unsafe { port.read() };
+    input::handle_mouse_byte(byte);
+    notify_end_of_interrupt(InterruptIndex::Mouse);
 }
 
 fn initialize_pit(frequency_hz: u32) {

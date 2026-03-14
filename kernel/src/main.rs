@@ -9,6 +9,7 @@ mod logger;
 mod memory;
 mod runtime;
 mod serial;
+mod shell;
 mod timer;
 
 use core::panic::PanicInfo;
@@ -27,7 +28,10 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     logger::init(boot_info);
     memory::init(boot_info);
     timer::init();
-    input::init();
+    input::init(
+        boot_info.framebuffer.width as usize,
+        boot_info.framebuffer.height as usize,
+    );
     runtime::init(boot_info);
     interrupts::init();
 
@@ -58,7 +62,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let stats = memory::stats();
     logln!("");
-    logln!("Phase 2 kernel subsystems initialized.");
+    logln!("Phase 3 desktop shell subsystems initialized.");
     logln!(
         "Memory: total={} bytes usable={} bytes reserved={} bytes bootloader={} bytes kernel={} bytes",
         stats.total_bytes,
@@ -83,7 +87,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         interrupts::is_initialized(),
         interrupts::timer_frequency_hz()
     );
-    logln!("Keyboard IRQ handler armed. Entering cooperative runtime loop.");
+    logln!("Keyboard and mouse IRQ handlers armed. Entering desktop shell runtime.");
 
     interrupts::enable();
 
