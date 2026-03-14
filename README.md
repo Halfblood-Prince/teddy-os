@@ -23,6 +23,7 @@ deferred.
 - Phase 9 complete: architecture/build/VMware/release/theming/app docs
 - Phase 10 pending: networking
 - Phase 11 complete: desktop input routing, focus, window controls, and resizing
+- Phase 14 complete: storage diagnostics and TeddyFS integrity reporting
 
 ## Repository Layout
 
@@ -31,6 +32,7 @@ deferred.
 - `userland/` - shared runtime model for future user-space style components
 - `apps/terminal/` - terminal application
 - `apps/file_explorer/` - graphical file browser
+- `apps/disk_utility/` - disk and filesystem diagnostics
 - `apps/updater/` - GUI updater and update orchestration logic
 - `shell/` - desktop shell, taskbar, launcher, compositor, and theme logic
 - `libs/` - shared crates for ABI, graphics, storage, UI, and utilities
@@ -59,6 +61,7 @@ deferred.
 - `docs/theming.md` - shell styling and Teddy-OS branding notes
 - `docs/limitations-and-roadmap.md` - current limits and next milestones
 - `docs/phase-11.md` - Phase 11 window manager and input dispatch improvements
+- `docs/phase-14.md` - Phase 14 storage diagnostics and integrity checks
 
 ## Build
 

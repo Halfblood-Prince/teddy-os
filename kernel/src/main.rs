@@ -70,7 +70,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let stats = memory::stats();
     logln!("");
-    logln!("Phase 11 windowing and input improvements initialized.");
+    logln!("Phase 14 storage diagnostics initialized.");
     logln!(
         "Memory: total={} bytes usable={} bytes reserved={} bytes bootloader={} bytes kernel={} bytes",
         stats.total_bytes,
@@ -101,6 +101,14 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         mount_status.mounted,
         mount_status.formatted
     );
+    if storage_info.present {
+        logln!(
+            "Storage model={} sectors={} sector_size={}",
+            storage_info.model.as_str(),
+            storage_info.total_sectors,
+            storage_info.sector_size
+        );
+    }
     logln!("Keyboard and mouse IRQ handlers armed. Entering desktop shell runtime.");
 
     interrupts::enable();

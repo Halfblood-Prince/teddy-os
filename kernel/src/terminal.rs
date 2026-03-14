@@ -5,6 +5,7 @@ use crate::{
     fs::{self, FsTextBuffer, MAX_OUTPUT_LINES},
     input::{KeyKind, KeyboardEvent},
     interrupts,
+    storage,
     timer,
 };
 
@@ -197,7 +198,7 @@ impl TerminalApp {
 
     fn run_command(&mut self, command: &str, parser: &mut CommandParser<'_>) {
         match command {
-            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname reboot shutdown"),
+            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname df diskinfo fsck reboot shutdown"),
             "echo" => self.echo_command(parser.rest()),
             "clear" => self.clear(),
             "ls" => match fs::ls(parser.next(), &mut self.scratch) {
@@ -264,7 +265,10 @@ impl TerminalApp {
                     self.println("touch: missing path");
                 }
             }
-            "uname" => self.println("Teddy-OS x86_64 phase5"),
+            "df" => self.disk_free_command(),
+            "diskinfo" => self.disk_info_command(),
+            "fsck" => self.fsck_command(),
+            "uname" => self.println("Teddy-OS x86_64 phase14"),
             "reboot" => {
                 self.println("Rebooting Teddy-OS...");
                 reboot_system();
@@ -290,6 +294,75 @@ impl TerminalApp {
             }
         } else {
             self.println(rest);
+        }
+    }
+
+    fn disk_free_command(&mut self) {
+        match fs::stats() {
+            Ok(stats) => {
+                let mut line = FsTextBuffer::new();
+                line.push_str("teddyfs ");
+                push_usize(&mut line, stats.bytes_used);
+                line.push_str("/");
+                push_usize(&mut line, stats.capacity_bytes);
+                line.push_str(" bytes used");
+                self.push_line(line);
+
+                let mut entries = FsTextBuffer::new();
+                entries.push_str("entries ");
+                push_usize(&mut entries, stats.used_entries);
+                entries.push_str("/");
+                push_usize(&mut entries, stats.total_entries);
+                entries.push_str(" files ");
+                push_usize(&mut entries, stats.file_count);
+                entries.push_str(" dirs ");
+                push_usize(&mut entries, stats.directory_count);
+                self.push_line(entries);
+            }
+            Err(error) => self.println(error),
+        }
+    }
+
+    fn disk_info_command(&mut self) {
+        let storage_stats = storage::stats();
+        if !storage_stats.present {
+            self.println("disk: no ATA device detected");
+            return;
+        }
+
+        let mut line = FsTextBuffer::new();
+        line.push_str("drive ");
+        line.push_str(match storage_stats.drive {
+            storage::DriveSelect::Master => "master",
+            storage::DriveSelect::Slave => "slave",
+        });
+        line.push_str(" model ");
+        line.push_str(storage_stats.model.as_str());
+        self.push_line(line);
+
+        let mut capacity = FsTextBuffer::new();
+        capacity.push_str("sectors ");
+        push_u32(&mut capacity, storage_stats.total_sectors);
+        capacity.push_str(" sector_size ");
+        push_usize(&mut capacity, storage_stats.sector_size);
+        capacity.push_str(" bytes capacity ");
+        push_u64(&mut capacity, storage_stats.capacity_bytes);
+        self.push_line(capacity);
+    }
+
+    fn fsck_command(&mut self) {
+        match fs::check() {
+            Ok(report) => {
+                let mut line = FsTextBuffer::new();
+                line.push_str("fsck ");
+                line.push_str(if report.ok { "ok" } else { "failed" });
+                line.push_str(" checked ");
+                push_usize(&mut line, report.checked_entries);
+                line.push_str(" errors ");
+                push_usize(&mut line, report.errors_found);
+                self.push_line(line);
+            }
+            Err(error) => self.println(error),
         }
     }
 
@@ -408,5 +481,49 @@ fn shutdown_system() -> ! {
         unsafe {
             core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
         }
+    }
+}
+
+fn push_usize(buffer: &mut FsTextBuffer, value: usize) {
+    let mut digits = [0u8; 20];
+    let mut count = 0usize;
+    let mut current = value;
+    if current == 0 {
+        buffer.push_str("0");
+        return;
+    }
+    while current > 0 && count < digits.len() {
+        digits[count] = b'0' + (current % 10) as u8;
+        current /= 10;
+        count += 1;
+    }
+    for index in (0..count).rev() {
+        let text = [digits[index]];
+        let digit = core::str::from_utf8(&text).unwrap_or("?");
+        buffer.push_str(digit);
+    }
+}
+
+fn push_u32(buffer: &mut FsTextBuffer, value: u32) {
+    push_usize(buffer, value as usize);
+}
+
+fn push_u64(buffer: &mut FsTextBuffer, value: u64) {
+    let mut digits = [0u8; 20];
+    let mut count = 0usize;
+    let mut current = value;
+    if current == 0 {
+        buffer.push_str("0");
+        return;
+    }
+    while current > 0 && count < digits.len() {
+        digits[count] = b'0' + (current % 10) as u8;
+        current /= 10;
+        count += 1;
+    }
+    for index in (0..count).rev() {
+        let text = [digits[index]];
+        let digit = core::str::from_utf8(&text).unwrap_or("?");
+        buffer.push_str(digit);
     }
 }

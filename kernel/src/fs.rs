@@ -113,6 +113,26 @@ pub struct MountStatus {
     pub persistent: bool,
 }
 
+#[derive(Clone, Copy)]
+pub struct FsStats {
+    pub mounted: bool,
+    pub total_entries: usize,
+    pub used_entries: usize,
+    pub free_entries: usize,
+    pub file_count: usize,
+    pub directory_count: usize,
+    pub bytes_used: usize,
+    pub capacity_bytes: usize,
+}
+
+#[derive(Clone, Copy)]
+pub struct FsCheckReport {
+    pub mounted: bool,
+    pub ok: bool,
+    pub errors_found: usize,
+    pub checked_entries: usize,
+}
+
 struct TeddyFs {
     entries: [FsEntry; ENTRY_COUNT],
     cwd: usize,
@@ -390,6 +410,84 @@ impl TeddyFs {
         self.persist_entry(index)
     }
 
+    fn stats(&self) -> FsStats {
+        let mut used_entries = 0usize;
+        let mut file_count = 0usize;
+        let mut directory_count = 0usize;
+        let mut bytes_used = 0usize;
+
+        for entry in self.entries.iter() {
+            if !entry.used {
+                continue;
+            }
+            used_entries += 1;
+            match entry.kind {
+                EntryKind::Directory => directory_count += 1,
+                EntryKind::File => {
+                    file_count += 1;
+                    bytes_used += entry.size.min(MAX_FILE_BYTES);
+                }
+            }
+        }
+
+        FsStats {
+            mounted: self.mounted,
+            total_entries: ENTRY_COUNT,
+            used_entries,
+            free_entries: ENTRY_COUNT.saturating_sub(used_entries),
+            file_count,
+            directory_count,
+            bytes_used,
+            capacity_bytes: ENTRY_COUNT.saturating_sub(1) * MAX_FILE_BYTES,
+        }
+    }
+
+    fn check(&self) -> FsCheckReport {
+        if !self.mounted {
+            return FsCheckReport {
+                mounted: false,
+                ok: false,
+                errors_found: 1,
+                checked_entries: 0,
+            };
+        }
+
+        let mut errors_found = 0usize;
+        let mut checked_entries = 0usize;
+
+        if !self.entries[0].used || !matches!(self.entries[0].kind, EntryKind::Directory) {
+            errors_found += 1;
+        }
+
+        for (index, entry) in self.entries.iter().enumerate() {
+            if !entry.used {
+                continue;
+            }
+
+            checked_entries += 1;
+
+            if entry.name_len > MAX_NAME {
+                errors_found += 1;
+            }
+            if entry.parent as usize >= ENTRY_COUNT {
+                errors_found += 1;
+            }
+            if matches!(entry.kind, EntryKind::File) && entry.size > MAX_FILE_BYTES {
+                errors_found += 1;
+            }
+            if index != 0 && entry.parent as usize == index {
+                errors_found += 1;
+            }
+        }
+
+        FsCheckReport {
+            mounted: true,
+            ok: errors_found == 0,
+            errors_found,
+            checked_entries,
+        }
+    }
+
     fn find_child(&self, parent: usize, name: &str) -> Option<usize> {
         self.entries.iter().enumerate().find_map(|(index, entry)| {
             if entry.used && entry.parent as usize == parent && entry.name() == name {
@@ -604,6 +702,18 @@ pub fn rename(path: &str, new_name: &str, tick: u64) -> Result<(), &'static str>
         return Err("fs: volume not mounted");
     }
     fs.rename(path, new_name, tick)
+}
+
+pub fn stats() -> Result<FsStats, &'static str> {
+    let guard = FS.lock();
+    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    Ok(fs.stats())
+}
+
+pub fn check() -> Result<FsCheckReport, &'static str> {
+    let guard = FS.lock();
+    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    Ok(fs.check())
 }
 
 fn path_for(entries: &[FsEntry; ENTRY_COUNT], index: usize) -> FsTextBuffer {
