@@ -197,6 +197,473 @@ Write documentation for:
 - theming/customization
 - limitations and roadmap
 
+Phase 10 — Networking
+Implement basic networking support so Teddy-OS can communicate with the internet and fetch updates.
+Goals:
+- Detect a supported virtual network interface in VMware
+- Initialize the network device
+- Implement a minimal network stack
+- Support DHCP for automatic IP configuration
+- Implement DNS resolution
+- Provide basic TCP and UDP socket functionality
+- Enable HTTP/HTTPS communication needed for the updater
+
+Requirements
+- Network interface must work inside VMware
+- Networking layer must be modular
+- Network code must be well documented
+- Debug logging should exist for networking events
+
+Deliverables
+ - Network device driver
+ - Network stack implementation
+ - DHCP client
+ - DNS resolver
+ - TCP/UDP socket interface
+ - Example diagnostic commands
+
+Success criteria
+- Teddy-OS obtains an IP address in VMware
+- DNS resolution works
+- OS can download a file from the internet
+- Updater can fetch update manifests from GitHub
+
+
+Phase 11 — Input and Windowing Improvements
+Improve the desktop shell so the system feels like a usable graphical desktop.
+
+Goals
+- Mouse input support
+- Keyboard shortcut handling
+- Window focus system
+- Window minimize / maximize / close
+- Window dragging
+- Window resizing
+- Window stacking order (z-order)
+- Desktop event system
+
+Requirements
+- Window manager must be stable
+- Multiple windows must function correctly
+- Input handling must be abstracted from hardware
+
+Deliverables
+- Improved window manager
+- Input event dispatch system
+- Mouse cursor support
+- Window control buttons
+- Focus management
+
+Success criteria
+- Multiple windows can be opened and interacted with
+- Windows can be moved, resized, minimized, and closed
+- Input events are correctly routed to the focused window
+
+
+
+Phase 12 — Application Framework (SDK)
+
+Create a framework that simplifies building applications for Teddy-OS.
+
+Goals
+
+Define a consistent application lifecycle
+
+Create shared UI widgets
+
+Provide reusable application libraries
+
+Reduce boilerplate code for apps
+
+Requirements
+
+Applications should not interact directly with low-level kernel APIs
+
+GUI apps should use shared libraries
+
+APIs should remain stable
+
+Deliverables
+
+Libraries such as:
+
+/libs/ui
+/libs/appkit
+/libs/input
+/libs/fs
+
+Widgets:
+
+buttons
+
+menus
+
+dialog boxes
+
+lists
+
+text boxes
+
+scroll views
+
+Developer tools:
+
+app template
+
+developer documentation
+
+Success criteria
+
+Developers can create a GUI app with minimal code
+
+Existing apps (terminal, file explorer) use shared UI libraries
+
+Phase 13 — Package Manager
+
+Add a package management system so applications can be installed independently from OS updates.
+
+Goals
+
+Define a Teddy-OS package format
+
+Install applications from package files
+
+Remove installed applications
+
+List installed packages
+
+Support application versioning
+
+Requirements
+
+Package metadata format must be documented
+
+Package verification should exist
+
+Package installation must not break system integrity
+
+Deliverables
+
+Components:
+
+Package manager CLI
+
+Package installer backend
+
+Package metadata schema
+
+Repository format
+
+Example commands:
+
+pkg install
+pkg remove
+pkg update
+pkg list
+Success criteria
+
+Applications can be installed without reinstalling the OS
+
+Packages can be updated independently
+
+
+
+Phase 14 — Storage and Disk Management
+Improve disk and storage handling.
+
+Goals
+- Detect storage devices
+- Manage partitions
+- Mount filesystems
+- Provide disk information utilities
+- Improve data persistence reliability
+
+Requirements
+- Disk operations must be safe
+- Filesystem corruption risk must be minimized
+- Storage architecture must be documented
+
+Deliverables
+
+- Modules:
+
+-- /kernel/storage
+-- /apps/disk_utility
+
+- Tools:
+
+-- disk usage viewer
+
+-- filesystem check tool
+
+-- partition viewer
+
+Success criteria
+
+- Files persist across reboots
+
+- Disk information can be inspected from inside the OS
+
+- Filesystem integrity checks work
+
+
+Phase 15 — Fonts and Text Rendering
+
+Improve text quality across the system.
+
+Goals
+
+Implement a font rendering system
+
+Support TrueType or bitmap fonts
+
+Provide consistent text layout
+
+Improve terminal and GUI readability
+
+Requirements
+
+Text rendering must work in all apps
+
+Font loading should be efficient
+
+Unicode support is desirable if feasible
+
+Deliverables
+
+Libraries:
+
+/libs/font
+/libs/text
+
+Improvements to:
+
+terminal rendering
+
+UI text elements
+
+file explorer text display
+
+Success criteria
+
+All applications use the same text system
+
+Text appears clear and consistent across the desktop
+
+Phase 16 — Update Security and Integrity
+
+Harden the updater system to prevent corruption or malicious updates.
+
+Goals
+
+Verify update integrity
+
+Validate update manifests
+
+Implement update rollback capability
+
+Improve update logging
+
+Requirements
+
+Update packages must be validated before installation
+
+Update failures must not break the system
+
+Recovery must be possible
+
+Deliverables
+
+Security mechanisms:
+
+checksum verification
+
+signed manifests (optional but recommended)
+
+update rollback support
+
+Documentation:
+
+update format
+
+manifest schema
+
+publishing workflow
+
+Success criteria
+
+Corrupted updates are rejected
+
+Failed updates can be rolled back safely
+
+Updater logs provide clear diagnostics
+
+Phase 17 — Recovery Environment
+
+Create a recovery mode for repairing the system.
+
+Goals
+
+Provide a recovery boot mode
+
+Allow filesystem repairs
+
+Allow rollback of failed updates
+
+Provide terminal access for debugging
+
+Requirements
+
+Recovery environment must be minimal and reliable
+
+Must not depend on the main OS installation
+
+Deliverables
+
+Components:
+
+/recovery
+/apps/recovery_tools
+
+Features:
+
+system repair utilities
+
+update rollback tools
+
+system logs viewer
+
+Success criteria
+
+Users can recover from failed updates
+
+Filesystem repairs can be performed
+
+Recovery environment boots independently
+
+Phase 18 — System Settings Application
+
+Create a graphical settings application.
+
+Goals
+
+Allow users to configure system settings through a GUI.
+
+Settings categories:
+
+appearance
+
+wallpaper
+
+system information
+
+updates
+
+input devices
+
+time/date
+
+Requirements
+
+Settings must persist across reboots
+
+Configuration storage must be structured
+
+Deliverables
+
+Application:
+
+/apps/settings
+
+Configuration storage:
+
+/system/config
+Success criteria
+
+Settings are applied correctly
+
+Configuration changes persist after reboot
+
+Phase 19 — Software Center
+
+Create a graphical application store.
+
+Goals
+
+Allow users to browse and install software.
+
+Features:
+
+browse available applications
+
+search packages
+
+install or uninstall applications
+
+display version information
+
+show package descriptions
+
+Requirements
+
+Integrate with the package manager
+
+Support remote repositories
+
+Provide clear UI feedback
+
+Deliverables
+
+Application:
+
+/apps/software_center
+
+Repository metadata format.
+
+Success criteria
+
+Users can install apps through the GUI
+
+Software center reflects repository updates
+
+Phase 20 — Audio Support
+
+Add sound output support.
+
+Goals
+
+Detect supported audio devices
+
+Implement audio output
+
+Enable simple sound playback
+
+Requirements
+
+Audio system must work in VMware
+
+API must be simple for applications
+
+Deliverables
+
+Modules:
+
+/kernel/audio
+/libs/audio
+
+Test applications:
+
+/apps/audio_test
+Success criteria
+
+Teddy-OS can play basic sounds
+
+Applications can access audio APIs
+
+
+
+
+
 Engineering standards:
 - prefer small, complete increments
 - never leave placeholder pseudocode when real code is reasonable
