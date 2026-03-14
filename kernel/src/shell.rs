@@ -6,6 +6,7 @@ use teddy_boot_proto::FramebufferInfo;
 use crate::{
     framebuffer::{Color, FramebufferSurface, Point, Rect},
     input::{KeyboardEvent, MouseEvent, mouse_snapshot},
+    terminal,
     timer,
 };
 
@@ -18,6 +19,13 @@ const MENU_WIDTH: usize = 220;
 const MENU_HEIGHT: usize = 162;
 
 #[derive(Clone, Copy)]
+enum WindowKind {
+    Terminal,
+    Info,
+    Roadmap,
+}
+
+#[derive(Clone, Copy)]
 struct Theme {
     wallpaper_top: Color,
     wallpaper_bottom: Color,
@@ -26,7 +34,6 @@ struct Theme {
     taskbar_edge: Color,
     launcher: Color,
     launcher_active: Color,
-    window: Color,
     window_frame: Color,
     active_title: Color,
     inactive_title: Color,
@@ -47,7 +54,6 @@ impl Theme {
             taskbar_edge: Color::rgb(0x66, 0x7B, 0x8F),
             launcher: Color::rgb(0x2B, 0x63, 0x4F),
             launcher_active: Color::rgb(0x3D, 0x88, 0x69),
-            window: Color::rgb(0xDF, 0xE7, 0xEF),
             window_frame: Color::rgb(0x3D, 0x4E, 0x62),
             active_title: Color::rgb(0x2B, 0x5A, 0x87),
             inactive_title: Color::rgb(0x5B, 0x6F, 0x83),
@@ -66,6 +72,7 @@ struct DesktopWindow {
     body_lines: [&'static str; 4],
     rect: Rect,
     accent: Color,
+    kind: WindowKind,
 }
 
 #[derive(Clone, Copy)]
@@ -98,22 +105,6 @@ impl ShellState {
             theme: Theme::teddy(),
             windows: [
                 DesktopWindow {
-                    title: "Welcome",
-                    body_lines: [
-                        "Teddy-OS desktop shell",
-                        "Original Windows-inspired layout",
-                        "Drag windows with the mouse",
-                        "Phase 4 adds the terminal app",
-                    ],
-                    rect: Rect {
-                        x: 84,
-                        y: 72,
-                        width: 320,
-                        height: 190,
-                    },
-                    accent: Color::rgb(0x2B, 0x5A, 0x87),
-                },
-                DesktopWindow {
                     title: "System",
                     body_lines: [
                         "Kernel MVP services online",
@@ -122,28 +113,42 @@ impl ShellState {
                         "VMware is the primary target",
                     ],
                     rect: Rect {
-                        x: 280,
-                        y: 118,
-                        width: 298,
+                        x: 470,
+                        y: 96,
+                        width: 266,
                         height: 176,
                     },
                     accent: Color::rgb(0x69, 0x57, 0x8E),
+                    kind: WindowKind::Info,
                 },
                 DesktopWindow {
                     title: "Roadmap",
                     body_lines: [
-                        "Phase 4: terminal",
+                        "Phase 4: terminal complete",
                         "Phase 5: persistent filesystem",
                         "Phase 6: file explorer",
                         "Phase 7: updater",
                     ],
                     rect: Rect {
-                        x: 160,
-                        y: 230,
-                        width: 276,
-                        height: 156,
+                        x: 520,
+                        y: 288,
+                        width: 252,
+                        height: 148,
                     },
                     accent: Color::rgb(0x7B, 0x5B, 0x26),
+                    kind: WindowKind::Roadmap,
+                },
+                DesktopWindow {
+                    title: "Teddy Terminal",
+                    body_lines: ["", "", "", ""],
+                    rect: Rect {
+                        x: 56,
+                        y: 70,
+                        width: 566,
+                        height: 324,
+                    },
+                    accent: Color::rgb(0x2F, 0x7C, 0x55),
+                    kind: WindowKind::Terminal,
                 },
             ],
             active_window: 2,
@@ -176,6 +181,10 @@ pub fn handle_keyboard_event(event: KeyboardEvent) {
     let mut shell = SHELL.lock();
     shell.last_key_unicode = event.unicode;
     shell.last_key_name = event.key_name;
+
+    if matches!(shell.windows[shell.active_window].kind, WindowKind::Terminal) {
+        terminal::handle_keyboard_event(event);
+    }
 }
 
 pub fn handle_mouse_event(event: MouseEvent) {
@@ -227,8 +236,14 @@ pub fn handle_mouse_event(event: MouseEvent) {
         let max_x = surface_info.width as usize;
         let max_y = surface_info.height as usize - TASKBAR_HEIGHT;
         let window = &mut shell.windows[drag.window_index];
-        window.rect.x = event.x.saturating_sub(drag.offset_x).min(max_x.saturating_sub(window.rect.width));
-        window.rect.y = event.y.saturating_sub(drag.offset_y).min(max_y.saturating_sub(window.rect.height));
+        window.rect.x = event
+            .x
+            .saturating_sub(drag.offset_x)
+            .min(max_x.saturating_sub(window.rect.width));
+        window.rect.y = event
+            .y
+            .saturating_sub(drag.offset_y)
+            .min(max_y.saturating_sub(window.rect.height));
     }
 
     shell.last_mouse_x = event.x;
@@ -242,6 +257,7 @@ pub fn render(tick_count: u64) {
         return;
     }
     shell.last_render_tick = tick_count;
+
     let theme = shell.theme;
     let windows = shell.windows;
     let active_window = shell.active_window;
@@ -340,6 +356,7 @@ fn draw_windows(
             },
             theme.panel,
         );
+
         let title_color = if index == active_window {
             theme.active_title
         } else {
@@ -371,10 +388,24 @@ fn draw_windows(
             window.accent,
         );
 
-        let mut line_y = frame.y + TITLE_BAR_HEIGHT + 16;
-        for line in window.body_lines {
-            surface.draw_text(line, frame.x + 16, line_y, theme.text, theme.panel);
-            line_y += 20;
+        let body = Rect {
+            x: frame.x + 6,
+            y: frame.y + TITLE_BAR_HEIGHT + 4,
+            width: frame.width.saturating_sub(12),
+            height: frame.height.saturating_sub(TITLE_BAR_HEIGHT + 10),
+        };
+
+        match window.kind {
+            WindowKind::Terminal => {
+                terminal::render(surface, body, index == active_window);
+            }
+            WindowKind::Info | WindowKind::Roadmap => {
+                let mut line_y = body.y + 12;
+                for line in window.body_lines {
+                    surface.draw_text(line, body.x + 12, line_y, theme.text, theme.panel);
+                    line_y += 20;
+                }
+            }
         }
     }
 }
@@ -431,6 +462,23 @@ fn draw_taskbar(
 
     surface.fill_rect(
         Rect {
+            x: 116,
+            y: taskbar_y + 6,
+            width: 136,
+            height: TASKBAR_HEIGHT - 12,
+        },
+        Color::rgb(0x2B, 0x36, 0x45),
+    );
+    surface.draw_text(
+        "Teddy Terminal",
+        126,
+        taskbar_y + 14,
+        Color::rgb(0xF0, 0xF5, 0xFA),
+        Color::rgb(0x2B, 0x36, 0x45),
+    );
+
+    surface.fill_rect(
+        Rect {
             x: width.saturating_sub(CLOCK_WIDTH),
             y: taskbar_y + 6,
             width: CLOCK_WIDTH - 10,
@@ -454,12 +502,7 @@ fn draw_taskbar(
     );
 }
 
-fn draw_launcher(
-    surface: &mut FramebufferSurface,
-    _width: usize,
-    height: usize,
-    theme: Theme,
-) {
+fn draw_launcher(surface: &mut FramebufferSurface, _width: usize, height: usize, theme: Theme) {
     let menu = Rect {
         x: 12,
         y: height.saturating_sub(TASKBAR_HEIGHT + MENU_HEIGHT + 8),
@@ -485,7 +528,7 @@ fn draw_launcher(
         theme.active_title,
     );
 
-    let items = ["Terminal", "Files", "Updater", "Settings"];
+    let items = ["Terminal  Ready", "Files  Phase 6", "Updater  Phase 7", "Settings  Later"];
     let mut y = menu.y + 48;
     for item in items {
         surface.fill_rect(
@@ -497,7 +540,7 @@ fn draw_launcher(
             },
             Color::rgb(0xE3, 0xEB, 0xF2),
         );
-        surface.draw_text(item, menu.x + 22, y, theme.text, Color::rgb(0xE3, 0xEB, 0xF2));
+        surface.draw_text(item, menu.x + 18, y, theme.text, Color::rgb(0xE3, 0xEB, 0xF2));
         y += 28;
     }
 }
@@ -519,25 +562,59 @@ fn draw_status_chip(
     };
     surface.fill_rect(panel, Color::rgb(0xEC, 0xF1, 0xF6));
     surface.stroke_rect(panel, theme.window_frame);
-    surface.draw_text("Session", panel.x + 14, panel.y + 12, theme.text, Color::rgb(0xEC, 0xF1, 0xF6));
+    surface.draw_text(
+        "Session",
+        panel.x + 14,
+        panel.y + 12,
+        theme.text,
+        Color::rgb(0xEC, 0xF1, 0xF6),
+    );
 
     scratch.clear();
     let _ = write!(scratch, "Ticks {}", tick_count);
-    surface.draw_text(scratch.as_str(), panel.x + 14, panel.y + 34, theme.muted_text, Color::rgb(0xEC, 0xF1, 0xF6));
+    surface.draw_text(
+        scratch.as_str(),
+        panel.x + 14,
+        panel.y + 34,
+        theme.muted_text,
+        Color::rgb(0xEC, 0xF1, 0xF6),
+    );
 
     let mouse = mouse_snapshot();
     scratch.clear();
     let _ = write!(scratch, "Pointer {}, {}", mouse.x, mouse.y);
-    surface.draw_text(scratch.as_str(), panel.x + 14, panel.y + 54, theme.muted_text, Color::rgb(0xEC, 0xF1, 0xF6));
+    surface.draw_text(
+        scratch.as_str(),
+        panel.x + 14,
+        panel.y + 54,
+        theme.muted_text,
+        Color::rgb(0xEC, 0xF1, 0xF6),
+    );
 
     scratch.clear();
     let glyph = key_unicode.unwrap_or('-');
     let _ = write!(scratch, "Last key {} {}", key_name, glyph);
-    surface.draw_text(scratch.as_str(), panel.x + 14, panel.y + 74, theme.muted_text, Color::rgb(0xEC, 0xF1, 0xF6));
+    surface.draw_text(
+        scratch.as_str(),
+        panel.x + 14,
+        panel.y + 74,
+        theme.muted_text,
+        Color::rgb(0xEC, 0xF1, 0xF6),
+    );
 
     scratch.clear();
-    let _ = write!(scratch, "Mouse {}", if mouse.left_button { "dragging" } else { "ready" });
-    surface.draw_text(scratch.as_str(), panel.x + 14, panel.y + 94, theme.muted_text, Color::rgb(0xEC, 0xF1, 0xF6));
+    let _ = write!(
+        scratch,
+        "Mouse {}",
+        if mouse.left_button { "dragging" } else { "ready" }
+    );
+    surface.draw_text(
+        scratch.as_str(),
+        panel.x + 14,
+        panel.y + 94,
+        theme.muted_text,
+        Color::rgb(0xEC, 0xF1, 0xF6),
+    );
 }
 
 fn draw_cursor(surface: &mut FramebufferSurface, x: usize, y: usize, theme: Theme) {
@@ -596,7 +673,11 @@ fn window_hit_test(windows: &[DesktopWindow; MAX_WINDOWS], x: usize, y: usize) -
     None
 }
 
-fn bring_to_front(windows: &mut [DesktopWindow; MAX_WINDOWS], active_window: &mut usize, index: usize) {
+fn bring_to_front(
+    windows: &mut [DesktopWindow; MAX_WINDOWS],
+    active_window: &mut usize,
+    index: usize,
+) {
     if index >= MAX_WINDOWS.saturating_sub(1) {
         *active_window = index;
         return;

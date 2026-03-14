@@ -10,6 +10,7 @@ mod memory;
 mod runtime;
 mod serial;
 mod shell;
+mod terminal;
 mod timer;
 
 use core::panic::PanicInfo;
@@ -32,6 +33,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         boot_info.framebuffer.width as usize,
         boot_info.framebuffer.height as usize,
     );
+    terminal::init();
     runtime::init(boot_info);
     interrupts::init();
 
@@ -62,7 +64,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let stats = memory::stats();
     logln!("");
-    logln!("Phase 3 desktop shell subsystems initialized.");
+    logln!("Phase 4 terminal subsystems initialized.");
     logln!(
         "Memory: total={} bytes usable={} bytes reserved={} bytes bootloader={} bytes kernel={} bytes",
         stats.total_bytes,

@@ -1,12 +1,10 @@
 # Terminal App
 
-This directory will hold the Teddy-OS terminal application.
+This directory tracks the Teddy-OS terminal application.
 
-Initial scope:
+Current Phase 4 implementation notes:
 
-- text rendering
-- keyboard input
-- scrollback
-- built-in shell commands
-- VFS-backed file operations
-
+- the current MVP terminal is implemented in-kernel for simplicity
+- command parsing and scrollback are live
+- the command set uses a temporary in-memory filesystem-facing API
+- Phase 5 should replace that temporary layer with the real filesystem backend

@@ -1,10 +1,24 @@
 use pc_keyboard::{
-    DecodedKey, HandleControl, KeyState, Keyboard, ScancodeSet1, layouts,
+    DecodedKey, HandleControl, KeyCode, KeyState, Keyboard, ScancodeSet1, layouts,
 };
 use spin::Mutex;
 use x86_64::instructions::{interrupts, port::Port};
 
 const INPUT_QUEUE_CAPACITY: usize = 64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyKind {
+    Character,
+    Enter,
+    Backspace,
+    Tab,
+    Escape,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    Unknown,
+}
 
 #[derive(Clone, Copy)]
 pub struct KeyboardEvent {
@@ -12,6 +26,7 @@ pub struct KeyboardEvent {
     pub pressed: bool,
     pub unicode: Option<char>,
     pub key_name: &'static str,
+    pub key_kind: KeyKind,
 }
 
 impl KeyboardEvent {
@@ -20,6 +35,7 @@ impl KeyboardEvent {
         pressed: false,
         unicode: None,
         key_name: "None",
+        key_kind: KeyKind::Unknown,
     };
 }
 
@@ -207,11 +223,13 @@ pub fn handle_scancode(scancode: u8) {
     if let Ok(Some(key_event)) = state.keyboard.add_byte(scancode) {
         if let Some(decoded) = state.keyboard.process_keyevent(key_event) {
             let unicode = decoded_key_to_char(decoded);
+            let (key_kind, key_name) = decoded_key_meta(decoded, unicode);
             let event = KeyboardEvent {
                 scancode,
                 pressed: !matches!(key_event.state, KeyState::Up),
                 unicode,
-                key_name: if unicode.is_some() { "Char" } else { "Raw" },
+                key_name,
+                key_kind,
             };
             state.key_queue.push(event);
             state.key_total_events += 1;
@@ -226,10 +244,7 @@ pub fn handle_mouse_byte(byte: u8) {
         return;
     };
 
-    if let Some(event) = state
-        .mouse
-        .feed(byte, state.screen_width, state.screen_height)
-    {
+    if let Some(event) = state.mouse.feed(byte, state.screen_width, state.screen_height) {
         state.mouse_queue.push(event);
         state.mouse_total_events += 1;
         state.last_mouse_event = Some(event);
@@ -300,6 +315,32 @@ fn decoded_key_to_char(key: DecodedKey) -> Option<char> {
     match key {
         DecodedKey::Unicode(character) => Some(character),
         DecodedKey::RawKey(_) => None,
+    }
+}
+
+fn decoded_key_meta(key: DecodedKey, unicode: Option<char>) -> (KeyKind, &'static str) {
+    match key {
+        DecodedKey::Unicode('\n') => (KeyKind::Enter, "Enter"),
+        DecodedKey::Unicode('\t') => (KeyKind::Tab, "Tab"),
+        DecodedKey::Unicode(character) => {
+            let _ = unicode;
+            if character == '\u{8}' {
+                (KeyKind::Backspace, "Backspace")
+            } else {
+                (KeyKind::Character, "Char")
+            }
+        }
+        DecodedKey::RawKey(code) => match code {
+            KeyCode::Enter => (KeyKind::Enter, "Enter"),
+            KeyCode::Backspace => (KeyKind::Backspace, "Backspace"),
+            KeyCode::Tab => (KeyKind::Tab, "Tab"),
+            KeyCode::Escape => (KeyKind::Escape, "Escape"),
+            KeyCode::ArrowUp => (KeyKind::ArrowUp, "Up"),
+            KeyCode::ArrowDown => (KeyKind::ArrowDown, "Down"),
+            KeyCode::ArrowLeft => (KeyKind::ArrowLeft, "Left"),
+            KeyCode::ArrowRight => (KeyKind::ArrowRight, "Right"),
+            _ => (KeyKind::Unknown, "Raw"),
+        },
     }
 }
 
