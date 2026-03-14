@@ -595,14 +595,14 @@ impl TeddyFs {
 static FS: Mutex<Option<TeddyFs>> = Mutex::new(None);
 
 pub fn init() -> MountStatus {
-    let mut fs = TeddyFs::new();
-    let formatted = fs.mount().unwrap_or(false);
-    let mounted = fs.mounted;
-    *FS.lock() = Some(fs);
+    // Keep boot deterministic by deferring disk-backed filesystem mounting until
+    // the storage path is stable on VMware. The shell can still boot and render
+    // with an unmounted volume.
+    *FS.lock() = Some(TeddyFs::new());
     MountStatus {
-        mounted,
-        formatted,
-        persistent: storage::is_ready(),
+        mounted: false,
+        formatted: false,
+        persistent: false,
     }
 }
 
