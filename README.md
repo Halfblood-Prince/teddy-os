@@ -5,7 +5,9 @@ The target environment is UEFI boot on VMware from a reproducible ISO image.
 
 This repository is being developed in phases. Phase 6 is now implemented as a
 desktop shell with both a terminal and a GUI file explorer backed by the
-persistent TeddyFS volume.
+persistent TeddyFS volume. Phase 8 and Phase 9 are now implemented as the
+build/release workflow and documentation pass. Phase 7 remains intentionally
+deferred.
 
 ## Current Status
 
@@ -16,7 +18,9 @@ persistent TeddyFS volume.
 - Phase 4 complete: terminal app, text rendering, parser, commands, and scrollback
 - Phase 5 complete: persistent filesystem, path handling, metadata, and mounted storage
 - Phase 6 complete: file explorer GUI and shell integration
-- Phase 7 next: updater, release manifest handling, and staged install flow
+- Phase 7 deferred: updater, release manifest handling, and staged install flow
+- Phase 8 complete: reproducible build scripts, release manifest generation, and VMware helper
+- Phase 9 complete: architecture/build/VMware/release/theming/app docs
 
 ## Repository Layout
 
@@ -43,6 +47,15 @@ persistent TeddyFS volume.
 - `docs/phase-4.md` - Phase 4 terminal implementation and VMware test steps
 - `docs/phase-5.md` - Phase 5 persistent filesystem and VMware disk workflow
 - `docs/phase-6.md` - Phase 6 file explorer implementation and VMware test steps
+- `docs/phase-8.md` - Phase 8 build and release pipeline
+- `docs/phase-9.md` - Phase 9 documentation overview
+- `docs/building-from-scratch.md` - full local setup and build workflow
+- `docs/running-in-vmware.md` - VMware setup and test loop
+- `docs/creating-releases.md` - release artifact and manifest workflow
+- `docs/updater-manifests.md` - planned update manifest schema for Phase 7
+- `docs/adding-apps.md` - how to integrate future apps/components
+- `docs/theming.md` - shell styling and Teddy-OS branding notes
+- `docs/limitations-and-roadmap.md` - current limits and next milestones
 
 ## Build
 
@@ -52,6 +65,7 @@ Prerequisites:
 - `rustup`
 - `mtools` (`mformat`, `mmd`, `mcopy`)
 - `xorriso`
+- `vmrun` for the optional VMware helper
 
 Build and package a debug ISO:
 
@@ -62,7 +76,25 @@ Build and package a debug ISO:
 Build and package a release ISO:
 
 ```powershell
-./scripts/build.ps1 -Release
+./scripts/build.ps1 -Profile release
+```
+
+Clean staged and distribution outputs:
+
+```powershell
+./scripts/clean.ps1
+```
+
+Create a release manifest for an already-built ISO:
+
+```powershell
+./scripts/release.ps1 -Version 0.1.0
+```
+
+Start a VMware VM from an existing `.vmx`:
+
+```powershell
+./scripts/run-vmware.ps1 -VmxPath C:\VMs\Teddy-OS\Teddy-OS.vmx
 ```
 
 ## Design Principles

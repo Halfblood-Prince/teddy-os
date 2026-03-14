@@ -13,6 +13,24 @@ function Require-Command {
     }
 }
 
+function Reset-Directory {
+    param([string]$Path)
+
+    if (Test-Path $Path) {
+        Remove-Item -Recurse -Force $Path
+    }
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+}
+
+function Write-TextFile {
+    param(
+        [string]$Path,
+        [string]$Content
+    )
+
+    [System.IO.File]::WriteAllText($Path, $Content + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $espRoot = Join-Path $repoRoot "build\staging\esp"
 $isoRoot = Join-Path $repoRoot "build\staging\iso"
@@ -30,7 +48,15 @@ Require-Command mcopy
 Require-Command xorriso
 
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+Reset-Directory $isoRoot
 New-Item -ItemType Directory -Force -Path (Join-Path $isoRoot "EFI") | Out-Null
+
+if (Test-Path $espImage) {
+    Remove-Item -Force $espImage
+}
+if (Test-Path $isoPath) {
+    Remove-Item -Force $isoPath
+}
 
 $stream = [System.IO.File]::Create($espImage)
 try {
@@ -73,5 +99,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "xorriso failed."
 }
 
-Write-Host "ISO created at $isoPath" -ForegroundColor Green
+if (-not (Test-Path $isoPath)) {
+    throw "ISO file was not produced at $isoPath"
+}
 
+$isoHash = (Get-FileHash -Algorithm SHA256 $isoPath).Hash.ToLowerInvariant()
+Write-TextFile -Path "$isoPath.sha256" -Content "$isoHash *$(Split-Path -Leaf $isoPath)"
+
+Write-Host "ISO created at $isoPath" -ForegroundColor Green
+Write-Host "SHA256 written to $isoPath.sha256" -ForegroundColor Green

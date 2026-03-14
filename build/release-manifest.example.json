@@ -1,0 +1,12 @@
+{
+  "version": "0.1.0",
+  "channel": "stable",
+  "profile": "release",
+  "artifacts": [
+    {
+      "name": "teddy-os-release.iso",
+      "path": "build/dist/teddy-os-release.iso",
+      "sha256": "replace-with-real-sha256"
+    }
+  ]
+}

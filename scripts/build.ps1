@@ -1,6 +1,9 @@
 param(
+    [ValidateSet("debug", "release")]
+    [string]$Profile = "debug",
     [switch]$Release,
-    [switch]$SkipIso
+    [switch]$SkipIso,
+    [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,19 +16,64 @@ function Require-Command {
     }
 }
 
+function Reset-Directory {
+    param([string]$Path)
+
+    if (Test-Path $Path) {
+        Remove-Item -Recurse -Force $Path
+    }
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+}
+
+function Write-BuildManifest {
+    param(
+        [string]$Path,
+        [string]$ProfileName,
+        [string]$BootloaderPath,
+        [string]$KernelPath,
+        [string]$IsoPath
+    )
+
+    $manifest = [ordered]@{
+        profile = $ProfileName
+        bootloader = (Resolve-Path $BootloaderPath).Path
+        kernel = (Resolve-Path $KernelPath).Path
+        iso = if (Test-Path $IsoPath) { (Resolve-Path $IsoPath).Path } else { $null }
+    }
+
+    $json = $manifest | ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText($Path, $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$profile = if ($Release) { "release" } else { "debug" }
+$targetDir = Join-Path $repoRoot "build\target"
+$stagingRoot = Join-Path $repoRoot "build\staging"
+$distDir = Join-Path $repoRoot "build\dist"
 
 Require-Command cargo
 Require-Command rustup
 
 Push-Location $repoRoot
 try {
+    if ($Release) {
+        $Profile = "release"
+    }
+
+    if ($Clean) {
+        Reset-Directory $stagingRoot
+        Reset-Directory $distDir
+    } else {
+        New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
+        New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+    }
+
+    $env:CARGO_TARGET_DIR = $targetDir
+
     rustup target add x86_64-unknown-uefi | Out-Host
     rustup component add rust-src llvm-tools-preview | Out-Host
 
     $cargoArgs = @("build", "-p", "teddy-bootloader", "--target", "x86_64-unknown-uefi")
-    if ($Release) {
+    if ($Profile -eq "release") {
         $cargoArgs += "--release"
     }
     & cargo @cargoArgs
@@ -40,7 +88,7 @@ try {
         "-p", "teddy-kernel",
         "--target", "kernel/x86_64-teddy-kernel.json"
     )
-    if ($Release) {
+    if ($Profile -eq "release") {
         $kernelArgs += "--release"
     }
     $kernelArgs += "--"
@@ -53,10 +101,11 @@ try {
     }
 
     $espBootDir = Join-Path $repoRoot "build\staging\esp\EFI\BOOT"
+    Reset-Directory (Join-Path $repoRoot "build\staging\esp")
     New-Item -ItemType Directory -Force -Path $espBootDir | Out-Null
 
-    $bootloaderArtifact = Join-Path $repoRoot "build\target\x86_64-unknown-uefi\$profile\teddy-bootloader.efi"
-    $kernelArtifact = Join-Path $repoRoot "build\target\x86_64-teddy-kernel\$profile\teddy-kernel"
+    $bootloaderArtifact = Join-Path $repoRoot "build\target\x86_64-unknown-uefi\$Profile\teddy-bootloader.efi"
+    $kernelArtifact = Join-Path $repoRoot "build\target\x86_64-teddy-kernel\$Profile\teddy-kernel"
 
     if (-not (Test-Path $bootloaderArtifact)) {
         throw "Bootloader artifact not found at $bootloaderArtifact"
@@ -71,13 +120,23 @@ try {
     Write-Host "EFI staging tree ready at build\staging\esp" -ForegroundColor Green
 
     if (-not $SkipIso) {
-        & (Join-Path $PSScriptRoot "make-iso.ps1") -Profile $profile
+        & (Join-Path $PSScriptRoot "make-iso.ps1") -Profile $Profile
         if ($LASTEXITCODE -ne 0) {
             throw "ISO generation failed."
         }
     }
+
+    $isoPath = Join-Path $distDir "teddy-os-$Profile.iso"
+    $buildManifestPath = Join-Path $distDir "build-$Profile.json"
+    Write-BuildManifest `
+        -Path $buildManifestPath `
+        -ProfileName $Profile `
+        -BootloaderPath $bootloaderArtifact `
+        -KernelPath $kernelArtifact `
+        -IsoPath $isoPath
+
+    Write-Host "Build manifest written to $buildManifestPath" -ForegroundColor Green
 }
 finally {
     Pop-Location
 }
-
