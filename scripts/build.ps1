@@ -46,9 +46,10 @@ function Write-BuildManifest {
 }
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$targetDir = Join-Path $repoRoot "build\target"
-$stagingRoot = Join-Path $repoRoot "build\staging"
-$distDir = Join-Path $repoRoot "build\dist"
+$buildRoot = Join-Path $repoRoot "build"
+$targetDir = Join-Path $buildRoot "target"
+$stagingRoot = Join-Path $buildRoot "staging"
+$distDir = Join-Path $buildRoot "dist"
 
 Require-Command cargo
 Require-Command rustup
@@ -105,12 +106,16 @@ try {
         throw "Kernel build failed."
     }
 
-    $espBootDir = Join-Path $repoRoot "build\staging\esp\EFI\BOOT"
-    Reset-Directory (Join-Path $repoRoot "build\staging\esp")
+    $espRoot = Join-Path $stagingRoot "esp"
+    $espEfiDir = Join-Path $espRoot "EFI"
+    $espBootDir = Join-Path $espEfiDir "BOOT"
+    Reset-Directory $espRoot
     New-Item -ItemType Directory -Force -Path $espBootDir | Out-Null
 
-    $bootloaderArtifact = Join-Path $repoRoot "build\target\x86_64-unknown-uefi\$Profile\teddy-bootloader.efi"
-    $kernelArtifact = Join-Path $repoRoot "build\target\x86_64-teddy-kernel\$Profile\teddy-kernel"
+    $bootloaderTargetDir = Join-Path (Join-Path $targetDir "x86_64-unknown-uefi") $Profile
+    $kernelTargetDir = Join-Path (Join-Path $targetDir "x86_64-teddy-kernel") $Profile
+    $bootloaderArtifact = Join-Path $bootloaderTargetDir "teddy-bootloader.efi"
+    $kernelArtifact = Join-Path $kernelTargetDir "teddy-kernel"
 
     if (-not (Test-Path $bootloaderArtifact)) {
         throw "Bootloader artifact not found at $bootloaderArtifact"

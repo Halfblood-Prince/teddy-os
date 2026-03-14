@@ -32,10 +32,12 @@ function Write-TextFile {
 }
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$espRoot = Join-Path $repoRoot "build\staging\esp"
-$isoRoot = Join-Path $repoRoot "build\staging\iso"
-$distDir = Join-Path $repoRoot "build\dist"
-$espImage = Join-Path $repoRoot "build\staging\efiboot.img"
+$buildRoot = Join-Path $repoRoot "build"
+$stagingRoot = Join-Path $buildRoot "staging"
+$espRoot = Join-Path $stagingRoot "esp"
+$isoRoot = Join-Path $stagingRoot "iso"
+$distDir = Join-Path $buildRoot "dist"
+$espImage = Join-Path $stagingRoot "efiboot.img"
 $isoPath = Join-Path $distDir "teddy-os-$Profile.iso"
 
 if (-not (Test-Path $espRoot)) {
@@ -49,7 +51,8 @@ Require-Command xorriso
 
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 Reset-Directory $isoRoot
-New-Item -ItemType Directory -Force -Path (Join-Path $isoRoot "EFI") | Out-Null
+$isoEfiDir = Join-Path $isoRoot "EFI"
+New-Item -ItemType Directory -Force -Path $isoEfiDir | Out-Null
 
 if (Test-Path $espImage) {
     Remove-Item -Force $espImage
@@ -77,12 +80,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "mmd failed."
 }
 
-& mcopy -i $espImage -s "$espRoot\*" ::/
+$espSource = Join-Path $espRoot "*"
+& mcopy -i $espImage -s $espSource ::/
 if ($LASTEXITCODE -ne 0) {
     throw "mcopy failed."
 }
 
-Copy-Item $espImage (Join-Path $isoRoot "EFI\efiboot.img") -Force
+Copy-Item $espImage (Join-Path $isoEfiDir "efiboot.img") -Force
 
 & xorriso -as mkisofs `
     -R `
