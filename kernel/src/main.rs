@@ -37,10 +37,13 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     logln!("Boot step: memory online");
     timer::init();
     logln!("Boot step: timer online");
+    logln!("Boot step: entering network init");
     let network_info = network::init();
     logln!("Boot step: network probe complete");
+    logln!("Boot step: entering storage init");
     let storage_info = storage::init();
     logln!("Boot step: storage probe complete");
+    logln!("Boot step: entering filesystem init");
     let mount_status = fs::init();
     logln!("Boot step: filesystem probe complete");
     input::init(

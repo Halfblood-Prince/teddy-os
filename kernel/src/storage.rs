@@ -82,35 +82,31 @@ struct AtaDrive {
 }
 
 static DRIVE: Mutex<Option<AtaDrive>> = Mutex::new(None);
+static PROBED: Mutex<bool> = Mutex::new(false);
 
 pub fn init() -> StorageInfo {
-    let drive = detect_drive(DriveSelect::Master).or_else(|| detect_drive(DriveSelect::Slave));
-    *DRIVE.lock() = drive;
-
-    if let Some(drive) = drive {
-        StorageInfo {
-            present: true,
-            drive: drive.drive,
-            total_sectors: drive.total_sectors,
-            sector_size: 512,
-            model: drive.model,
-        }
-    } else {
-        StorageInfo {
-            present: false,
-            drive: DriveSelect::Master,
-            total_sectors: 0,
-            sector_size: 512,
-            model: StorageTextBuffer::new(),
-        }
+    *DRIVE.lock() = None;
+    *PROBED.lock() = false;
+    StorageInfo {
+        present: false,
+        drive: DriveSelect::Master,
+        total_sectors: 0,
+        sector_size: 512,
+        model: {
+            let mut model = StorageTextBuffer::new();
+            model.push_str("probe deferred");
+            model
+        },
     }
 }
 
 pub fn is_ready() -> bool {
+    ensure_probed();
     DRIVE.lock().is_some()
 }
 
 pub fn stats() -> StorageStats {
+    ensure_probed();
     if let Some(drive) = *DRIVE.lock() {
         StorageStats {
             present: true,
@@ -133,6 +129,7 @@ pub fn stats() -> StorageStats {
 }
 
 pub fn read_sector(lba: u32, buffer: &mut [u8; 512]) -> Result<(), &'static str> {
+    ensure_probed();
     let Some(drive) = *DRIVE.lock() else {
         return Err("storage: no ATA drive");
     };
@@ -155,6 +152,7 @@ pub fn read_sector(lba: u32, buffer: &mut [u8; 512]) -> Result<(), &'static str>
 }
 
 pub fn write_sector(lba: u32, buffer: &[u8; 512]) -> Result<(), &'static str> {
+    ensure_probed();
     let Some(drive) = *DRIVE.lock() else {
         return Err("storage: no ATA drive");
     };
@@ -177,6 +175,17 @@ pub fn write_sector(lba: u32, buffer: &[u8; 512]) -> Result<(), &'static str> {
     }
 
     Ok(())
+}
+
+fn ensure_probed() {
+    let mut probed = PROBED.lock();
+    if *probed {
+        return;
+    }
+
+    let drive = detect_drive(DriveSelect::Master).or_else(|| detect_drive(DriveSelect::Slave));
+    *DRIVE.lock() = drive;
+    *probed = true;
 }
 
 fn detect_drive(select: DriveSelect) -> Option<AtaDrive> {
