@@ -1,0 +1,13 @@
+[package]
+name = "teddy-kernel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
+spin = "0.9"
+teddy-boot-proto = { path = "../libs/boot_proto" }
+
+[[bin]]
+name = "teddy-kernel"
+path = "src/main.rs"

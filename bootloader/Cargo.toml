@@ -1,0 +1,10 @@
+[package]
+name = "teddy-bootloader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+teddy-boot-proto = { path = "../libs/boot_proto" }
+uefi = { version = "0.33", features = ["alloc", "global_allocator", "panic_handler"] }
+xmas-elf = "0.9"
+
