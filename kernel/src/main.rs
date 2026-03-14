@@ -98,13 +98,23 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         interrupts::timer_frequency_hz()
     );
     logln!(
-        "Network: detected={} prepared={} device={} vendor={:#06x} device_id={:#06x}",
+        "Network: detected={} prepared={} driver_ready={} device={} vendor={:#06x} device_id={:#06x}",
         network_info.detected,
         network_info.prepared,
+        network_info.driver_ready,
         network_info.name.as_str(),
         network_info.vendor_id,
         network_info.device_id
     );
+    if network_info.detected {
+        logln!(
+            "Network io={:#010x} mmio={:#010x} irq={} state={}",
+            network_info.io_base,
+            network_info.mmio_base,
+            network_info.irq_line,
+            network_info.driver_state.as_str()
+        );
+    }
     logln!(
         "Storage: present={} persistent_fs={} formatted={}",
         storage_info.present,

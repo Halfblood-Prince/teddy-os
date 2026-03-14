@@ -199,7 +199,7 @@ impl TerminalApp {
 
     fn run_command(&mut self, command: &str, parser: &mut CommandParser<'_>) {
         match command {
-            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo dhcp dns fetch df diskinfo fsck reboot shutdown"),
+            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo netdiag dhcp dns fetch df diskinfo fsck reboot shutdown"),
             "echo" => self.echo_command(parser.rest()),
             "clear" => self.clear(),
             "ls" => match fs::ls(parser.next(), &mut self.scratch) {
@@ -267,6 +267,7 @@ impl TerminalApp {
                 }
             }
             "netinfo" => self.netinfo_command(),
+            "netdiag" => self.netdiag_command(),
             "dhcp" => self.dhcp_command(),
             "dns" => self.dns_command(parser.next()),
             "fetch" => self.fetch_command(parser.next()),
@@ -392,6 +393,8 @@ impl TerminalApp {
         let mut bars = FsTextBuffer::new();
         bars.push_str("prepared ");
         bars.push_str(if info.prepared { "yes" } else { "no" });
+        bars.push_str(" driver ");
+        bars.push_str(if info.driver_ready { "yes" } else { "no" });
         bars.push_str(" io ");
         push_u32(&mut bars, info.io_base);
         bars.push_str(" mmio ");
@@ -402,6 +405,35 @@ impl TerminalApp {
         mac.push_str("mac ");
         push_mac(&mut mac, info.mac.bytes());
         self.push_line(mac);
+
+        let mut state = FsTextBuffer::new();
+        state.push_str("state ");
+        state.push_str(info.driver_state.as_str());
+        self.push_line(state);
+    }
+
+    fn netdiag_command(&mut self) {
+        let info = network::info();
+        if !info.detected {
+            self.println("netdiag: no supported NIC");
+            return;
+        }
+
+        let mut line = FsTextBuffer::new();
+        line.push_str("irq ");
+        push_usize(&mut line, info.irq_line as usize);
+        line.push_str(" cmd ");
+        push_hex_u8(&mut line, info.command_register);
+        line.push_str(" isr ");
+        push_hex_u16(&mut line, info.interrupt_status);
+        self.push_line(line);
+
+        let mut cfg = FsTextBuffer::new();
+        cfg.push_str("rcr ");
+        push_hex_u32(&mut cfg, info.rx_config);
+        cfg.push_str(" tcr ");
+        push_hex_u32(&mut cfg, info.tx_config);
+        self.push_line(cfg);
     }
 
     fn dhcp_command(&mut self) {
@@ -614,6 +646,25 @@ fn push_mac(buffer: &mut FsTextBuffer, mac: [u8; 6]) {
             buffer.push_str(":");
         }
     }
+}
+
+fn push_hex_u8(buffer: &mut FsTextBuffer, value: u8) {
+    buffer.push_str("0x");
+    push_hex_byte(buffer, value);
+}
+
+fn push_hex_u16(buffer: &mut FsTextBuffer, value: u16) {
+    buffer.push_str("0x");
+    push_hex_byte(buffer, (value >> 8) as u8);
+    push_hex_byte(buffer, (value & 0x00FF) as u8);
+}
+
+fn push_hex_u32(buffer: &mut FsTextBuffer, value: u32) {
+    buffer.push_str("0x");
+    push_hex_byte(buffer, (value >> 24) as u8);
+    push_hex_byte(buffer, ((value >> 16) & 0xFF) as u8);
+    push_hex_byte(buffer, ((value >> 8) & 0xFF) as u8);
+    push_hex_byte(buffer, (value & 0xFF) as u8);
 }
 
 fn push_hex_byte(buffer: &mut FsTextBuffer, value: u8) {

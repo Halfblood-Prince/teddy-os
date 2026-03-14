@@ -318,53 +318,39 @@ Developers can create a GUI app with minimal code
 
 Existing apps (terminal, file explorer) use shared UI libraries
 
-Phase 13 — Package Manager
 
+
+Phase 13 — Package Manager
 Add a package management system so applications can be installed independently from OS updates.
 
 Goals
-
-Define a Teddy-OS package format
-
-Install applications from package files
-
-Remove installed applications
-
-List installed packages
-
-Support application versioning
+- Define a Teddy-OS package format
+- Install applications from package files
+- Remove installed applications
+- List installed packages
+- Support application versioning
 
 Requirements
-
-Package metadata format must be documented
-
-Package verification should exist
-
-Package installation must not break system integrity
+- Package metadata format must be documented
+- Package verification should exist
+- Package installation must not break system integrity
 
 Deliverables
-
 Components:
-
-Package manager CLI
-
-Package installer backend
-
-Package metadata schema
-
-Repository format
+- Package manager CLI
+- Package installer backend
+- Package metadata schema
+- Repository format
 
 Example commands:
+- pkg install
+- pkg remove
+- pkg update
+- pkg list
 
-pkg install
-pkg remove
-pkg update
-pkg list
 Success criteria
-
-Applications can be installed without reinstalling the OS
-
-Packages can be updated independently
+- Applications can be installed without reinstalling the OS
+- Packages can be updated independently
 
 
 

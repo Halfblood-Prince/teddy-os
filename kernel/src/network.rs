@@ -4,6 +4,21 @@ use x86_64::instructions::port::Port;
 const PCI_CONFIG_ADDRESS: u16 = 0xCF8;
 const PCI_CONFIG_DATA: u16 = 0xCFC;
 const MAX_TEXT: usize = 48;
+const RTL8139_IDR0: u16 = 0x00;
+const RTL8139_COMMAND: u16 = 0x37;
+const RTL8139_CAPR: u16 = 0x38;
+const RTL8139_IMR: u16 = 0x3C;
+const RTL8139_ISR: u16 = 0x3E;
+const RTL8139_TCR: u16 = 0x40;
+const RTL8139_RCR: u16 = 0x44;
+const RTL8139_CONFIG1: u16 = 0x52;
+const RTL8139_MSR: u16 = 0x58;
+const RTL8139_RESET: u8 = 0x10;
+const RTL8139_RX_ENABLE: u8 = 0x08;
+const RTL8139_TX_ENABLE: u8 = 0x04;
+const RTL8139_ACCEPT_BROADCAST: u32 = 1 << 3;
+const RTL8139_ACCEPT_PHYSICAL_MATCH: u32 = 1 << 1;
+const RTL8139_WRAP: u32 = 1 << 7;
 
 #[derive(Clone, Copy)]
 pub enum NicKind {
@@ -90,6 +105,13 @@ pub struct NetworkInfo {
     pub dhcp_ready: bool,
     pub dns_ready: bool,
     pub sockets_ready: bool,
+    pub driver_ready: bool,
+    pub driver_state: NetworkTextBuffer,
+    pub irq_line: u8,
+    pub command_register: u8,
+    pub interrupt_status: u16,
+    pub rx_config: u32,
+    pub tx_config: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -117,6 +139,13 @@ static NETWORK: Mutex<NetworkState> = Mutex::new(NetworkState {
         dhcp_ready: false,
         dns_ready: false,
         sockets_ready: false,
+        driver_ready: false,
+        driver_state: NetworkTextBuffer::new(),
+        irq_line: 0,
+        command_register: 0,
+        interrupt_status: 0,
+        rx_config: 0,
+        tx_config: 0,
     },
 });
 
@@ -145,6 +174,17 @@ pub fn init() -> NetworkInfo {
         dhcp_ready: false,
         dns_ready: false,
         sockets_ready: false,
+        driver_ready: false,
+        driver_state: {
+            let mut text = NetworkTextBuffer::new();
+            text.push_str("not initialized");
+            text
+        },
+        irq_line: 0,
+        command_register: 0,
+        interrupt_status: 0,
+        rx_config: 0,
+        tx_config: 0,
     });
     state.info
 }
@@ -200,6 +240,13 @@ fn detect_supported_nic() -> Option<NetworkInfo> {
                     dhcp_ready: false,
                     dns_ready: false,
                     sockets_ready: false,
+                    driver_ready: false,
+                    driver_state: NetworkTextBuffer::new(),
+                    irq_line: 0,
+                    command_register: 0,
+                    interrupt_status: 0,
+                    rx_config: 0,
+                    tx_config: 0,
                 };
 
                 prepare_pci_device(bus, slot, function, nic_kind, &mut info);
@@ -244,7 +291,10 @@ fn prepare_pci_device(bus: u8, slot: u8, function: u8, nic_kind: NicKind, info: 
     }
 
     if matches!(nic_kind, NicKind::Rtl8139) && info.io_base != 0 {
-        info.mac = read_rtl8139_mac(info.io_base as u16);
+        let io_base = info.io_base as u16;
+        info.mac = read_rtl8139_mac(io_base);
+        info.irq_line = (pci_read_u32(bus, slot, function, 0x3C) & 0xFF) as u8;
+        initialize_rtl8139(io_base, info);
     }
 
     info.prepared = true;
@@ -254,10 +304,56 @@ fn read_rtl8139_mac(io_base: u16) -> MacAddress {
     let mut mac = [0u8; 6];
     unsafe {
         for (index, byte) in mac.iter_mut().enumerate() {
-            *byte = Port::<u8>::new(io_base + index as u16).read();
+            *byte = Port::<u8>::new(io_base + RTL8139_IDR0 + index as u16).read();
         }
     }
     MacAddress { bytes: mac }
+}
+
+fn initialize_rtl8139(io_base: u16, info: &mut NetworkInfo) {
+    unsafe {
+        let mut config1 = Port::<u8>::new(io_base + RTL8139_CONFIG1);
+        config1.write(0x00);
+
+        let mut command = Port::<u8>::new(io_base + RTL8139_COMMAND);
+        command.write(RTL8139_RESET);
+        for _ in 0..100_000 {
+            if command.read() & RTL8139_RESET == 0 {
+                break;
+            }
+        }
+
+        Port::<u16>::new(io_base + RTL8139_IMR).write(0x0000);
+        Port::<u16>::new(io_base + RTL8139_ISR).write(0xFFFF);
+        Port::<u16>::new(io_base + RTL8139_CAPR).write(0x0000);
+
+        let rx_config = RTL8139_ACCEPT_BROADCAST | RTL8139_ACCEPT_PHYSICAL_MATCH | RTL8139_WRAP;
+        Port::<u32>::new(io_base + RTL8139_RCR).write(rx_config);
+        let tx_config = Port::<u32>::new(io_base + RTL8139_TCR).read();
+        command.write(RTL8139_RX_ENABLE | RTL8139_TX_ENABLE);
+
+        info.command_register = command.read();
+        info.interrupt_status = Port::<u16>::new(io_base + RTL8139_ISR).read();
+        info.rx_config = Port::<u32>::new(io_base + RTL8139_RCR).read();
+        info.tx_config = tx_config;
+
+        let link_ok = Port::<u8>::new(io_base + RTL8139_MSR).read() & 0x04 != 0;
+        info.driver_ready = info.command_register & (RTL8139_RX_ENABLE | RTL8139_TX_ENABLE)
+            == (RTL8139_RX_ENABLE | RTL8139_TX_ENABLE);
+        info.driver_state = {
+            let mut text = NetworkTextBuffer::new();
+            if info.driver_ready {
+                if link_ok {
+                    text.push_str("rtl8139 ready link-up");
+                } else {
+                    text.push_str("rtl8139 ready link-down");
+                }
+            } else {
+                text.push_str("rtl8139 init failed");
+            }
+            text
+        };
+    }
 }
 
 fn pci_read_u32(bus: u8, slot: u8, function: u8, offset: u8) -> u32 {
