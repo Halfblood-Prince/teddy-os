@@ -42,6 +42,8 @@ const DHCP_CLIENT_PORT: u16 = 68;
 const DHCP_SERVER_PORT: u16 = 67;
 const DHCP_DISCOVER_OPTIONS_LEN: usize = 13;
 const DHCP_DISCOVER_LEN: usize = 236 + DHCP_DISCOVER_OPTIONS_LEN;
+const DHCP_REQUEST_OPTIONS_LEN: usize = 19;
+const DHCP_REQUEST_LEN: usize = 236 + DHCP_REQUEST_OPTIONS_LEN;
 
 #[derive(Clone, Copy)]
 pub enum NicKind {
@@ -174,6 +176,7 @@ pub struct NetworkInfo {
     pub last_udp_length: u16,
     pub dhcp_packets: u64,
     pub dhcp_discover_attempts: u64,
+    pub dhcp_request_attempts: u64,
     pub last_dhcp_message_type: u8,
     pub last_dhcp_xid: u32,
     pub dhcp_offer_ip: Ipv4Address,
@@ -255,6 +258,7 @@ static NETWORK: Mutex<NetworkState> = Mutex::new(NetworkState {
         last_udp_length: 0,
         dhcp_packets: 0,
         dhcp_discover_attempts: 0,
+        dhcp_request_attempts: 0,
         last_dhcp_message_type: 0,
         last_dhcp_xid: 0,
         dhcp_offer_ip: Ipv4Address::unspecified(),
@@ -327,6 +331,7 @@ pub fn init() -> NetworkInfo {
         last_udp_length: 0,
         dhcp_packets: 0,
         dhcp_discover_attempts: 0,
+        dhcp_request_attempts: 0,
         last_dhcp_message_type: 0,
         last_dhcp_xid: 0,
         dhcp_offer_ip: Ipv4Address::unspecified(),
@@ -414,22 +419,91 @@ pub fn send_dhcp_discover() -> Result<(), &'static str> {
 
     let slot = state.tx_slot;
     let xid = 0x5444_0000u32 | ((state.info.dhcp_discover_attempts as u32 + 1) & 0xFFFF);
-    let udp_len = (UDP_HEADER_LEN + DHCP_DISCOVER_LEN) as u16;
+    let frame_len = build_dhcp_frame(
+        &mut state.info,
+        slot,
+        xid,
+        1,
+        None,
+        None,
+        DHCP_DISCOVER_LEN,
+    )?;
+
+    state.info.tx_attempts = state.info.tx_attempts.saturating_add(1);
+    state.info.dhcp_discover_attempts = state.info.dhcp_discover_attempts.saturating_add(1);
+    state.info.last_tx_length = frame_len as u16;
+    state.info.last_dhcp_xid = xid;
+    state.info.last_dhcp_message_type = 1;
+    state.info.dhcp_ready = false;
+    Ok(())
+}
+
+pub fn send_dhcp_request() -> Result<(), &'static str> {
+    let mut state = NETWORK.lock();
+    if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
+        return Err("network: rtl8139 not ready");
+    }
+    if state.info.dhcp_offer_ip.octets() == Ipv4Address::unspecified().octets() {
+        return Err("network: no dhcp offer available");
+    }
+    if state.info.dhcp_server.octets() == Ipv4Address::unspecified().octets() {
+        return Err("network: no dhcp server available");
+    }
+
+    let slot = state.tx_slot;
+    let xid = if state.info.last_dhcp_xid != 0 {
+        state.info.last_dhcp_xid
+    } else {
+        0x5444_8000u32 | ((state.info.dhcp_request_attempts as u32 + 1) & 0xFFFF)
+    };
+    let offered_ip = state.info.dhcp_offer_ip;
+    let server = state.info.dhcp_server;
+    let frame_len = build_dhcp_frame(
+        &mut state.info,
+        slot,
+        xid,
+        3,
+        Some(offered_ip),
+        Some(server),
+        DHCP_REQUEST_LEN,
+    )?;
+
+    state.info.tx_attempts = state.info.tx_attempts.saturating_add(1);
+    state.info.dhcp_request_attempts = state.info.dhcp_request_attempts.saturating_add(1);
+    state.info.last_tx_length = frame_len as u16;
+    state.info.last_dhcp_xid = xid;
+    state.info.last_dhcp_message_type = 3;
+    Ok(())
+}
+
+fn build_dhcp_frame(
+    info: &mut NetworkInfo,
+    slot: usize,
+    xid: u32,
+    message_type: u8,
+    requested_ip: Option<Ipv4Address>,
+    server_id: Option<Ipv4Address>,
+    dhcp_len: usize,
+) -> Result<usize, &'static str> {
+    let udp_len = (UDP_HEADER_LEN + dhcp_len) as u16;
     let ipv4_len = (IPV4_MIN_HEADER_LEN as u16) + udp_len;
     let frame_len = ETHERNET_HEADER_LEN + ipv4_len as usize;
+    if frame_len > RTL8139_TX_BUFFER_LEN {
+        return Err("network: dhcp frame too large");
+    }
 
     unsafe {
         let buffer = &mut RTL8139_TX_BUFFERS[slot].0;
         let destination = MacAddress::broadcast();
         buffer[..6].copy_from_slice(&destination.bytes());
-        buffer[6..12].copy_from_slice(&state.info.mac.bytes());
+        buffer[6..12].copy_from_slice(&info.mac.bytes());
         buffer[12..14].copy_from_slice(&ETHERTYPE_IPV4.to_be_bytes());
 
         let ipv4 = &mut buffer[ETHERNET_HEADER_LEN..ETHERNET_HEADER_LEN + IPV4_MIN_HEADER_LEN];
         ipv4.fill(0);
         ipv4[0] = 0x45;
         ipv4[2..4].copy_from_slice(&ipv4_len.to_be_bytes());
-        ipv4[4..6].copy_from_slice(&(state.info.dhcp_discover_attempts as u16 + 1).to_be_bytes());
+        ipv4[4..6].copy_from_slice(&(info.tx_attempts as u16 + 1).to_be_bytes());
         ipv4[8] = 64;
         ipv4[9] = IP_PROTOCOL_UDP;
         ipv4[12..16].copy_from_slice(&Ipv4Address::unspecified().octets());
@@ -444,7 +518,7 @@ pub fn send_dhcp_discover() -> Result<(), &'static str> {
         udp[4..6].copy_from_slice(&udp_len.to_be_bytes());
         udp[6..8].copy_from_slice(&0u16.to_be_bytes());
 
-        let dhcp = &mut buffer[udp_start + UDP_HEADER_LEN..udp_start + UDP_HEADER_LEN + DHCP_DISCOVER_LEN];
+        let dhcp = &mut buffer[udp_start + UDP_HEADER_LEN..udp_start + UDP_HEADER_LEN + dhcp_len];
         dhcp.fill(0);
         dhcp[0] = 1;
         dhcp[1] = 1;
@@ -452,21 +526,32 @@ pub fn send_dhcp_discover() -> Result<(), &'static str> {
         dhcp[3] = 0;
         dhcp[4..8].copy_from_slice(&xid.to_be_bytes());
         dhcp[10..12].copy_from_slice(&0x8000u16.to_be_bytes());
-        dhcp[28..34].copy_from_slice(&state.info.mac.bytes());
+        dhcp[28..34].copy_from_slice(&info.mac.bytes());
         dhcp[236..240].copy_from_slice(&[99, 130, 83, 99]);
-        dhcp[240..243].copy_from_slice(&[53, 1, 1]);
-        dhcp[243..248].copy_from_slice(&[55, 3, 1, 3, 6]);
-        dhcp[248] = 255;
+        dhcp[240..243].copy_from_slice(&[53, 1, message_type]);
 
-        let io_base = state.info.io_base as u16;
+        let mut options_index = 243usize;
+        if let Some(ip) = requested_ip {
+            let octets = ip.octets();
+            dhcp[options_index..options_index + 6]
+                .copy_from_slice(&[50, 4, octets[0], octets[1], octets[2], octets[3]]);
+            options_index += 6;
+        }
+        if let Some(server) = server_id {
+            let octets = server.octets();
+            dhcp[options_index..options_index + 6]
+                .copy_from_slice(&[54, 4, octets[0], octets[1], octets[2], octets[3]]);
+            options_index += 6;
+        }
+        dhcp[options_index..options_index + 5].copy_from_slice(&[55, 3, 1, 3, 6]);
+        options_index += 5;
+        dhcp[options_index] = 255;
+
+        let io_base = info.io_base as u16;
         Port::<u32>::new(io_base + RTL8139_TX_STATUS0 + (slot as u16 * 4)).write(frame_len as u32);
     }
 
-    state.info.tx_attempts = state.info.tx_attempts.saturating_add(1);
-    state.info.dhcp_discover_attempts = state.info.dhcp_discover_attempts.saturating_add(1);
-    state.info.last_tx_length = frame_len as u16;
-    state.info.last_dhcp_xid = xid;
-    Ok(())
+    Ok(frame_len)
 }
 
 pub fn poll() {
@@ -580,6 +665,7 @@ fn detect_supported_nic() -> Option<NetworkInfo> {
                     last_udp_length: 0,
                     dhcp_packets: 0,
                     dhcp_discover_attempts: 0,
+                    dhcp_request_attempts: 0,
                     last_dhcp_message_type: 0,
                     last_dhcp_xid: 0,
                     dhcp_offer_ip: Ipv4Address::unspecified(),
@@ -820,6 +906,7 @@ fn parse_udp_packet(info: &mut NetworkInfo, packet: &[u8; RTL8139_RX_BUFFER_LEN]
 
         match info.last_dhcp_message_type {
             2 => {
+                info.dhcp_ready = false;
                 info.driver_state = {
                     let mut text = NetworkTextBuffer::new();
                     text.push_str("rtl8139 dhcp offer received");
@@ -837,6 +924,7 @@ fn parse_udp_packet(info: &mut NetworkInfo, packet: &[u8; RTL8139_RX_BUFFER_LEN]
             }
             6 => {
                 info.dhcp_ready = false;
+                info.ip = Ipv4Address::unspecified();
                 info.driver_state = {
                     let mut text = NetworkTextBuffer::new();
                     text.push_str("rtl8139 dhcp nack");

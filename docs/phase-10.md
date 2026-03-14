@@ -32,6 +32,7 @@
   - parse received UDP metadata
   - parse DHCP-related UDP metadata
   - transmit a DHCP Discover broadcast
+  - transmit a DHCP Request after an observed offer
   - parse DHCP Offer/Ack/Nak details
   - extract offered IPv4, router, DNS, and DHCP server metadata
   - apply the configured IPv4 address when a DHCP Ack is observed
@@ -62,11 +63,11 @@ This Phase 10 implementation now includes both PCI NIC detection and a concrete
 device-specific initialization path for RTL8139, including RX/TX DMA buffer
 programming, poll-based runtime status tracking, basic received-frame metadata
 parsing, ARP frame handling, initial IPv4/UDP parsing, and controlled transmit
-paths including DHCP Discover. It now also keeps track of offered/configured
-addressing details from DHCP replies so lease progress is visible from inside
-the terminal.
+paths including DHCP Discover and DHCP Request. It now also keeps track of
+offered/configured addressing details from DHCP replies so lease progress is
+visible from inside the terminal.
 
-It does not yet complete a full DHCP request/renew state machine, DNS resolution,
+It does not yet complete a full DHCP renew/rebind state machine, DNS resolution,
 TCP/UDP data transfer, or HTTP/HTTPS fetches. Those remain the next networking
 steps on top of this device-discovery and hardware-init foundation.
 
@@ -76,7 +77,7 @@ steps on top of this device-discovery and hardware-init foundation.
 - `netdiag` prints IRQ, selected NIC register state, DMA buffer addresses, packet counters, last-frame metadata, and DHCP lease details
 - `netsend` queues a small broadcast test Ethernet frame on RTL8139
 - `arp <ipv4>` queues a broadcast ARP request for the target IPv4 address
-- `dhcp` queues a DHCP Discover broadcast
+- `dhcp` queues a DHCP Discover broadcast first, then a DHCP Request once an offer is available
 - `dns <host>` reports the current DNS-resolver scaffolding status
 - `fetch <url>` reports the current transport/fetch scaffolding status
 
@@ -91,14 +92,15 @@ steps on top of this device-discovery and hardware-init foundation.
 7. Run `netsend` and confirm the transmit-attempt counter changes.
 8. Run `arp 192.168.1.1` and confirm the transmit-attempt counter changes again.
 9. If other guests or the host network generate ARP traffic, confirm `netdiag` shows ARP counters and last ARP metadata.
-10. Run `dhcp` and confirm the DHCP transmit counter changes.
-11. If a DHCP reply is seen, confirm `netdiag` shows IPv4/UDP/DHCP counters, the offered IPv4, DHCP server, and any router/DNS values.
-12. If a DHCP Ack is seen, confirm `netinfo` reports a non-zero configured IPv4 address and `netdiag` reports `ready yes`.
-13. Run `dns example.com` and `fetch https://example.com` to confirm the higher-level networking surface is still reachable from inside the OS.
+10. Run `dhcp` once and confirm the DHCP discover counter changes.
+11. If a DHCP Offer is seen, run `dhcp` again and confirm the DHCP request counter changes.
+12. If a DHCP reply is seen, confirm `netdiag` shows IPv4/UDP/DHCP counters, the offered IPv4, DHCP server, and any router/DNS values.
+13. If a DHCP Ack is seen, confirm `netinfo` reports a non-zero configured IPv4 address and `netdiag` reports `ready yes`.
+14. Run `dns example.com` and `fetch https://example.com` to confirm the higher-level networking surface is still reachable from inside the OS.
 
 ## Known Limitations
 
-- DHCP Discover transmission and Offer/Ack parsing are present, but the full lease-request/renew state machine is not complete yet
+- DHCP Discover and initial Request transmission are present, but the full renew/rebind state machine is not complete yet
 - DNS, TCP, UDP sockets, and HTTP/HTTPS are not finished yet
 - the current work is a networking foundation and diagnostics pass, not a full updater-ready internet stack
 - compile and VMware verification were not possible in this shell because the Rust toolchain is not available on `PATH`

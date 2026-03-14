@@ -522,8 +522,10 @@ impl TerminalApp {
         let mut dhcp = FsTextBuffer::new();
         dhcp.push_str("dhcp rx ");
         push_u64(&mut dhcp, info.dhcp_packets);
-        dhcp.push_str(" tx ");
+        dhcp.push_str(" discover ");
         push_u64(&mut dhcp, info.dhcp_discover_attempts);
+        dhcp.push_str(" request ");
+        push_u64(&mut dhcp, info.dhcp_request_attempts);
         dhcp.push_str(" type ");
         push_usize(&mut dhcp, info.last_dhcp_message_type as usize);
         dhcp.push_str(" ready ");
@@ -570,8 +572,17 @@ impl TerminalApp {
     }
 
     fn dhcp_command(&mut self) {
-        match network::send_dhcp_discover() {
-            Ok(()) => self.println("dhcp: discover queued"),
+        let info = network::info();
+        let result = if info.dhcp_offer_ip.octets() != network::Ipv4Address::unspecified().octets()
+            && !info.dhcp_ready
+        {
+            network::send_dhcp_request().map(|()| "dhcp: request queued")
+        } else {
+            network::send_dhcp_discover().map(|()| "dhcp: discover queued")
+        };
+
+        match result {
+            Ok(message) => self.println(message),
             Err(error) => self.println(error),
         }
     }
