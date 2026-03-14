@@ -9,6 +9,7 @@ This directory contains the developer entry points for the Teddy-OS workflow.
 - `clean.ps1` - removes staged and distribution outputs
 - `release.ps1` - writes a release metadata JSON file for a built ISO
 - `run-vmware.ps1` - starts an existing VMware VM through `vmrun`
+- `inspect-iso.ps1` - validates that an ISO contains a UEFI El Torito boot entry and `BOOTX64.EFI`
 
 ## Typical Flow
 
@@ -16,6 +17,7 @@ This directory contains the developer entry points for the Teddy-OS workflow.
 ./scripts/build.ps1
 ./scripts/release.ps1 -Version 0.1.0
 ./scripts/run-vmware.ps1 -VmxPath C:\VMs\Teddy-OS\Teddy-OS.vmx
+./scripts/inspect-iso.ps1 -IsoPath build/dist/teddy-os-debug.iso
 ```
 
 See
