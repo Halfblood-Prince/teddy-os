@@ -1,0 +1,613 @@
+use spin::Mutex;
+
+use crate::storage;
+
+pub const LINE_CAPACITY: usize = 96;
+pub const MAX_OUTPUT_LINES: usize = 24;
+
+const MAGIC: &[u8; 8] = b"TEDDYFS1";
+const SUPERBLOCK_LBA: u32 = 0;
+const ENTRY_SECTORS: u32 = 8;
+const ENTRY_COUNT: usize = 64;
+const ENTRY_SIZE: usize = 64;
+const DATA_START_LBA: u32 = 1 + ENTRY_SECTORS;
+const FILE_SECTORS: u32 = 8;
+const MAX_NAME: usize = 24;
+const MAX_FILE_BYTES: usize = (FILE_SECTORS as usize) * 512;
+
+#[derive(Clone, Copy)]
+pub struct FsTextBuffer {
+    bytes: [u8; LINE_CAPACITY],
+    len: usize,
+}
+
+impl FsTextBuffer {
+    pub const fn new() -> Self {
+        Self {
+            bytes: [0; LINE_CAPACITY],
+            len: 0,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    pub fn push_str(&mut self, text: &str) {
+        let bytes = text.as_bytes();
+        let write_len = bytes.len().min(self.bytes.len().saturating_sub(self.len));
+        self.bytes[self.len..self.len + write_len].copy_from_slice(&bytes[..write_len]);
+        self.len += write_len;
+    }
+
+    pub fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.bytes[..self.len]).unwrap_or("?")
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum EntryKind {
+    Directory = 1,
+    File = 2,
+}
+
+#[derive(Clone, Copy)]
+struct FsEntry {
+    used: bool,
+    kind: EntryKind,
+    parent: u16,
+    name: [u8; MAX_NAME],
+    name_len: usize,
+    size: usize,
+    created_tick: u64,
+    modified_tick: u64,
+}
+
+impl FsEntry {
+    const fn empty() -> Self {
+        Self {
+            used: false,
+            kind: EntryKind::Directory,
+            parent: 0,
+            name: [0; MAX_NAME],
+            name_len: 0,
+            size: 0,
+            created_tick: 0,
+            modified_tick: 0,
+        }
+    }
+
+    fn set_name(&mut self, name: &str) {
+        self.name_len = 0;
+        let bytes = name.as_bytes();
+        let write_len = bytes.len().min(MAX_NAME);
+        self.name[..write_len].copy_from_slice(&bytes[..write_len]);
+        self.name_len = write_len;
+    }
+
+    fn name(&self) -> &str {
+        core::str::from_utf8(&self.name[..self.name_len]).unwrap_or("?")
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Metadata {
+    pub is_dir: bool,
+    pub size: usize,
+    pub created_tick: u64,
+    pub modified_tick: u64,
+}
+
+#[derive(Clone, Copy)]
+pub struct MountStatus {
+    pub mounted: bool,
+    pub formatted: bool,
+    pub persistent: bool,
+}
+
+struct TeddyFs {
+    entries: [FsEntry; ENTRY_COUNT],
+    cwd: usize,
+    mounted: bool,
+}
+
+impl TeddyFs {
+    fn new() -> Self {
+        Self {
+            entries: [FsEntry::empty(); ENTRY_COUNT],
+            cwd: 0,
+            mounted: false,
+        }
+    }
+
+    fn format(&mut self) -> Result<(), &'static str> {
+        self.entries = [FsEntry::empty(); ENTRY_COUNT];
+        self.cwd = 0;
+        self.entries[0].used = true;
+        self.entries[0].kind = EntryKind::Directory;
+        self.entries[0].parent = 0;
+        self.entries[0].set_name("");
+
+        let docs = self.create_entry(0, "docs", EntryKind::Directory, 0)?;
+        let data = self.create_entry(0, "data", EntryKind::Directory, 0)?;
+        let readme = self.create_entry(0, "readme.txt", EntryKind::File, 0)?;
+        let notes = self.create_entry(docs, "notes.txt", EntryKind::File, 0)?;
+        let welcome = self.create_entry(data, "welcome.txt", EntryKind::File, 0)?;
+
+        // Seed a tiny starter tree so the terminal has a meaningful mounted volume immediately.
+        self.write_bytes(readme, b"Welcome to TeddyFS.\nThis volume persists on the VMware data disk.", 0)?;
+        self.write_bytes(notes, b"Phase 5 mounted a simple persistent filesystem.\nTerminal commands now use this volume.", 0)?;
+        self.write_bytes(welcome, b"Use echo text > file.txt to write files.", 0)?;
+        self.persist_all()?;
+        self.mounted = true;
+        Ok(())
+    }
+
+    fn mount(&mut self) -> Result<bool, &'static str> {
+        if !storage::is_ready() {
+            self.mounted = false;
+            return Ok(false);
+        }
+
+        let mut sector = [0u8; 512];
+        storage::read_sector(SUPERBLOCK_LBA, &mut sector)?;
+        if &sector[..8] != MAGIC {
+            self.format()?;
+            return Ok(true);
+        }
+
+        self.entries = [FsEntry::empty(); ENTRY_COUNT];
+        for sector_offset in 0..ENTRY_SECTORS {
+            storage::read_sector(1 + sector_offset, &mut sector)?;
+            for slot in 0..(512 / ENTRY_SIZE) {
+                let index = sector_offset as usize * (512 / ENTRY_SIZE) + slot;
+                if index >= ENTRY_COUNT {
+                    break;
+                }
+                self.entries[index] = decode_entry(&sector[slot * ENTRY_SIZE..(slot + 1) * ENTRY_SIZE]);
+            }
+        }
+        self.cwd = 0;
+        self.mounted = true;
+        Ok(false)
+    }
+
+    fn pwd(&self) -> FsTextBuffer {
+        path_for(&self.entries, self.cwd)
+    }
+
+    fn ls(&self, path: Option<&str>, out: &mut [FsTextBuffer; MAX_OUTPUT_LINES]) -> Result<usize, &'static str> {
+        let index = self.resolve(path.unwrap_or("."))?;
+        match self.entries[index].kind {
+            EntryKind::File => {
+                out[0].clear();
+                out[0].push_str(self.entries[index].name());
+                Ok(1)
+            }
+            EntryKind::Directory => {
+                let mut count = 0usize;
+                for entry in self.entries.iter() {
+                    if entry.used && entry.parent as usize == index && entry.name_len > 0 && count < out.len() {
+                        out[count].clear();
+                        out[count].push_str(entry.name());
+                        if matches!(entry.kind, EntryKind::Directory) {
+                            out[count].push_str("/");
+                        }
+                        count += 1;
+                    }
+                }
+                if count == 0 {
+                    out[0].clear();
+                    out[0].push_str("<empty>");
+                    Ok(1)
+                } else {
+                    Ok(count)
+                }
+            }
+        }
+    }
+
+    fn cd(&mut self, path: &str) -> Result<(), &'static str> {
+        let index = self.resolve(path)?;
+        if matches!(self.entries[index].kind, EntryKind::Directory) {
+            self.cwd = index;
+            Ok(())
+        } else {
+            Err("cd: not a directory")
+        }
+    }
+
+    fn cat(&self, path: &str, out: &mut [FsTextBuffer; MAX_OUTPUT_LINES]) -> Result<usize, &'static str> {
+        let index = self.resolve(path)?;
+        if !matches!(self.entries[index].kind, EntryKind::File) {
+            return Err("cat: path is a directory");
+        }
+
+        let size = self.entries[index].size.min(MAX_FILE_BYTES);
+        let mut bytes = [0u8; MAX_FILE_BYTES];
+        self.read_bytes(index, &mut bytes)?;
+        let content = core::str::from_utf8(&bytes[..size]).unwrap_or("?");
+        let mut count = 0usize;
+        for segment in content.split('\n') {
+            if count >= out.len() {
+                break;
+            }
+            out[count].clear();
+            out[count].push_str(segment);
+            count += 1;
+        }
+        Ok(count.max(1))
+    }
+
+    fn mkdir(&mut self, path: &str, tick: u64) -> Result<(), &'static str> {
+        let (parent, name) = self.resolve_parent(path)?;
+        if self.find_child(parent, name).is_some() {
+            return Err("mkdir: entry already exists");
+        }
+        self.create_entry(parent, name, EntryKind::Directory, tick)?;
+        self.persist_all()
+    }
+
+    fn touch(&mut self, path: &str, tick: u64) -> Result<(), &'static str> {
+        let (parent, name) = self.resolve_parent(path)?;
+        if let Some(index) = self.find_child(parent, name) {
+            if matches!(self.entries[index].kind, EntryKind::Directory) {
+                return Err("touch: path is a directory");
+            }
+            self.entries[index].modified_tick = tick;
+            return self.persist_entry(index);
+        }
+        self.create_entry(parent, name, EntryKind::File, tick)?;
+        self.persist_all()
+    }
+
+    fn rm(&mut self, path: &str) -> Result<(), &'static str> {
+        let index = self.resolve(path)?;
+        if index == 0 {
+            return Err("rm: refusing to remove root");
+        }
+        if matches!(self.entries[index].kind, EntryKind::Directory) {
+            for entry in self.entries.iter() {
+                if entry.used && entry.parent as usize == index {
+                    return Err("rm: directory not empty");
+                }
+            }
+        }
+
+        self.entries[index] = FsEntry::empty();
+        self.clear_data(index)?;
+        self.persist_all()
+    }
+
+    fn write_text(&mut self, path: &str, text: &str, tick: u64) -> Result<(), &'static str> {
+        let (parent, name) = self.resolve_parent(path)?;
+        let index = if let Some(index) = self.find_child(parent, name) {
+            if matches!(self.entries[index].kind, EntryKind::Directory) {
+                return Err("write: path is a directory");
+            }
+            index
+        } else {
+            self.create_entry(parent, name, EntryKind::File, tick)?
+        };
+
+        self.write_bytes(index, text.as_bytes(), tick)?;
+        self.persist_entry(index)
+    }
+
+    fn resolve(&self, path: &str) -> Result<usize, &'static str> {
+        if path.is_empty() || path == "." {
+            return Ok(self.cwd);
+        }
+
+        let mut current = if path.starts_with('/') { 0 } else { self.cwd };
+        for segment in path.split('/').filter(|segment| !segment.is_empty()) {
+            match segment {
+                "." => {}
+                ".." => current = self.entries[current].parent as usize,
+                name => current = self.find_child(current, name).ok_or("path not found")?,
+            }
+        }
+        Ok(current)
+    }
+
+    fn resolve_parent(&self, path: &str) -> Result<(usize, &str), &'static str> {
+        let trimmed = path.trim_end_matches('/');
+        if trimmed.is_empty() {
+            return Err("invalid path");
+        }
+
+        if let Some((parent_path, name)) = trimmed.rsplit_once('/') {
+            let parent = if parent_path.is_empty() { 0 } else { self.resolve(parent_path)? };
+            if name.is_empty() {
+                Err("invalid path")
+            } else {
+                Ok((parent, name))
+            }
+        } else {
+            Ok((self.cwd, trimmed))
+        }
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, &'static str> {
+        let index = self.resolve(path)?;
+        let entry = self.entries[index];
+        Ok(Metadata {
+            is_dir: matches!(entry.kind, EntryKind::Directory),
+            size: entry.size,
+            created_tick: entry.created_tick,
+            modified_tick: entry.modified_tick,
+        })
+    }
+
+    fn find_child(&self, parent: usize, name: &str) -> Option<usize> {
+        self.entries.iter().enumerate().find_map(|(index, entry)| {
+            if entry.used && entry.parent as usize == parent && entry.name() == name {
+                Some(index)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn create_entry(
+        &mut self,
+        parent: usize,
+        name: &str,
+        kind: EntryKind,
+        tick: u64,
+    ) -> Result<usize, &'static str> {
+        let slot = self.entries.iter().position(|entry| !entry.used).ok_or("fs: no free entries")?;
+        self.entries[slot].used = true;
+        self.entries[slot].kind = kind;
+        self.entries[slot].parent = parent as u16;
+        self.entries[slot].set_name(name);
+        self.entries[slot].size = 0;
+        self.entries[slot].created_tick = tick;
+        self.entries[slot].modified_tick = tick;
+        Ok(slot)
+    }
+
+    fn read_bytes(&self, index: usize, output: &mut [u8; MAX_FILE_BYTES]) -> Result<(), &'static str> {
+        let mut sector = [0u8; 512];
+        for sector_offset in 0..FILE_SECTORS {
+            storage::read_sector(data_lba_for(index, sector_offset), &mut sector)?;
+            let dest = sector_offset as usize * 512;
+            output[dest..dest + 512].copy_from_slice(&sector);
+        }
+        Ok(())
+    }
+
+    fn write_bytes(&mut self, index: usize, bytes: &[u8], tick: u64) -> Result<(), &'static str> {
+        let write_len = bytes.len().min(MAX_FILE_BYTES);
+        let mut sector = [0u8; 512];
+        for sector_offset in 0..FILE_SECTORS {
+            sector.fill(0);
+            let start = sector_offset as usize * 512;
+            let end = (start + 512).min(write_len);
+            if start < end {
+                sector[..end - start].copy_from_slice(&bytes[start..end]);
+            }
+            storage::write_sector(data_lba_for(index, sector_offset), &sector)?;
+        }
+
+        self.entries[index].size = write_len;
+        self.entries[index].modified_tick = tick;
+        Ok(())
+    }
+
+    fn clear_data(&self, index: usize) -> Result<(), &'static str> {
+        let zero = [0u8; 512];
+        for sector_offset in 0..FILE_SECTORS {
+            storage::write_sector(data_lba_for(index, sector_offset), &zero)?;
+        }
+        Ok(())
+    }
+
+    fn persist_entry(&self, index: usize) -> Result<(), &'static str> {
+        let sector_lba = 1 + (index as u32 / (512 / ENTRY_SIZE) as u32);
+        let entry_slot = index % (512 / ENTRY_SIZE);
+        let mut sector = [0u8; 512];
+        storage::read_sector(sector_lba, &mut sector)?;
+        encode_entry(&self.entries[index], &mut sector[entry_slot * ENTRY_SIZE..(entry_slot + 1) * ENTRY_SIZE]);
+        storage::write_sector(sector_lba, &sector)
+    }
+
+    fn persist_all(&self) -> Result<(), &'static str> {
+        let mut sector = [0u8; 512];
+        sector[..8].copy_from_slice(MAGIC);
+        sector[8..12].copy_from_slice(&(ENTRY_COUNT as u32).to_le_bytes());
+        sector[12..16].copy_from_slice(&FILE_SECTORS.to_le_bytes());
+        storage::write_sector(SUPERBLOCK_LBA, &sector)?;
+
+        // The entry table is fixed-size on disk to keep mount/format logic straightforward.
+        for sector_offset in 0..ENTRY_SECTORS {
+            sector.fill(0);
+            for slot in 0..(512 / ENTRY_SIZE) {
+                let index = sector_offset as usize * (512 / ENTRY_SIZE) + slot;
+                if index >= ENTRY_COUNT {
+                    break;
+                }
+                encode_entry(&self.entries[index], &mut sector[slot * ENTRY_SIZE..(slot + 1) * ENTRY_SIZE]);
+            }
+            storage::write_sector(1 + sector_offset, &sector)?;
+        }
+        Ok(())
+    }
+}
+
+static FS: Mutex<Option<TeddyFs>> = Mutex::new(None);
+
+pub fn init() -> MountStatus {
+    let mut fs = TeddyFs::new();
+    let formatted = fs.mount().unwrap_or(false);
+    let mounted = fs.mounted;
+    *FS.lock() = Some(fs);
+    MountStatus {
+        mounted,
+        formatted,
+        persistent: storage::is_ready(),
+    }
+}
+
+pub fn is_ready() -> bool {
+    FS.lock().as_ref().map(|fs| fs.mounted).unwrap_or(false)
+}
+
+pub fn pwd() -> Result<FsTextBuffer, &'static str> {
+    let guard = FS.lock();
+    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    Ok(fs.pwd())
+}
+
+pub fn ls(path: Option<&str>, out: &mut [FsTextBuffer; MAX_OUTPUT_LINES]) -> Result<usize, &'static str> {
+    let guard = FS.lock();
+    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.ls(path, out)
+}
+
+pub fn cd(path: &str) -> Result<(), &'static str> {
+    let mut guard = FS.lock();
+    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.cd(path)
+}
+
+pub fn cat(path: &str, out: &mut [FsTextBuffer; MAX_OUTPUT_LINES]) -> Result<usize, &'static str> {
+    let guard = FS.lock();
+    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.cat(path, out)
+}
+
+pub fn mkdir(path: &str, tick: u64) -> Result<(), &'static str> {
+    let mut guard = FS.lock();
+    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.mkdir(path, tick)
+}
+
+pub fn touch(path: &str, tick: u64) -> Result<(), &'static str> {
+    let mut guard = FS.lock();
+    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.touch(path, tick)
+}
+
+pub fn rm(path: &str) -> Result<(), &'static str> {
+    let mut guard = FS.lock();
+    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.rm(path)
+}
+
+pub fn write_text(path: &str, text: &str, tick: u64) -> Result<(), &'static str> {
+    let mut guard = FS.lock();
+    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.write_text(path, text, tick)
+}
+
+pub fn metadata(path: &str) -> Result<Metadata, &'static str> {
+    let guard = FS.lock();
+    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    if !fs.mounted {
+        return Err("fs: volume not mounted");
+    }
+    fs.metadata(path)
+}
+
+fn path_for(entries: &[FsEntry; ENTRY_COUNT], index: usize) -> FsTextBuffer {
+    if index == 0 {
+        let mut root = FsTextBuffer::new();
+        root.push_str("/");
+        return root;
+    }
+
+    let mut names = [[0u8; MAX_NAME]; 8];
+    let mut lengths = [0usize; 8];
+    let mut count = 0usize;
+    let mut current = index;
+    while current != 0 && count < names.len() {
+        let entry = entries[current];
+        names[count][..entry.name_len].copy_from_slice(&entry.name[..entry.name_len]);
+        lengths[count] = entry.name_len;
+        count += 1;
+        current = entry.parent as usize;
+    }
+
+    let mut path = FsTextBuffer::new();
+    path.push_str("/");
+    for segment in (0..count).rev() {
+        let text = core::str::from_utf8(&names[segment][..lengths[segment]]).unwrap_or("?");
+        path.push_str(text);
+        if segment != 0 {
+            path.push_str("/");
+        }
+    }
+    path
+}
+
+fn data_lba_for(index: usize, sector_offset: u32) -> u32 {
+    DATA_START_LBA + (index as u32 * FILE_SECTORS) + sector_offset
+}
+
+fn encode_entry(entry: &FsEntry, output: &mut [u8]) {
+    output.fill(0);
+    output[0] = if entry.used { 1 } else { 0 };
+    output[1] = entry.kind as u8;
+    output[2..4].copy_from_slice(&entry.parent.to_le_bytes());
+    output[4] = entry.name_len as u8;
+    output[8..12].copy_from_slice(&(entry.size as u32).to_le_bytes());
+    output[12..20].copy_from_slice(&entry.created_tick.to_le_bytes());
+    output[20..28].copy_from_slice(&entry.modified_tick.to_le_bytes());
+    output[28..28 + entry.name_len].copy_from_slice(&entry.name[..entry.name_len]);
+}
+
+fn decode_entry(input: &[u8]) -> FsEntry {
+    let used = input[0] != 0;
+    let kind = if input[1] == EntryKind::File as u8 {
+        EntryKind::File
+    } else {
+        EntryKind::Directory
+    };
+    let parent = u16::from_le_bytes([input[2], input[3]]);
+    let name_len = usize::from(input[4]).min(MAX_NAME);
+    let mut name = [0u8; MAX_NAME];
+    name[..name_len].copy_from_slice(&input[28..28 + name_len]);
+    let size = u32::from_le_bytes([input[8], input[9], input[10], input[11]]) as usize;
+    let created_tick = u64::from_le_bytes([
+        input[12], input[13], input[14], input[15], input[16], input[17], input[18], input[19],
+    ]);
+    let modified_tick = u64::from_le_bytes([
+        input[20], input[21], input[22], input[23], input[24], input[25], input[26], input[27],
+    ]);
+
+    FsEntry {
+        used,
+        kind,
+        parent,
+        name,
+        name_len,
+        size,
+        created_tick,
+        modified_tick,
+    }
+}

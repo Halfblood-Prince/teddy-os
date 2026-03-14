@@ -3,6 +3,7 @@
 #![no_main]
 
 mod framebuffer;
+mod fs;
 mod input;
 mod interrupts;
 mod logger;
@@ -10,6 +11,7 @@ mod memory;
 mod runtime;
 mod serial;
 mod shell;
+mod storage;
 mod terminal;
 mod timer;
 
@@ -29,6 +31,8 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     logger::init(boot_info);
     memory::init(boot_info);
     timer::init();
+    let storage_info = storage::init();
+    let mount_status = fs::init();
     input::init(
         boot_info.framebuffer.width as usize,
         boot_info.framebuffer.height as usize,
@@ -64,7 +68,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let stats = memory::stats();
     logln!("");
-    logln!("Phase 4 terminal subsystems initialized.");
+    logln!("Phase 5 filesystem subsystems initialized.");
     logln!(
         "Memory: total={} bytes usable={} bytes reserved={} bytes bootloader={} bytes kernel={} bytes",
         stats.total_bytes,
@@ -88,6 +92,12 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         "Interrupts online: {}. PIT frequency {} Hz.",
         interrupts::is_initialized(),
         interrupts::timer_frequency_hz()
+    );
+    logln!(
+        "Storage: present={} persistent_fs={} formatted={}",
+        storage_info.present,
+        mount_status.mounted,
+        mount_status.formatted
     );
     logln!("Keyboard and mouse IRQ handlers armed. Entering desktop shell runtime.");
 

@@ -124,10 +124,10 @@ impl ShellState {
                 DesktopWindow {
                     title: "Roadmap",
                     body_lines: [
-                        "Phase 4: terminal complete",
-                        "Phase 5: persistent filesystem",
+                        "Phase 5: filesystem complete",
                         "Phase 6: file explorer",
                         "Phase 7: updater",
+                        "Phase 8: build and release",
                     ],
                     rect: Rect {
                         x: 520,
