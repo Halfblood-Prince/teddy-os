@@ -1,0 +1,119 @@
+name: Boot Teddy-OS ISO in QEMU
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Build profile
+        required: true
+        default: debug
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  boot-iso-qemu:
+    runs-on: ubuntu-latest
+
+    env:
+      PROFILE: ${{ inputs.profile }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xorriso \
+            mtools \
+            qemu-system-x86 \
+            ovmf
+        shell: bash
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-unknown-uefi
+          components: rust-src, llvm-tools-preview
+
+      - name: Cache Cargo registry + build output
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: teddy-os-${{ runner.os }}-${{ env.PROFILE }}
+
+      - name: Build ISO
+        run: |
+          if ($env:PROFILE -eq 'release') {
+            ./scripts/build.ps1 -Profile release
+          }
+          else {
+            ./scripts/build.ps1
+          }
+        shell: pwsh
+
+      - name: Verify ISO output
+        run: |
+          $iso = "build/dist/teddy-os-$env:PROFILE.iso"
+          if (-not (Test-Path $iso)) {
+            throw "Missing ISO: $iso"
+          }
+          Write-Host "ISO ready: $iso"
+        shell: pwsh
+
+      - name: Boot ISO in QEMU
+        run: |
+          set -euo pipefail
+
+          ISO="build/dist/teddy-os-${PROFILE}.iso"
+          OVMF_CODE="/usr/share/OVMF/OVMF_CODE.fd"
+          OVMF_VARS="OVMF_VARS.fd"
+
+          cp /usr/share/OVMF/OVMF_VARS.fd "${OVMF_VARS}"
+
+          mkdir -p qemu-logs
+
+          # Run QEMU headless and capture serial output.
+          # GitHub-hosted runners generally do not provide KVM, so use TCG.
+          timeout 30s qemu-system-x86_64 \
+            -machine q35,accel=tcg \
+            -cpu qemu64 \
+            -m 1024 \
+            -smp 2 \
+            -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}" \
+            -drive if=pflash,format=raw,file="${OVMF_VARS}" \
+            -cdrom "${ISO}" \
+            -boot d \
+            -serial file:qemu-logs/serial.log \
+            -display none \
+            -monitor none \
+            -no-reboot \
+            -net none || STATUS=$?
+
+          STATUS="${STATUS:-0}"
+
+          echo "QEMU exit status: ${STATUS}"
+
+          # Treat timeout as success because the point is to prove the ISO boots
+          # far enough to stay alive under QEMU.
+          if [ "${STATUS}" -ne 0 ] && [ "${STATUS}" -ne 124 ]; then
+            echo "QEMU failed before timeout."
+            [ -f qemu-logs/serial.log ] && cat qemu-logs/serial.log
+            exit "${STATUS}"
+          fi
+
+          echo "QEMU boot completed or remained running until timeout."
+          [ -f qemu-logs/serial.log ] && cat qemu-logs/serial.log || true
+        shell: bash
+
+      - name: Upload QEMU logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teddy-os-${{ env.PROFILE }}-qemu-logs
+          path: |
+            qemu-logs/serial.log
+            OVMF_VARS.fd
+          if-no-files-found: warn
