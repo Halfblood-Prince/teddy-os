@@ -504,6 +504,10 @@ fn push_usize(buffer: &mut FsTextBuffer, value: usize) {
     }
 }
 
+fn push_u32(buffer: &mut FsTextBuffer, value: u32) {
+    push_usize(buffer, value as usize);
+}
+
 fn push_u64(buffer: &mut FsTextBuffer, value: u64) {
     let mut digits = [0u8; 20];
     let mut count = 0usize;
