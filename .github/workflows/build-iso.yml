@@ -42,7 +42,12 @@ jobs:
 
       - name: Build ISO
         run: |
-          ./scripts/build.ps1 -Profile $env:PROFILE
+          if ($env:PROFILE -eq 'release') {
+            ./scripts/build.ps1 -Profile release
+          }
+          else {
+            ./scripts/build.ps1
+          }
         shell: pwsh
 
       - name: Verify ISO output
