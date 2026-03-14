@@ -199,7 +199,7 @@ impl TerminalApp {
 
     fn run_command(&mut self, command: &str, parser: &mut CommandParser<'_>) {
         match command {
-            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo netdiag dhcp dns fetch df diskinfo fsck reboot shutdown"),
+            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo netdiag netsend dhcp dns fetch df diskinfo fsck reboot shutdown"),
             "echo" => self.echo_command(parser.rest()),
             "clear" => self.clear(),
             "ls" => match fs::ls(parser.next(), &mut self.scratch) {
@@ -268,6 +268,7 @@ impl TerminalApp {
             }
             "netinfo" => self.netinfo_command(),
             "netdiag" => self.netdiag_command(),
+            "netsend" => self.netsend_command(),
             "dhcp" => self.dhcp_command(),
             "dns" => self.dns_command(parser.next()),
             "fetch" => self.fetch_command(parser.next()),
@@ -447,9 +448,34 @@ impl TerminalApp {
         let mut tx = FsTextBuffer::new();
         tx.push_str("txok ");
         push_u64(&mut tx, info.tx_completions);
+        tx.push_str(" txtry ");
+        push_u64(&mut tx, info.tx_attempts);
+        tx.push_str(" txlen ");
+        push_usize(&mut tx, info.last_tx_length as usize);
         tx.push_str(" tsad0 ");
         push_hex_u32(&mut tx, info.tx_buffer_addr[0]);
         self.push_line(tx);
+
+        let mut rx = FsTextBuffer::new();
+        rx.push_str("rxlen ");
+        push_usize(&mut rx, info.last_rx_length as usize);
+        rx.push_str(" type ");
+        push_hex_u16(&mut rx, info.last_rx_ethertype);
+        self.push_line(rx);
+
+        let mut macs = FsTextBuffer::new();
+        macs.push_str("src ");
+        push_mac(&mut macs, info.last_rx_source.bytes());
+        macs.push_str(" dst ");
+        push_mac(&mut macs, info.last_rx_destination.bytes());
+        self.push_line(macs);
+    }
+
+    fn netsend_command(&mut self) {
+        match network::send_test_frame() {
+            Ok(()) => self.println("netsend: broadcast test frame queued"),
+            Err(error) => self.println(error),
+        }
     }
 
     fn dhcp_command(&mut self) {

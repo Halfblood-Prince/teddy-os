@@ -25,9 +25,12 @@ const RTL8139_ACCEPT_PHYSICAL_MATCH: u32 = 1 << 1;
 const RTL8139_WRAP: u32 = 1 << 7;
 const RTL8139_ISR_RX_OK: u16 = 0x0001;
 const RTL8139_ISR_TX_OK: u16 = 0x0004;
+const RTL8139_RX_EMPTY: u8 = 0x01;
 const RTL8139_RX_BUFFER_LEN: usize = 8192 + 16 + 1500;
+const RTL8139_RX_RING_LEN: usize = 8192;
 const RTL8139_TX_BUFFER_LEN: usize = 1536;
 const RTL8139_TX_SLOTS: usize = 4;
+const ETHERNET_HEADER_LEN: usize = 14;
 
 #[derive(Clone, Copy)]
 pub enum NicKind {
@@ -125,9 +128,15 @@ pub struct NetworkInfo {
     pub tx_buffer_addr: [u32; RTL8139_TX_SLOTS],
     pub rx_packets: u64,
     pub tx_completions: u64,
+    pub tx_attempts: u64,
     pub last_rx_status: u16,
+    pub last_rx_length: u16,
+    pub last_rx_ethertype: u16,
+    pub last_rx_source: MacAddress,
+    pub last_rx_destination: MacAddress,
     pub current_rx_offset: u16,
     pub current_rx_read: u16,
+    pub last_tx_length: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -181,9 +190,15 @@ static NETWORK: Mutex<NetworkState> = Mutex::new(NetworkState {
         tx_buffer_addr: [0; RTL8139_TX_SLOTS],
         rx_packets: 0,
         tx_completions: 0,
+        tx_attempts: 0,
         last_rx_status: 0,
+        last_rx_length: 0,
+        last_rx_ethertype: 0,
+        last_rx_source: MacAddress::zero(),
+        last_rx_destination: MacAddress::zero(),
         current_rx_offset: 0,
         current_rx_read: 0,
+        last_tx_length: 0,
     },
     tx_slot: 0,
 });
@@ -228,15 +243,51 @@ pub fn init() -> NetworkInfo {
         tx_buffer_addr: [0; RTL8139_TX_SLOTS],
         rx_packets: 0,
         tx_completions: 0,
+        tx_attempts: 0,
         last_rx_status: 0,
+        last_rx_length: 0,
+        last_rx_ethertype: 0,
+        last_rx_source: MacAddress::zero(),
+        last_rx_destination: MacAddress::zero(),
         current_rx_offset: 0,
         current_rx_read: 0,
+        last_tx_length: 0,
     });
     state.info
 }
 
 pub fn info() -> NetworkInfo {
     NETWORK.lock().info
+}
+
+pub fn send_test_frame() -> Result<(), &'static str> {
+    let mut state = NETWORK.lock();
+    if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
+        return Err("network: rtl8139 not ready");
+    }
+
+    let slot = state.tx_slot;
+    let payload = b"TEDDYOS-NET";
+    let frame_len = ETHERNET_HEADER_LEN + payload.len();
+    if frame_len > RTL8139_TX_BUFFER_LEN {
+        return Err("network: frame too large");
+    }
+
+    unsafe {
+        let buffer = &mut RTL8139_TX_BUFFERS[slot].0;
+        buffer[..6].fill(0xFF);
+        buffer[6..12].copy_from_slice(&state.info.mac.bytes());
+        buffer[12] = 0x88;
+        buffer[13] = 0xB5;
+        buffer[ETHERNET_HEADER_LEN..frame_len].copy_from_slice(payload);
+
+        let io_base = state.info.io_base as u16;
+        Port::<u32>::new(io_base + RTL8139_TX_STATUS0 + (slot as u16 * 4)).write(frame_len as u32);
+    }
+
+    state.info.tx_attempts = state.info.tx_attempts.saturating_add(1);
+    state.info.last_tx_length = frame_len as u16;
+    Ok(())
 }
 
 pub fn poll() {
@@ -255,9 +306,12 @@ pub fn poll() {
 
         state.info.interrupt_status = pending;
         if pending & RTL8139_ISR_RX_OK != 0 {
-            state.info.rx_packets = state.info.rx_packets.saturating_add(1);
-            state.info.last_rx_status = read_rx_status(io_base, state.info.current_rx_offset);
-            state.info.current_rx_read = Port::<u16>::new(io_base + RTL8139_CBR).read();
+            while command_has_packet(io_base) {
+                if !consume_rtl8139_packet(&mut state.info, io_base) {
+                    break;
+                }
+                state.info.rx_packets = state.info.rx_packets.saturating_add(1);
+            }
         }
         if pending & RTL8139_ISR_TX_OK != 0 {
             state.info.tx_completions = state.info.tx_completions.saturating_add(1);
@@ -326,9 +380,15 @@ fn detect_supported_nic() -> Option<NetworkInfo> {
                     tx_buffer_addr: [0; RTL8139_TX_SLOTS],
                     rx_packets: 0,
                     tx_completions: 0,
+                    tx_attempts: 0,
                     last_rx_status: 0,
+                    last_rx_length: 0,
+                    last_rx_ethertype: 0,
+                    last_rx_source: MacAddress::zero(),
+                    last_rx_destination: MacAddress::zero(),
                     current_rx_offset: 0,
                     current_rx_read: 0,
+                    last_tx_length: 0,
                 };
 
                 prepare_pci_device(bus, slot, function, nic_kind, &mut info);
@@ -450,8 +510,44 @@ fn initialize_rtl8139(io_base: u16, info: &mut NetworkInfo) {
     }
 }
 
-unsafe fn read_rx_status(io_base: u16, _offset: u16) -> u16 {
-    Port::<u16>::new(io_base + RTL8139_CAPR).read()
+fn command_has_packet(io_base: u16) -> bool {
+    unsafe { Port::<u8>::new(io_base + RTL8139_COMMAND).read() & RTL8139_RX_EMPTY == 0 }
+}
+
+fn consume_rtl8139_packet(info: &mut NetworkInfo, io_base: u16) -> bool {
+    let offset = (info.current_rx_offset as usize) % RTL8139_RX_RING_LEN;
+    let packet = unsafe { &RTL8139_RX_BUFFER.0 };
+    let status = u16::from_le_bytes([packet[offset], packet[(offset + 1) % RTL8139_RX_RING_LEN]]);
+    let length = u16::from_le_bytes([packet[(offset + 2) % RTL8139_RX_RING_LEN], packet[(offset + 3) % RTL8139_RX_RING_LEN]]);
+
+    info.last_rx_status = status;
+    info.last_rx_length = length;
+
+    if length as usize >= ETHERNET_HEADER_LEN + 4 {
+        let header_offset = (offset + 4) % RTL8139_RX_RING_LEN;
+        info.last_rx_destination = read_mac_from_ring(packet, header_offset);
+        info.last_rx_source = read_mac_from_ring(packet, (header_offset + 6) % RTL8139_RX_RING_LEN);
+        let type_hi = packet[(header_offset + 12) % RTL8139_RX_RING_LEN];
+        let type_lo = packet[(header_offset + 13) % RTL8139_RX_RING_LEN];
+        info.last_rx_ethertype = u16::from_be_bytes([type_hi, type_lo]);
+    }
+
+    let advance = ((length as usize + 4 + 3) & !3) % RTL8139_RX_RING_LEN;
+    let new_offset = (offset + advance) % RTL8139_RX_RING_LEN;
+    info.current_rx_offset = new_offset as u16;
+    unsafe {
+        Port::<u16>::new(io_base + RTL8139_CAPR).write(info.current_rx_offset.wrapping_sub(16));
+        info.current_rx_read = Port::<u16>::new(io_base + RTL8139_CBR).read();
+    }
+    true
+}
+
+fn read_mac_from_ring(packet: &[u8; RTL8139_RX_BUFFER_LEN], offset: usize) -> MacAddress {
+    let mut mac = [0u8; 6];
+    for (index, byte) in mac.iter_mut().enumerate() {
+        *byte = packet[(offset + index) % RTL8139_RX_RING_LEN];
+    }
+    MacAddress { bytes: mac }
 }
 
 fn pci_read_u32(bus: u8, slot: u8, function: u8, offset: u8) -> u32 {
