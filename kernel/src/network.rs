@@ -32,8 +32,16 @@ const RTL8139_TX_BUFFER_LEN: usize = 1536;
 const RTL8139_TX_SLOTS: usize = 4;
 const ETHERNET_HEADER_LEN: usize = 14;
 const ETHERTYPE_ARP: u16 = 0x0806;
+const ETHERTYPE_IPV4: u16 = 0x0800;
 const ETHERTYPE_TEDDY_TEST: u16 = 0x88B5;
 const ARP_PACKET_LEN: usize = 28;
+const IPV4_MIN_HEADER_LEN: usize = 20;
+const UDP_HEADER_LEN: usize = 8;
+const IP_PROTOCOL_UDP: u8 = 17;
+const DHCP_CLIENT_PORT: u16 = 68;
+const DHCP_SERVER_PORT: u16 = 67;
+const DHCP_DISCOVER_OPTIONS_LEN: usize = 13;
+const DHCP_DISCOVER_LEN: usize = 236 + DHCP_DISCOVER_OPTIONS_LEN;
 
 #[derive(Clone, Copy)]
 pub enum NicKind {
@@ -84,6 +92,12 @@ impl Ipv4Address {
         Self { octets }
     }
 
+    pub const fn broadcast() -> Self {
+        Self {
+            octets: [255, 255, 255, 255],
+        }
+    }
+
     pub fn octets(&self) -> [u8; 4] {
         self.octets
     }
@@ -101,6 +115,10 @@ impl MacAddress {
 
     pub fn bytes(&self) -> [u8; 6] {
         self.bytes
+    }
+
+    pub const fn broadcast() -> Self {
+        Self { bytes: [0xFF; 6] }
     }
 }
 
@@ -146,6 +164,18 @@ pub struct NetworkInfo {
     pub last_arp_sender_mac: MacAddress,
     pub last_arp_sender_ip: Ipv4Address,
     pub last_arp_target_ip: Ipv4Address,
+    pub ipv4_packets: u64,
+    pub last_ipv4_protocol: u8,
+    pub last_ipv4_source: Ipv4Address,
+    pub last_ipv4_destination: Ipv4Address,
+    pub udp_packets: u64,
+    pub last_udp_source_port: u16,
+    pub last_udp_destination_port: u16,
+    pub last_udp_length: u16,
+    pub dhcp_packets: u64,
+    pub dhcp_discover_attempts: u64,
+    pub last_dhcp_message_type: u8,
+    pub last_dhcp_xid: u32,
     pub current_rx_offset: u16,
     pub current_rx_read: u16,
     pub last_tx_length: u16,
@@ -213,6 +243,18 @@ static NETWORK: Mutex<NetworkState> = Mutex::new(NetworkState {
         last_arp_sender_mac: MacAddress::zero(),
         last_arp_sender_ip: Ipv4Address::unspecified(),
         last_arp_target_ip: Ipv4Address::unspecified(),
+        ipv4_packets: 0,
+        last_ipv4_protocol: 0,
+        last_ipv4_source: Ipv4Address::unspecified(),
+        last_ipv4_destination: Ipv4Address::unspecified(),
+        udp_packets: 0,
+        last_udp_source_port: 0,
+        last_udp_destination_port: 0,
+        last_udp_length: 0,
+        dhcp_packets: 0,
+        dhcp_discover_attempts: 0,
+        last_dhcp_message_type: 0,
+        last_dhcp_xid: 0,
         current_rx_offset: 0,
         current_rx_read: 0,
         last_tx_length: 0,
@@ -271,6 +313,18 @@ pub fn init() -> NetworkInfo {
         last_arp_sender_mac: MacAddress::zero(),
         last_arp_sender_ip: Ipv4Address::unspecified(),
         last_arp_target_ip: Ipv4Address::unspecified(),
+        ipv4_packets: 0,
+        last_ipv4_protocol: 0,
+        last_ipv4_source: Ipv4Address::unspecified(),
+        last_ipv4_destination: Ipv4Address::unspecified(),
+        udp_packets: 0,
+        last_udp_source_port: 0,
+        last_udp_destination_port: 0,
+        last_udp_length: 0,
+        dhcp_packets: 0,
+        dhcp_discover_attempts: 0,
+        last_dhcp_message_type: 0,
+        last_dhcp_xid: 0,
         current_rx_offset: 0,
         current_rx_read: 0,
         last_tx_length: 0,
@@ -343,6 +397,69 @@ pub fn send_arp_request(target: Ipv4Address) -> Result<(), &'static str> {
     state.info.tx_attempts = state.info.tx_attempts.saturating_add(1);
     state.info.last_tx_length = frame_len as u16;
     state.info.last_arp_target_ip = target;
+    Ok(())
+}
+
+pub fn send_dhcp_discover() -> Result<(), &'static str> {
+    let mut state = NETWORK.lock();
+    if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
+        return Err("network: rtl8139 not ready");
+    }
+
+    let slot = state.tx_slot;
+    let xid = 0x5444_0000u32 | ((state.info.dhcp_discover_attempts as u32 + 1) & 0xFFFF);
+    let udp_len = (UDP_HEADER_LEN + DHCP_DISCOVER_LEN) as u16;
+    let ipv4_len = (IPV4_MIN_HEADER_LEN as u16) + udp_len;
+    let frame_len = ETHERNET_HEADER_LEN + ipv4_len as usize;
+
+    unsafe {
+        let buffer = &mut RTL8139_TX_BUFFERS[slot].0;
+        let destination = MacAddress::broadcast();
+        buffer[..6].copy_from_slice(&destination.bytes());
+        buffer[6..12].copy_from_slice(&state.info.mac.bytes());
+        buffer[12..14].copy_from_slice(&ETHERTYPE_IPV4.to_be_bytes());
+
+        let ipv4 = &mut buffer[ETHERNET_HEADER_LEN..ETHERNET_HEADER_LEN + IPV4_MIN_HEADER_LEN];
+        ipv4.fill(0);
+        ipv4[0] = 0x45;
+        ipv4[2..4].copy_from_slice(&ipv4_len.to_be_bytes());
+        ipv4[4..6].copy_from_slice(&(state.info.dhcp_discover_attempts as u16 + 1).to_be_bytes());
+        ipv4[8] = 64;
+        ipv4[9] = IP_PROTOCOL_UDP;
+        ipv4[12..16].copy_from_slice(&Ipv4Address::unspecified().octets());
+        ipv4[16..20].copy_from_slice(&Ipv4Address::broadcast().octets());
+        let checksum = ipv4_checksum(ipv4);
+        ipv4[10..12].copy_from_slice(&checksum.to_be_bytes());
+
+        let udp_start = ETHERNET_HEADER_LEN + IPV4_MIN_HEADER_LEN;
+        let udp = &mut buffer[udp_start..udp_start + UDP_HEADER_LEN];
+        udp[0..2].copy_from_slice(&DHCP_CLIENT_PORT.to_be_bytes());
+        udp[2..4].copy_from_slice(&DHCP_SERVER_PORT.to_be_bytes());
+        udp[4..6].copy_from_slice(&udp_len.to_be_bytes());
+        udp[6..8].copy_from_slice(&0u16.to_be_bytes());
+
+        let dhcp = &mut buffer[udp_start + UDP_HEADER_LEN..udp_start + UDP_HEADER_LEN + DHCP_DISCOVER_LEN];
+        dhcp.fill(0);
+        dhcp[0] = 1;
+        dhcp[1] = 1;
+        dhcp[2] = 6;
+        dhcp[3] = 0;
+        dhcp[4..8].copy_from_slice(&xid.to_be_bytes());
+        dhcp[10..12].copy_from_slice(&0x8000u16.to_be_bytes());
+        dhcp[28..34].copy_from_slice(&state.info.mac.bytes());
+        dhcp[236..240].copy_from_slice(&[99, 130, 83, 99]);
+        dhcp[240..243].copy_from_slice(&[53, 1, 1]);
+        dhcp[243..248].copy_from_slice(&[55, 3, 1, 3, 6]);
+        dhcp[248] = 255;
+
+        let io_base = state.info.io_base as u16;
+        Port::<u32>::new(io_base + RTL8139_TX_STATUS0 + (slot as u16 * 4)).write(frame_len as u32);
+    }
+
+    state.info.tx_attempts = state.info.tx_attempts.saturating_add(1);
+    state.info.dhcp_discover_attempts = state.info.dhcp_discover_attempts.saturating_add(1);
+    state.info.last_tx_length = frame_len as u16;
+    state.info.last_dhcp_xid = xid;
     Ok(())
 }
 
@@ -447,6 +564,18 @@ fn detect_supported_nic() -> Option<NetworkInfo> {
                     last_arp_sender_mac: MacAddress::zero(),
                     last_arp_sender_ip: Ipv4Address::unspecified(),
                     last_arp_target_ip: Ipv4Address::unspecified(),
+                    ipv4_packets: 0,
+                    last_ipv4_protocol: 0,
+                    last_ipv4_source: Ipv4Address::unspecified(),
+                    last_ipv4_destination: Ipv4Address::unspecified(),
+                    udp_packets: 0,
+                    last_udp_source_port: 0,
+                    last_udp_destination_port: 0,
+                    last_udp_length: 0,
+                    dhcp_packets: 0,
+                    dhcp_discover_attempts: 0,
+                    last_dhcp_message_type: 0,
+                    last_dhcp_xid: 0,
                     current_rx_offset: 0,
                     current_rx_read: 0,
                     last_tx_length: 0,
@@ -593,6 +722,8 @@ fn consume_rtl8139_packet(info: &mut NetworkInfo, io_base: u16) -> bool {
         info.last_rx_ethertype = u16::from_be_bytes([type_hi, type_lo]);
         if info.last_rx_ethertype == ETHERTYPE_ARP && length as usize >= ETHERNET_HEADER_LEN + ARP_PACKET_LEN + 4 {
             parse_arp_packet(info, packet, (header_offset + ETHERNET_HEADER_LEN) % RTL8139_RX_RING_LEN);
+        } else if info.last_rx_ethertype == ETHERTYPE_IPV4 && length as usize >= ETHERNET_HEADER_LEN + IPV4_MIN_HEADER_LEN + 4 {
+            parse_ipv4_packet(info, packet, (header_offset + ETHERNET_HEADER_LEN) % RTL8139_RX_RING_LEN);
         }
     }
 
@@ -624,6 +755,72 @@ fn parse_arp_packet(info: &mut NetworkInfo, packet: &[u8; RTL8139_RX_BUFFER_LEN]
     info.last_arp_target_ip = read_ipv4_from_ring(packet, (offset + 24) % RTL8139_RX_RING_LEN);
 }
 
+fn parse_ipv4_packet(info: &mut NetworkInfo, packet: &[u8; RTL8139_RX_BUFFER_LEN], offset: usize) {
+    info.ipv4_packets = info.ipv4_packets.saturating_add(1);
+    let version_ihl = packet[offset % RTL8139_RX_RING_LEN];
+    let ihl = usize::from(version_ihl & 0x0F) * 4;
+    if ihl < IPV4_MIN_HEADER_LEN {
+        return;
+    }
+
+    info.last_ipv4_protocol = packet[(offset + 9) % RTL8139_RX_RING_LEN];
+    info.last_ipv4_source = read_ipv4_from_ring(packet, (offset + 12) % RTL8139_RX_RING_LEN);
+    info.last_ipv4_destination = read_ipv4_from_ring(packet, (offset + 16) % RTL8139_RX_RING_LEN);
+
+    if info.last_ipv4_protocol == IP_PROTOCOL_UDP {
+        parse_udp_packet(info, packet, (offset + ihl) % RTL8139_RX_RING_LEN);
+    }
+}
+
+fn parse_udp_packet(info: &mut NetworkInfo, packet: &[u8; RTL8139_RX_BUFFER_LEN], offset: usize) {
+    info.udp_packets = info.udp_packets.saturating_add(1);
+    info.last_udp_source_port = u16::from_be_bytes([
+        packet[offset % RTL8139_RX_RING_LEN],
+        packet[(offset + 1) % RTL8139_RX_RING_LEN],
+    ]);
+    info.last_udp_destination_port = u16::from_be_bytes([
+        packet[(offset + 2) % RTL8139_RX_RING_LEN],
+        packet[(offset + 3) % RTL8139_RX_RING_LEN],
+    ]);
+    info.last_udp_length = u16::from_be_bytes([
+        packet[(offset + 4) % RTL8139_RX_RING_LEN],
+        packet[(offset + 5) % RTL8139_RX_RING_LEN],
+    ]);
+
+    if info.last_udp_source_port == DHCP_SERVER_PORT || info.last_udp_destination_port == DHCP_CLIENT_PORT {
+        info.dhcp_packets = info.dhcp_packets.saturating_add(1);
+        let dhcp_offset = (offset + UDP_HEADER_LEN) % RTL8139_RX_RING_LEN;
+        info.last_dhcp_xid = u32::from_be_bytes([
+            packet[(dhcp_offset + 4) % RTL8139_RX_RING_LEN],
+            packet[(dhcp_offset + 5) % RTL8139_RX_RING_LEN],
+            packet[(dhcp_offset + 6) % RTL8139_RX_RING_LEN],
+            packet[(dhcp_offset + 7) % RTL8139_RX_RING_LEN],
+        ]);
+        info.last_dhcp_message_type = parse_dhcp_message_type(packet, dhcp_offset);
+    }
+}
+
+fn parse_dhcp_message_type(packet: &[u8; RTL8139_RX_BUFFER_LEN], dhcp_offset: usize) -> u8 {
+    let options_offset = (dhcp_offset + 240) % RTL8139_RX_RING_LEN;
+    let mut index = options_offset;
+    for _ in 0..64 {
+        let option = packet[index % RTL8139_RX_RING_LEN];
+        if option == 0 {
+            index = (index + 1) % RTL8139_RX_RING_LEN;
+            continue;
+        }
+        if option == 255 {
+            break;
+        }
+        let length = packet[(index + 1) % RTL8139_RX_RING_LEN] as usize;
+        if option == 53 && length >= 1 {
+            return packet[(index + 2) % RTL8139_RX_RING_LEN];
+        }
+        index = (index + 2 + length) % RTL8139_RX_RING_LEN;
+    }
+    0
+}
+
 fn read_ipv4_from_ring(packet: &[u8; RTL8139_RX_BUFFER_LEN], offset: usize) -> Ipv4Address {
     Ipv4Address::from_octets([
         packet[offset % RTL8139_RX_RING_LEN],
@@ -631,6 +828,19 @@ fn read_ipv4_from_ring(packet: &[u8; RTL8139_RX_BUFFER_LEN], offset: usize) -> I
         packet[(offset + 2) % RTL8139_RX_RING_LEN],
         packet[(offset + 3) % RTL8139_RX_RING_LEN],
     ])
+}
+
+fn ipv4_checksum(header: &[u8]) -> u16 {
+    let mut sum = 0u32;
+    let mut index = 0usize;
+    while index + 1 < header.len() {
+        sum = sum.wrapping_add(u16::from_be_bytes([header[index], header[index + 1]]) as u32);
+        index += 2;
+    }
+    while (sum >> 16) != 0 {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    !(sum as u16)
 }
 
 fn pci_read_u32(bus: u8, slot: u8, function: u8, offset: u8) -> u32 {

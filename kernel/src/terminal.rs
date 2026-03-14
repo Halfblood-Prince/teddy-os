@@ -484,6 +484,40 @@ impl TerminalApp {
         arp_addr.push_str(" tgt ");
         push_ipv4(&mut arp_addr, info.last_arp_target_ip.octets());
         self.push_line(arp_addr);
+
+        let mut ipv4 = FsTextBuffer::new();
+        ipv4.push_str("ip ");
+        push_u64(&mut ipv4, info.ipv4_packets);
+        ipv4.push_str(" proto ");
+        push_hex_u8(&mut ipv4, info.last_ipv4_protocol);
+        self.push_line(ipv4);
+
+        let mut ipv4_addr = FsTextBuffer::new();
+        ipv4_addr.push_str("ip src ");
+        push_ipv4(&mut ipv4_addr, info.last_ipv4_source.octets());
+        ipv4_addr.push_str(" dst ");
+        push_ipv4(&mut ipv4_addr, info.last_ipv4_destination.octets());
+        self.push_line(ipv4_addr);
+
+        let mut udp = FsTextBuffer::new();
+        udp.push_str("udp ");
+        push_u64(&mut udp, info.udp_packets);
+        udp.push_str(" sport ");
+        push_usize(&mut udp, info.last_udp_source_port as usize);
+        udp.push_str(" dport ");
+        push_usize(&mut udp, info.last_udp_destination_port as usize);
+        udp.push_str(" len ");
+        push_usize(&mut udp, info.last_udp_length as usize);
+        self.push_line(udp);
+
+        let mut dhcp = FsTextBuffer::new();
+        dhcp.push_str("dhcp rx ");
+        push_u64(&mut dhcp, info.dhcp_packets);
+        dhcp.push_str(" tx ");
+        push_u64(&mut dhcp, info.dhcp_discover_attempts);
+        dhcp.push_str(" type ");
+        push_usize(&mut dhcp, info.last_dhcp_message_type as usize);
+        self.push_line(dhcp);
     }
 
     fn netsend_command(&mut self) {
@@ -509,12 +543,10 @@ impl TerminalApp {
     }
 
     fn dhcp_command(&mut self) {
-        let info = network::info();
-        if !info.detected {
-            self.println("dhcp: no NIC");
-            return;
+        match network::send_dhcp_discover() {
+            Ok(()) => self.println("dhcp: discover queued"),
+            Err(error) => self.println(error),
         }
-        self.println("dhcp: client scaffolding present; lease acquisition not completed yet");
     }
 
     fn dns_command(&mut self, host: Option<&str>) {
