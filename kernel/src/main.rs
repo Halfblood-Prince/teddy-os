@@ -9,6 +9,7 @@ mod input;
 mod interrupts;
 mod logger;
 mod memory;
+mod network;
 mod runtime;
 mod serial;
 mod shell;
@@ -32,6 +33,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     logger::init(boot_info);
     memory::init(boot_info);
     timer::init();
+    let network_info = network::init();
     let storage_info = storage::init();
     let mount_status = fs::init();
     input::init(
@@ -70,7 +72,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let stats = memory::stats();
     logln!("");
-    logln!("Phase 14 storage diagnostics initialized.");
+    logln!("Phase 10 networking foundation initialized.");
     logln!(
         "Memory: total={} bytes usable={} bytes reserved={} bytes bootloader={} bytes kernel={} bytes",
         stats.total_bytes,
@@ -94,6 +96,14 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         "Interrupts online: {}. PIT frequency {} Hz.",
         interrupts::is_initialized(),
         interrupts::timer_frequency_hz()
+    );
+    logln!(
+        "Network: detected={} prepared={} device={} vendor={:#06x} device_id={:#06x}",
+        network_info.detected,
+        network_info.prepared,
+        network_info.name.as_str(),
+        network_info.vendor_id,
+        network_info.device_id
     );
     logln!(
         "Storage: present={} persistent_fs={} formatted={}",

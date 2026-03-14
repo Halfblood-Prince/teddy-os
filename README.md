@@ -21,7 +21,7 @@ deferred.
 - Phase 7 deferred: updater, release manifest handling, and staged install flow
 - Phase 8 complete: reproducible build scripts, release manifest generation, and VMware helper
 - Phase 9 complete: architecture/build/VMware/release/theming/app docs
-- Phase 10 pending: networking
+- Phase 10 complete: PCI NIC detection and networking diagnostics foundation
 - Phase 11 complete: desktop input routing, focus, window controls, and resizing
 - Phase 14 complete: storage diagnostics and TeddyFS integrity reporting
 
@@ -53,6 +53,7 @@ deferred.
 - `docs/phase-6.md` - Phase 6 file explorer implementation and VMware test steps
 - `docs/phase-8.md` - Phase 8 build and release pipeline
 - `docs/phase-9.md` - Phase 9 documentation overview
+- `docs/phase-10.md` - Phase 10 networking foundation and diagnostics
 - `docs/building-from-scratch.md` - full local setup and build workflow
 - `docs/running-in-vmware.md` - VMware setup and test loop
 - `docs/creating-releases.md` - release artifact and manifest workflow

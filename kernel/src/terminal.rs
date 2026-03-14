@@ -5,6 +5,7 @@ use crate::{
     fs::{self, FsTextBuffer, MAX_OUTPUT_LINES},
     input::{KeyKind, KeyboardEvent},
     interrupts,
+    network,
     storage,
     timer,
 };
@@ -198,7 +199,7 @@ impl TerminalApp {
 
     fn run_command(&mut self, command: &str, parser: &mut CommandParser<'_>) {
         match command {
-            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname df diskinfo fsck reboot shutdown"),
+            "help" => self.println("help echo clear ls cd pwd cat mkdir rm touch uname netinfo dhcp dns fetch df diskinfo fsck reboot shutdown"),
             "echo" => self.echo_command(parser.rest()),
             "clear" => self.clear(),
             "ls" => match fs::ls(parser.next(), &mut self.scratch) {
@@ -265,10 +266,14 @@ impl TerminalApp {
                     self.println("touch: missing path");
                 }
             }
+            "netinfo" => self.netinfo_command(),
+            "dhcp" => self.dhcp_command(),
+            "dns" => self.dns_command(parser.next()),
+            "fetch" => self.fetch_command(parser.next()),
             "df" => self.disk_free_command(),
             "diskinfo" => self.disk_info_command(),
             "fsck" => self.fsck_command(),
-            "uname" => self.println("Teddy-OS x86_64 phase14"),
+            "uname" => self.println("Teddy-OS x86_64 phase10"),
             "reboot" => {
                 self.println("Rebooting Teddy-OS...");
                 reboot_system();
@@ -364,6 +369,80 @@ impl TerminalApp {
             }
             Err(error) => self.println(error),
         }
+    }
+
+    fn netinfo_command(&mut self) {
+        let info = network::info();
+        if !info.detected {
+            self.println("network: no supported VMware NIC detected");
+            return;
+        }
+
+        let mut line = FsTextBuffer::new();
+        line.push_str("nic ");
+        line.push_str(info.name.as_str());
+        line.push_str(" bus ");
+        push_usize(&mut line, info.bus as usize);
+        line.push_str(" slot ");
+        push_usize(&mut line, info.slot as usize);
+        line.push_str(" fn ");
+        push_usize(&mut line, info.function as usize);
+        self.push_line(line);
+
+        let mut bars = FsTextBuffer::new();
+        bars.push_str("prepared ");
+        bars.push_str(if info.prepared { "yes" } else { "no" });
+        bars.push_str(" io ");
+        push_u32(&mut bars, info.io_base);
+        bars.push_str(" mmio ");
+        push_u32(&mut bars, info.mmio_base);
+        self.push_line(bars);
+
+        let mut mac = FsTextBuffer::new();
+        mac.push_str("mac ");
+        push_mac(&mut mac, info.mac.bytes());
+        self.push_line(mac);
+    }
+
+    fn dhcp_command(&mut self) {
+        let info = network::info();
+        if !info.detected {
+            self.println("dhcp: no NIC");
+            return;
+        }
+        self.println("dhcp: client scaffolding present; lease acquisition not completed yet");
+    }
+
+    fn dns_command(&mut self, host: Option<&str>) {
+        let Some(host) = host else {
+            self.println("dns: missing host");
+            return;
+        };
+        let info = network::info();
+        if !info.detected {
+            self.println("dns: no NIC");
+            return;
+        }
+        let mut line = FsTextBuffer::new();
+        line.push_str("dns: resolver scaffolding present for ");
+        line.push_str(host);
+        self.push_line(line);
+    }
+
+    fn fetch_command(&mut self, url: Option<&str>) {
+        let Some(url) = url else {
+            self.println("fetch: missing url");
+            return;
+        };
+        let info = network::info();
+        if !info.detected {
+            self.println("fetch: no NIC");
+            return;
+        }
+        let mut line = FsTextBuffer::new();
+        line.push_str("fetch: transport scaffolding present for ");
+        line.push_str(url);
+        self.push_line(line);
     }
 
     fn render(&self, surface: &mut FramebufferSurface, rect: Rect, focused: bool) {
@@ -525,5 +604,29 @@ fn push_u64(buffer: &mut FsTextBuffer, value: u64) {
         let text = [digits[index]];
         let digit = core::str::from_utf8(&text).unwrap_or("?");
         buffer.push_str(digit);
+    }
+}
+
+fn push_mac(buffer: &mut FsTextBuffer, mac: [u8; 6]) {
+    for (index, byte) in mac.iter().enumerate() {
+        push_hex_byte(buffer, *byte);
+        if index + 1 != mac.len() {
+            buffer.push_str(":");
+        }
+    }
+}
+
+fn push_hex_byte(buffer: &mut FsTextBuffer, value: u8) {
+    let high = nibble_to_hex((value >> 4) & 0x0F);
+    let low = nibble_to_hex(value & 0x0F);
+    let bytes = [high, low];
+    let text = core::str::from_utf8(&bytes).unwrap_or("00");
+    buffer.push_str(text);
+}
+
+fn nibble_to_hex(nibble: u8) -> u8 {
+    match nibble {
+        0..=9 => b'0' + nibble,
+        _ => b'a' + (nibble - 10),
     }
 }
