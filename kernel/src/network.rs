@@ -190,6 +190,7 @@ pub struct NetworkInfo {
 struct NetworkState {
     info: NetworkInfo,
     tx_slot: usize,
+    probed: bool,
 }
 
 #[repr(align(16))]
@@ -268,87 +269,25 @@ static NETWORK: Mutex<NetworkState> = Mutex::new(NetworkState {
         last_tx_length: 0,
     },
     tx_slot: 0,
+    probed: false,
 });
 
 pub fn init() -> NetworkInfo {
     let mut state = NETWORK.lock();
-    state.info = detect_supported_nic().unwrap_or(NetworkInfo {
-        detected: false,
-        prepared: false,
-        nic_kind: NicKind::Unknown,
-        bus: 0,
-        slot: 0,
-        function: 0,
-        vendor_id: 0,
-        device_id: 0,
-        io_base: 0,
-        mmio_base: 0,
-        mac: MacAddress::zero(),
-        ip: Ipv4Address::unspecified(),
-        router: Ipv4Address::unspecified(),
-        dns: Ipv4Address::unspecified(),
-        name: {
-            let mut text = NetworkTextBuffer::new();
-            text.push_str("no supported NIC");
-            text
-        },
-        dhcp_ready: false,
-        dns_ready: false,
-        sockets_ready: false,
-        driver_ready: false,
-        driver_state: {
-            let mut text = NetworkTextBuffer::new();
-            text.push_str("not initialized");
-            text
-        },
-        irq_line: 0,
-        command_register: 0,
-        interrupt_status: 0,
-        rx_config: 0,
-        tx_config: 0,
-        rx_buffer_addr: 0,
-        tx_buffer_addr: [0; RTL8139_TX_SLOTS],
-        rx_packets: 0,
-        tx_completions: 0,
-        tx_attempts: 0,
-        last_rx_status: 0,
-        last_rx_length: 0,
-        last_rx_ethertype: 0,
-        last_rx_source: MacAddress::zero(),
-        last_rx_destination: MacAddress::zero(),
-        arp_packets: 0,
-        last_arp_opcode: 0,
-        last_arp_sender_mac: MacAddress::zero(),
-        last_arp_sender_ip: Ipv4Address::unspecified(),
-        last_arp_target_ip: Ipv4Address::unspecified(),
-        ipv4_packets: 0,
-        last_ipv4_protocol: 0,
-        last_ipv4_source: Ipv4Address::unspecified(),
-        last_ipv4_destination: Ipv4Address::unspecified(),
-        udp_packets: 0,
-        last_udp_source_port: 0,
-        last_udp_destination_port: 0,
-        last_udp_length: 0,
-        dhcp_packets: 0,
-        dhcp_discover_attempts: 0,
-        dhcp_request_attempts: 0,
-        last_dhcp_message_type: 0,
-        last_dhcp_xid: 0,
-        dhcp_offer_ip: Ipv4Address::unspecified(),
-        dhcp_server: Ipv4Address::unspecified(),
-        current_rx_offset: 0,
-        current_rx_read: 0,
-        last_tx_length: 0,
-    });
+    state.info = deferred_network_info();
+    state.probed = false;
     state.info
 }
 
 pub fn info() -> NetworkInfo {
-    NETWORK.lock().info
+    let mut state = NETWORK.lock();
+    ensure_probed(&mut state);
+    state.info
 }
 
 pub fn send_test_frame() -> Result<(), &'static str> {
     let mut state = NETWORK.lock();
+    ensure_probed(&mut state);
     if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
         return Err("network: rtl8139 not ready");
     }
@@ -378,6 +317,7 @@ pub fn send_test_frame() -> Result<(), &'static str> {
 
 pub fn send_arp_request(target: Ipv4Address) -> Result<(), &'static str> {
     let mut state = NETWORK.lock();
+    ensure_probed(&mut state);
     if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
         return Err("network: rtl8139 not ready");
     }
@@ -413,6 +353,7 @@ pub fn send_arp_request(target: Ipv4Address) -> Result<(), &'static str> {
 
 pub fn send_dhcp_discover() -> Result<(), &'static str> {
     let mut state = NETWORK.lock();
+    ensure_probed(&mut state);
     if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
         return Err("network: rtl8139 not ready");
     }
@@ -440,6 +381,7 @@ pub fn send_dhcp_discover() -> Result<(), &'static str> {
 
 pub fn send_dhcp_request() -> Result<(), &'static str> {
     let mut state = NETWORK.lock();
+    ensure_probed(&mut state);
     if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
         return Err("network: rtl8139 not ready");
     }
@@ -556,6 +498,9 @@ fn build_dhcp_frame(
 
 pub fn poll() {
     let mut state = NETWORK.lock();
+    if !state.probed {
+        return;
+    }
     if !matches!(state.info.nic_kind, NicKind::Rtl8139) || state.info.io_base == 0 {
         return;
     }
@@ -583,6 +528,99 @@ pub fn poll() {
         }
 
         isr.write(pending);
+    }
+}
+
+fn ensure_probed(state: &mut NetworkState) {
+    if state.probed {
+        return;
+    }
+
+    state.info = detect_supported_nic().unwrap_or_else(|| {
+        let mut info = deferred_network_info();
+        info.driver_state = {
+            let mut text = NetworkTextBuffer::new();
+            text.push_str("no supported NIC");
+            text
+        };
+        info.name = {
+            let mut text = NetworkTextBuffer::new();
+            text.push_str("no supported NIC");
+            text
+        };
+        info
+    });
+    state.probed = true;
+}
+
+fn deferred_network_info() -> NetworkInfo {
+    NetworkInfo {
+        detected: false,
+        prepared: false,
+        nic_kind: NicKind::Unknown,
+        bus: 0,
+        slot: 0,
+        function: 0,
+        vendor_id: 0,
+        device_id: 0,
+        io_base: 0,
+        mmio_base: 0,
+        mac: MacAddress::zero(),
+        ip: Ipv4Address::unspecified(),
+        router: Ipv4Address::unspecified(),
+        dns: Ipv4Address::unspecified(),
+        name: {
+            let mut text = NetworkTextBuffer::new();
+            text.push_str("network probe deferred");
+            text
+        },
+        dhcp_ready: false,
+        dns_ready: false,
+        sockets_ready: false,
+        driver_ready: false,
+        driver_state: {
+            let mut text = NetworkTextBuffer::new();
+            text.push_str("probe on demand");
+            text
+        },
+        irq_line: 0,
+        command_register: 0,
+        interrupt_status: 0,
+        rx_config: 0,
+        tx_config: 0,
+        rx_buffer_addr: 0,
+        tx_buffer_addr: [0; RTL8139_TX_SLOTS],
+        rx_packets: 0,
+        tx_completions: 0,
+        tx_attempts: 0,
+        last_rx_status: 0,
+        last_rx_length: 0,
+        last_rx_ethertype: 0,
+        last_rx_source: MacAddress::zero(),
+        last_rx_destination: MacAddress::zero(),
+        arp_packets: 0,
+        last_arp_opcode: 0,
+        last_arp_sender_mac: MacAddress::zero(),
+        last_arp_sender_ip: Ipv4Address::unspecified(),
+        last_arp_target_ip: Ipv4Address::unspecified(),
+        ipv4_packets: 0,
+        last_ipv4_protocol: 0,
+        last_ipv4_source: Ipv4Address::unspecified(),
+        last_ipv4_destination: Ipv4Address::unspecified(),
+        udp_packets: 0,
+        last_udp_source_port: 0,
+        last_udp_destination_port: 0,
+        last_udp_length: 0,
+        dhcp_packets: 0,
+        dhcp_discover_attempts: 0,
+        dhcp_request_attempts: 0,
+        last_dhcp_message_type: 0,
+        last_dhcp_xid: 0,
+        dhcp_offer_ip: Ipv4Address::unspecified(),
+        dhcp_server: Ipv4Address::unspecified(),
+        current_rx_offset: 0,
+        current_rx_read: 0,
+        last_tx_length: 0,
     }
 }
 
