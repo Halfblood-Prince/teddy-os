@@ -20,11 +20,16 @@ Recommended baseline:
 
 ## Command-Line Workflow
 
-If `vmrun` is installed and your VM already points at the correct ISO:
+If `vmrun` is installed, the helper can update your VMX to force UEFI boot and
+attach the generated ISO before launch:
 
 ```powershell
 ./scripts/run-vmware.ps1 -VmxPath C:\VMs\Teddy-OS\Teddy-OS.vmx
 ```
+
+This avoids common VMware misconfiguration where the VM falls through to PXE
+network boot (`Operating System not found`) because CD/DVD boot media was not
+connected.
 
 For headless startup:
 
