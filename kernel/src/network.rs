@@ -176,6 +176,8 @@ pub struct NetworkInfo {
     pub dhcp_discover_attempts: u64,
     pub last_dhcp_message_type: u8,
     pub last_dhcp_xid: u32,
+    pub dhcp_offer_ip: Ipv4Address,
+    pub dhcp_server: Ipv4Address,
     pub current_rx_offset: u16,
     pub current_rx_read: u16,
     pub last_tx_length: u16,
@@ -255,6 +257,8 @@ static NETWORK: Mutex<NetworkState> = Mutex::new(NetworkState {
         dhcp_discover_attempts: 0,
         last_dhcp_message_type: 0,
         last_dhcp_xid: 0,
+        dhcp_offer_ip: Ipv4Address::unspecified(),
+        dhcp_server: Ipv4Address::unspecified(),
         current_rx_offset: 0,
         current_rx_read: 0,
         last_tx_length: 0,
@@ -325,6 +329,8 @@ pub fn init() -> NetworkInfo {
         dhcp_discover_attempts: 0,
         last_dhcp_message_type: 0,
         last_dhcp_xid: 0,
+        dhcp_offer_ip: Ipv4Address::unspecified(),
+        dhcp_server: Ipv4Address::unspecified(),
         current_rx_offset: 0,
         current_rx_read: 0,
         last_tx_length: 0,
@@ -576,6 +582,8 @@ fn detect_supported_nic() -> Option<NetworkInfo> {
                     dhcp_discover_attempts: 0,
                     last_dhcp_message_type: 0,
                     last_dhcp_xid: 0,
+                    dhcp_offer_ip: Ipv4Address::unspecified(),
+                    dhcp_server: Ipv4Address::unspecified(),
                     current_rx_offset: 0,
                     current_rx_read: 0,
                     last_tx_length: 0,
@@ -797,6 +805,46 @@ fn parse_udp_packet(info: &mut NetworkInfo, packet: &[u8; RTL8139_RX_BUFFER_LEN]
             packet[(dhcp_offset + 7) % RTL8139_RX_RING_LEN],
         ]);
         info.last_dhcp_message_type = parse_dhcp_message_type(packet, dhcp_offset);
+        info.dhcp_offer_ip = read_ipv4_from_ring(packet, (dhcp_offset + 16) % RTL8139_RX_RING_LEN);
+
+        if let Some(server) = parse_dhcp_option_ipv4(packet, dhcp_offset, 54) {
+            info.dhcp_server = server;
+        }
+        if let Some(router) = parse_dhcp_option_ipv4(packet, dhcp_offset, 3) {
+            info.router = router;
+        }
+        if let Some(dns) = parse_dhcp_option_ipv4(packet, dhcp_offset, 6) {
+            info.dns = dns;
+            info.dns_ready = dns.octets() != Ipv4Address::unspecified().octets();
+        }
+
+        match info.last_dhcp_message_type {
+            2 => {
+                info.driver_state = {
+                    let mut text = NetworkTextBuffer::new();
+                    text.push_str("rtl8139 dhcp offer received");
+                    text
+                };
+            }
+            5 => {
+                info.ip = info.dhcp_offer_ip;
+                info.dhcp_ready = true;
+                info.driver_state = {
+                    let mut text = NetworkTextBuffer::new();
+                    text.push_str("rtl8139 dhcp lease active");
+                    text
+                };
+            }
+            6 => {
+                info.dhcp_ready = false;
+                info.driver_state = {
+                    let mut text = NetworkTextBuffer::new();
+                    text.push_str("rtl8139 dhcp nack");
+                    text
+                };
+            }
+            _ => {}
+        }
     }
 }
 
@@ -819,6 +867,37 @@ fn parse_dhcp_message_type(packet: &[u8; RTL8139_RX_BUFFER_LEN], dhcp_offset: us
         index = (index + 2 + length) % RTL8139_RX_RING_LEN;
     }
     0
+}
+
+fn parse_dhcp_option_ipv4(
+    packet: &[u8; RTL8139_RX_BUFFER_LEN],
+    dhcp_offset: usize,
+    target_option: u8,
+) -> Option<Ipv4Address> {
+    let options_offset = (dhcp_offset + 240) % RTL8139_RX_RING_LEN;
+    let mut index = options_offset;
+    for _ in 0..64 {
+        let option = packet[index % RTL8139_RX_RING_LEN];
+        if option == 0 {
+            index = (index + 1) % RTL8139_RX_RING_LEN;
+            continue;
+        }
+        if option == 255 {
+            break;
+        }
+
+        let length = packet[(index + 1) % RTL8139_RX_RING_LEN] as usize;
+        if option == target_option && length >= 4 {
+            return Some(Ipv4Address::from_octets([
+                packet[(index + 2) % RTL8139_RX_RING_LEN],
+                packet[(index + 3) % RTL8139_RX_RING_LEN],
+                packet[(index + 4) % RTL8139_RX_RING_LEN],
+                packet[(index + 5) % RTL8139_RX_RING_LEN],
+            ]));
+        }
+        index = (index + 2 + length) % RTL8139_RX_RING_LEN;
+    }
+    None
 }
 
 fn read_ipv4_from_ring(packet: &[u8; RTL8139_RX_BUFFER_LEN], offset: usize) -> Ipv4Address {

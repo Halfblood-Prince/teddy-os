@@ -412,6 +412,15 @@ impl TerminalApp {
         state.push_str("state ");
         state.push_str(info.driver_state.as_str());
         self.push_line(state);
+
+        let mut config = FsTextBuffer::new();
+        config.push_str("ip ");
+        push_ipv4(&mut config, info.ip.octets());
+        config.push_str(" gw ");
+        push_ipv4(&mut config, info.router.octets());
+        config.push_str(" dns ");
+        push_ipv4(&mut config, info.dns.octets());
+        self.push_line(config);
     }
 
     fn netdiag_command(&mut self) {
@@ -517,7 +526,25 @@ impl TerminalApp {
         push_u64(&mut dhcp, info.dhcp_discover_attempts);
         dhcp.push_str(" type ");
         push_usize(&mut dhcp, info.last_dhcp_message_type as usize);
+        dhcp.push_str(" ready ");
+        dhcp.push_str(if info.dhcp_ready { "yes" } else { "no" });
         self.push_line(dhcp);
+
+        let mut lease = FsTextBuffer::new();
+        lease.push_str("offer ");
+        push_ipv4(&mut lease, info.dhcp_offer_ip.octets());
+        lease.push_str(" server ");
+        push_ipv4(&mut lease, info.dhcp_server.octets());
+        self.push_line(lease);
+
+        let mut config = FsTextBuffer::new();
+        config.push_str("lease ip ");
+        push_ipv4(&mut config, info.ip.octets());
+        config.push_str(" gw ");
+        push_ipv4(&mut config, info.router.octets());
+        config.push_str(" dns ");
+        push_ipv4(&mut config, info.dns.octets());
+        self.push_line(config);
     }
 
     fn netsend_command(&mut self) {
