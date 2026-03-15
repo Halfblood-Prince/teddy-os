@@ -150,7 +150,7 @@ struct TeddyFs {
 }
 
 impl TeddyFs {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             entries: [FsEntry::empty(); ENTRY_COUNT],
             data: [[0; MAX_FILE_BYTES]; ENTRY_COUNT],
@@ -160,10 +160,16 @@ impl TeddyFs {
         }
     }
 
-    fn format(&mut self) -> Result<(), &'static str> {
-        self.entries = [FsEntry::empty(); ENTRY_COUNT];
-        self.data = [[0; MAX_FILE_BYTES]; ENTRY_COUNT];
+    fn reset_in_place(&mut self) {
+        self.entries.fill(FsEntry::empty());
+        self.data.fill([0; MAX_FILE_BYTES]);
         self.cwd = 0;
+        self.mounted = false;
+        self.persistent = false;
+    }
+
+    fn format(&mut self) -> Result<(), &'static str> {
+        self.reset_in_place();
         self.entries[0].used = true;
         self.entries[0].kind = EntryKind::Directory;
         self.entries[0].parent = 0;
@@ -217,9 +223,7 @@ impl TeddyFs {
     }
 
     fn mount_ephemeral(&mut self) {
-        self.entries = [FsEntry::empty(); ENTRY_COUNT];
-        self.data = [[0; MAX_FILE_BYTES]; ENTRY_COUNT];
-        self.cwd = 0;
+        self.reset_in_place();
         self.entries[0].used = true;
         self.entries[0].kind = EntryKind::Directory;
         self.entries[0].parent = 0;
@@ -641,10 +645,11 @@ impl TeddyFs {
     }
 }
 
-static FS: Mutex<Option<TeddyFs>> = Mutex::new(None);
+static FS: Mutex<TeddyFs> = Mutex::new(TeddyFs::new());
 
 pub fn init() -> MountStatus {
-    let mut fs = TeddyFs::new();
+    let mut fs = FS.lock();
+    fs.reset_in_place();
     let status = if storage::is_ready() {
         match fs.mount() {
             Ok(formatted) => MountStatus {
@@ -669,17 +674,16 @@ pub fn init() -> MountStatus {
             persistent: false,
         }
     };
-    *FS.lock() = Some(fs);
     status
 }
 
 pub fn is_ready() -> bool {
-    FS.lock().as_ref().map(|fs| fs.mounted).unwrap_or(false)
+    FS.lock().mounted
 }
 
 pub fn pwd() -> Result<FsTextBuffer, &'static str> {
     let guard = FS.lock();
-    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    let fs = &*guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -688,7 +692,7 @@ pub fn pwd() -> Result<FsTextBuffer, &'static str> {
 
 pub fn ls(path: Option<&str>, out: &mut [FsTextBuffer; MAX_OUTPUT_LINES]) -> Result<usize, &'static str> {
     let guard = FS.lock();
-    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    let fs = &*guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -697,7 +701,7 @@ pub fn ls(path: Option<&str>, out: &mut [FsTextBuffer; MAX_OUTPUT_LINES]) -> Res
 
 pub fn cd(path: &str) -> Result<(), &'static str> {
     let mut guard = FS.lock();
-    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    let fs = &mut *guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -706,7 +710,7 @@ pub fn cd(path: &str) -> Result<(), &'static str> {
 
 pub fn cat(path: &str, out: &mut [FsTextBuffer; MAX_OUTPUT_LINES]) -> Result<usize, &'static str> {
     let guard = FS.lock();
-    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    let fs = &*guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -715,7 +719,7 @@ pub fn cat(path: &str, out: &mut [FsTextBuffer; MAX_OUTPUT_LINES]) -> Result<usi
 
 pub fn mkdir(path: &str, tick: u64) -> Result<(), &'static str> {
     let mut guard = FS.lock();
-    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    let fs = &mut *guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -724,7 +728,7 @@ pub fn mkdir(path: &str, tick: u64) -> Result<(), &'static str> {
 
 pub fn touch(path: &str, tick: u64) -> Result<(), &'static str> {
     let mut guard = FS.lock();
-    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    let fs = &mut *guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -733,7 +737,7 @@ pub fn touch(path: &str, tick: u64) -> Result<(), &'static str> {
 
 pub fn rm(path: &str) -> Result<(), &'static str> {
     let mut guard = FS.lock();
-    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    let fs = &mut *guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -742,7 +746,7 @@ pub fn rm(path: &str) -> Result<(), &'static str> {
 
 pub fn write_text(path: &str, text: &str, tick: u64) -> Result<(), &'static str> {
     let mut guard = FS.lock();
-    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    let fs = &mut *guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -751,7 +755,7 @@ pub fn write_text(path: &str, text: &str, tick: u64) -> Result<(), &'static str>
 
 pub fn metadata(path: &str) -> Result<Metadata, &'static str> {
     let guard = FS.lock();
-    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    let fs = &*guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -763,7 +767,7 @@ pub fn list_dir_entries(
     out: &mut [DirectoryEntry; MAX_DIR_ENTRIES],
 ) -> Result<usize, &'static str> {
     let guard = FS.lock();
-    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    let fs = &*guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -772,7 +776,7 @@ pub fn list_dir_entries(
 
 pub fn rename(path: &str, new_name: &str, tick: u64) -> Result<(), &'static str> {
     let mut guard = FS.lock();
-    let fs = guard.as_mut().ok_or("fs: not initialized")?;
+    let fs = &mut *guard;
     if !fs.mounted {
         return Err("fs: volume not mounted");
     }
@@ -781,13 +785,13 @@ pub fn rename(path: &str, new_name: &str, tick: u64) -> Result<(), &'static str>
 
 pub fn stats() -> Result<FsStats, &'static str> {
     let guard = FS.lock();
-    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    let fs = &*guard;
     Ok(fs.stats())
 }
 
 pub fn check() -> Result<FsCheckReport, &'static str> {
     let guard = FS.lock();
-    let fs = guard.as_ref().ok_or("fs: not initialized")?;
+    let fs = &*guard;
     Ok(fs.check())
 }
 
