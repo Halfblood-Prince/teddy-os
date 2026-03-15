@@ -27,9 +27,7 @@ The kernel screen should include:
 
 - `TEDDY-OS KERNEL`
 - `Rust x86_64 kernel loaded successfully`
-- `Serial logging active on COM1 (0x3F8)`
+- `Checkpoint: VGA console online`
 - `Boot contract: verified`
+- `Checkpoint: boot info parsed`
 - `Kernel idle loop active`
-
-If VMware is configured to expose a serial port, the same boot progress is also
-written to COM1 for debugging.

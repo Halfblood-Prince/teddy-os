@@ -10,7 +10,7 @@ This reset starts from a small but extensible BIOS baseline:
 - optional VGA mode `13h` graphics demo launched from the shell
 - optional x86_64 long-mode entry demo launched from the shell
 - a real Rust x86_64 kernel binary loaded by stage 2
-- a minimal kernel-side console layer for VGA text and serial output
+- a minimal kernel-side console layer for VGA text output
 - reproducible ISO output for VMware legacy BIOS boot
 
 ## Why This Reset Exists
@@ -31,7 +31,7 @@ The new baseline restores a known-good target:
 6. A kernel demo can switch stage 2 through protected mode into x86_64 long mode
 7. Long mode uses identity-mapped paging so the kernel path is truly 64-bit
 8. Stage 2 can load a flat Rust kernel binary from later disk sectors and jump to it
-9. The Rust kernel validates the stage-2 boot handoff and logs to both VGA text mode and COM1
+9. The Rust kernel validates the stage-2 boot handoff and displays it through VGA text mode
 
 ## Next Phases
 
