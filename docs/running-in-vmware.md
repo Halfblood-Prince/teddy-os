@@ -15,5 +15,6 @@ You should see:
 - a `TEDDY-OS` title
 - a `Legacy BIOS stage 2 online` status line
 - a `Boot OK - Stage 2 running` footer
+- a `>` shell prompt that responds to keyboard input
 
 If that screen appears and remains stable, the reset baseline is working.

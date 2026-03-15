@@ -5,8 +5,8 @@ This reset starts from a small but extensible BIOS baseline:
 - one 16-bit BIOS boot sector
 - one fixed-location second-stage program loaded from disk
 - no separate kernel yet
-- no advanced drivers, input, or networking beyond BIOS services
-- text-mode Teddy-OS status screen
+- no advanced drivers or networking beyond BIOS services
+- text-mode Teddy-OS status screen and tiny shell
 - reproducible ISO output for VMware legacy BIOS boot
 
 ## Why This Reset Exists
@@ -21,8 +21,8 @@ The new baseline restores a known-good target:
 
 1. BIOS loads the Teddy-OS boot sector
 2. Stage 1 reads a fixed second stage from disk sectors
-3. Stage 2 switches to text mode and paints a Teddy-OS status screen
-4. Stage 2 stays alive in a simple halt loop
+3. Stage 2 switches to text mode, paints a Teddy-OS status screen, and starts a shell
+4. Keyboard input is handled via BIOS INT 16h
 
 ## Next Phases
 
