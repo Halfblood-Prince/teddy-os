@@ -47,8 +47,10 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     gdt::init();
     logln!("[boot] gdt online");
 
-    interrupts::init_exceptions();
-    logln!("[boot] exception handling online");
+    // Keep early boot on the simplest possible path until the desktop is stable
+    // in VMware. The IDT wiring can come back once the remaining boot path is
+    // fully validated on real images.
+    logln!("[boot] exception handling deferred");
 
     logln!("[boot] initializing memory manager");
     memory::init(boot_info);
