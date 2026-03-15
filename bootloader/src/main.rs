@@ -27,19 +27,15 @@ const KERNEL_PATH: &uefi::CStr16 = cstr16!(r"\EFI\BOOT\KERNEL.ELF");
 #[entry]
 fn efi_main() -> Status {
     if uefi::helpers::init().is_err() {
-        serial_write_str("UEFI helper init failed.\n");
         return Status::LOAD_ERROR;
     }
 
-    serial_init();
     uefi::println!("Teddy-OS bootloader");
-    serial_write_str("Teddy-OS bootloader\n");
 
     match boot() {
         Ok(()) => Status::SUCCESS,
         Err(status) => {
             uefi::println!("Boot failed: {:?}", status);
-            serial_write_str("Boot failed.\n");
             status
         }
     }
@@ -48,9 +44,11 @@ fn efi_main() -> Status {
 fn boot() -> Result<(), Status> {
     let image_handle = boot::image_handle();
 
+    uefi::println!("Loading kernel file...");
     let kernel_file = read_kernel_file(image_handle)?;
-    serial_write_str("Kernel image loaded from EFI partition.\n");
+    uefi::println!("Kernel file loaded ({} bytes).", kernel_file.len());
 
+    uefi::println!("Initializing framebuffer...");
     let framebuffer = init_framebuffer()?;
     uefi::println!(
         "Framebuffer: {}x{} stride {}",
@@ -58,8 +56,8 @@ fn boot() -> Result<(), Status> {
         framebuffer.height,
         framebuffer.stride
     );
-    serial_write_str("Framebuffer initialized.\n");
 
+    uefi::println!("Loading kernel ELF...");
     let loaded_kernel = load_kernel_elf(&kernel_file)?;
     uefi::println!(
         "Kernel ELF loaded: start={:#x}, end={:#x}, entry={:#x}",
@@ -67,7 +65,6 @@ fn boot() -> Result<(), Status> {
         loaded_kernel.end,
         loaded_kernel.entry
     );
-    serial_write_str("Kernel ELF segments placed in memory.\n");
 
     let rsdp_addr = find_rsdp();
     let mut boot_info = Box::new(BootInfo::new());
@@ -78,6 +75,7 @@ fn boot() -> Result<(), Status> {
     boot_info.kernel_start = loaded_kernel.start;
     boot_info.kernel_end = loaded_kernel.end;
 
+    uefi::println!("Exiting UEFI boot services...");
     let memory_map = unsafe { boot::exit_boot_services(MemoryType::LOADER_DATA) };
 
     let mut count = 0usize;
@@ -104,7 +102,7 @@ fn boot() -> Result<(), Status> {
     let entry: extern "sysv64" fn(&'static BootInfo) -> ! =
         unsafe { mem::transmute(loaded_kernel.entry as usize) };
 
-    serial_write_str("Jumping to kernel entry point.\n");
+    uefi::println!("Jumping to kernel entry point...");
     entry(unsafe { &*boot_info_ptr });
 }
 
@@ -206,13 +204,13 @@ fn load_segment(image: &[u8], header: &ProgramHeader<'_>) -> Result<(), Status> 
     }
 
     if file_size > mem_size {
-        serial_write_str("ELF segment has file_size larger than mem_size.\n");
+        uefi::println!("ELF segment has file_size larger than mem_size.");
         return Err(Status::LOAD_ERROR);
     }
 
     let file_end = offset.checked_add(file_size).ok_or(Status::LOAD_ERROR)?;
     if file_end > image.len() {
-        serial_write_str("ELF segment exceeds kernel image bounds.\n");
+        uefi::println!("ELF segment exceeds kernel image bounds.");
         return Err(Status::LOAD_ERROR);
     }
 
@@ -271,67 +269,4 @@ struct LoadedKernel {
     entry: u64,
     start: u64,
     end: u64,
-}
-
-const COM1: u16 = 0x3F8;
-const SERIAL_READY_MASK: u8 = 0x20;
-const SERIAL_WAIT_SPINS: usize = 100_000;
-
-fn serial_init() {
-    unsafe {
-        outb(COM1 + 1, 0x00);
-        outb(COM1 + 3, 0x80);
-        outb(COM1 + 0, 0x03);
-        outb(COM1 + 1, 0x00);
-        outb(COM1 + 3, 0x03);
-        outb(COM1 + 2, 0xC7);
-        outb(COM1 + 4, 0x0B);
-    }
-}
-
-fn serial_write_str(text: &str) {
-    for byte in text.bytes() {
-        if byte == b'\n' {
-            serial_write_byte(b'\r');
-        }
-        serial_write_byte(byte);
-    }
-}
-
-fn serial_write_byte(byte: u8) {
-    unsafe {
-        if !serial_wait_for_transmit_ready() {
-            return;
-        }
-        outb(COM1, byte);
-    }
-}
-
-unsafe fn serial_wait_for_transmit_ready() -> bool {
-    for _ in 0..SERIAL_WAIT_SPINS {
-        if (inb(COM1 + 5) & SERIAL_READY_MASK) != 0 {
-            return true;
-        }
-    }
-    false
-}
-
-unsafe fn outb(port: u16, value: u8) {
-    core::arch::asm!(
-        "out dx, al",
-        in("dx") port,
-        in("al") value,
-        options(nomem, nostack, preserves_flags)
-    );
-}
-
-unsafe fn inb(port: u16) -> u8 {
-    let value: u8;
-    core::arch::asm!(
-        "in al, dx",
-        in("dx") port,
-        out("al") value,
-        options(nomem, nostack, preserves_flags)
-    );
-    value
 }
