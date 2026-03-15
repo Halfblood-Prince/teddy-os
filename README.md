@@ -15,7 +15,7 @@ bootable ISO for VMware.
 - keyboard input and a tiny BIOS shell in stage 2
 - a VGA mode `13h` graphics demo launched from the shell
 - a `kernel` command that loads and jumps to a real Rust x86_64 kernel binary
-- a modular Rust kernel with VGA text output and boot handoff parsing
+- a modular Rust kernel with stable VGA text output
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
@@ -93,8 +93,8 @@ When you run `kernel`, the current kernel MVP should show:
 - `TEDDY-OS KERNEL`
 - `Rust x86_64 kernel loaded successfully`
 - `Checkpoint: VGA console online`
-- `Boot contract: verified`
-- `Checkpoint: boot info parsed`
+- `Boot contract: deferred for next phase`
+- `Kernel core is stable again`
 - `Kernel idle loop active`
 
 ## Next Step

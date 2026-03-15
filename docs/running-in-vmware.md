@@ -21,13 +21,13 @@ Try `graphics` at the prompt. You should see a simple Teddy-OS graphics screen
 and return to the shell after pressing a key.
 
 Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
-64-bit Rust kernel screen, verify the boot contract, and remain in an idle loop.
+64-bit Rust kernel screen and remain in an idle loop.
 
 The kernel screen should include:
 
 - `TEDDY-OS KERNEL`
 - `Rust x86_64 kernel loaded successfully`
 - `Checkpoint: VGA console online`
-- `Boot contract: verified`
-- `Checkpoint: boot info parsed`
+- `Boot contract: deferred for next phase`
+- `Kernel core is stable again`
 - `Kernel idle loop active`
