@@ -10,24 +10,43 @@ SECTIONS
         KEEP(*(.text.boot))
     }
 
-    .text : ALIGN(4K)
+    .text : ALIGN(16)
     {
         *(.text .text.*)
     }
 
-    .rodata : ALIGN(4K)
+    .rodata : ALIGN(16)
     {
         *(.rodata .rodata.*)
     }
 
-    .data : ALIGN(4K)
+    .data : ALIGN(16)
     {
         *(.data .data.*)
     }
 
-    .bss : ALIGN(4K)
+    .bss (NOLOAD) : ALIGN(16)
     {
         *(COMMON)
         *(.bss .bss.*)
+    }
+
+    /DISCARD/ :
+    {
+        *(.comment .comment.*)
+        *(.eh_frame .eh_frame.*)
+        *(.eh_frame_hdr .eh_frame_hdr.*)
+        *(.gcc_except_table .gcc_except_table.*)
+        *(.note .note.*)
+        *(.interp)
+        *(.dynamic)
+        *(.dynsym)
+        *(.dynstr)
+        *(.gnu.hash)
+        *(.hash)
+        *(.plt .plt.*)
+        *(.got .got.*)
+        *(.got.plt)
+        *(.rela .rela.*)
     }
 }

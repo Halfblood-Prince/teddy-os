@@ -14,9 +14,10 @@ global_asm!(
     .section .text.boot,"ax"
     .global _start
 _start:
-    mov rax, 0xb8000
+    cld
+    mov rbx, 0xb8000
     mov ax, 0x2f4b
-    mov [rax], ax
+    mov [rbx], ax
     mov rsp, {stack_top}
     and rsp, -16
     call kernel_main

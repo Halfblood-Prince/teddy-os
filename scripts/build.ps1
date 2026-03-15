@@ -68,10 +68,15 @@ try {
     }
 
     $previousRustFlags = $env:RUSTFLAGS
+    $kernelRustFlags = @(
+        "-Crelocation-model=static",
+        "-Clink-arg=-Tkernel/linker.ld",
+        "-Clink-arg=--build-id=none"
+    ) -join " "
     if ([string]::IsNullOrWhiteSpace($previousRustFlags)) {
-        $env:RUSTFLAGS = "-Clink-arg=-Tkernel/linker.ld"
+        $env:RUSTFLAGS = $kernelRustFlags
     } else {
-        $env:RUSTFLAGS = "$previousRustFlags -Clink-arg=-Tkernel/linker.ld"
+        $env:RUSTFLAGS = "$previousRustFlags $kernelRustFlags"
     }
 
     & cargo @kernelArgs

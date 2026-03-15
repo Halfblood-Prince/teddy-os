@@ -12,6 +12,7 @@ ORG 0x8000
 
 stage2_start:
     cli
+    cld
     xor ax, ax
     mov ds, ax
     mov es, ax
@@ -553,6 +554,7 @@ protected_mode_entry:
     mov gs, ax
     mov ss, ax
     mov esp, 0x7000
+    cld
 
     call setup_page_tables
 
@@ -603,6 +605,9 @@ long_mode_entry:
     mov fs, ax
     mov gs, ax
     mov rsp, 0x80000
+
+    mov rax, 0xB8002
+    mov word [rax], 0x2F4C
 
     mov rdi, BOOT_INFO_ADDR
     mov rax, KERNEL_LOAD_ADDR

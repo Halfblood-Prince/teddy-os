@@ -7,6 +7,7 @@ ORG 0x7C00
 
 start:
     cli
+    cld
     xor ax, ax
     mov ds, ax
     mov es, ax
