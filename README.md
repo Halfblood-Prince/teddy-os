@@ -1,115 +1,68 @@
 # Teddy-OS
 
-Teddy-OS is a hobby x86_64 operating system built in Rust for educational use.
-The target environment is UEFI boot on VMware from a reproducible ISO image.
+Teddy-OS has been reset and rebuilt from scratch around one goal: boot cleanly
+in VMware under UEFI.
 
-This repository is being developed in phases. The current boot profile is being
-kept intentionally small so it can start reliably in VMware: stable Rust,
-framebuffer desktop, and an in-memory TeddyFS volume during boot. Phase 8 and
-Phase 9 are implemented as the build/release workflow and documentation pass.
-Phase 7 remains intentionally deferred, and the networking work is still a
-Phase 10 foundation rather than a complete updater-ready internet stack.
+The current repository is a minimal Phase 1 baseline implemented in stable
+Rust. It builds a single `x86_64-unknown-uefi` Teddy-OS application that opens
+the UEFI framebuffer and renders an original desktop-style screen.
 
-## Current Status
+## What Exists Now
 
-- Phase 0 complete: architecture and repo layout
-- Phase 1 complete: bootloader, kernel handoff, framebuffer logging, ISO scripts
-- Phase 2 complete: interrupts, timer, keyboard input, memory stats, runtime loop
-- Phase 3 complete: desktop shell, taskbar, launcher, clock, cursor, and dragging
-- Phase 4 complete: terminal app, text rendering, parser, commands, and scrollback
-- Phase 5 complete: persistent filesystem, path handling, metadata, and mounted storage
-- Phase 6 complete: file explorer GUI and shell integration
-- Phase 7 deferred: updater, release manifest handling, and staged install flow
-- Phase 8 complete: reproducible build scripts, release manifest generation, and VMware helper
-- Phase 9 complete: architecture/build/VMware/release/theming/app docs
-- Phase 10 deferred: networking support removed from the active boot path for stability
-- Phase 11 complete: desktop input routing, focus, window controls, and resizing
-- Phase 14 complete: storage diagnostics and TeddyFS integrity reporting
-- Current boot profile: storage probing deferred, filesystem mounted in memory, stable Rust toolchain
+- a clean Rust workspace
+- a single UEFI boot application in `bootloader/`
+- framebuffer desktop-style rendering
+- reproducible PowerShell build and ISO scripts
+- GitHub Actions ISO build workflow
+- fresh architecture and VMware docs
 
-## Repository Layout
+## Repo Layout
 
-- `bootloader/` - UEFI entry point and kernel handoff
-- `kernel/` - core kernel, memory, interrupts, drivers, and graphics primitives
-- `userland/` - shared runtime model for future user-space style components
-- `apps/terminal/` - terminal application
-- `apps/file_explorer/` - graphical file browser
-- `apps/disk_utility/` - disk and filesystem diagnostics
-- `apps/updater/` - GUI updater and update orchestration logic
-- `shell/` - desktop shell, taskbar, launcher, compositor, and theme logic
-- `libs/` - shared crates for ABI, graphics, storage, UI, and utilities
-- `assets/` - original Teddy-OS fonts, icons, themes, wallpapers, and manifests
-- `build/` - build artifacts layout, image staging, and release metadata
-- `scripts/` - build, image creation, ISO generation, and VMware helper scripts
-- `docs/` - architecture, roadmap, and workflow documentation
-
-## Phase 0 Documents
-
-- `docs/architecture.md` - system design and component plan
-- `docs/phase-0.md` - Phase 0 deliverables and next steps
-- `docs/phase-1.md` - Phase 1 implementation, build, and VMware test steps
-- `docs/phase-2.md` - Phase 2 kernel MVP implementation and test steps
-- `docs/phase-3.md` - Phase 3 desktop shell implementation and VMware test steps
-- `docs/phase-4.md` - Phase 4 terminal implementation and VMware test steps
-- `docs/phase-5.md` - Phase 5 persistent filesystem and VMware disk workflow
-- `docs/phase-6.md` - Phase 6 file explorer implementation and VMware test steps
-- `docs/phase-8.md` - Phase 8 build and release pipeline
-- `docs/phase-9.md` - Phase 9 documentation overview
-- `docs/phase-10.md` - Phase 10 networking foundation and diagnostics
-- `docs/building-from-scratch.md` - full local setup and build workflow
-- `docs/running-in-vmware.md` - VMware setup and test loop
-- `docs/creating-releases.md` - release artifact and manifest workflow
-- `docs/updater-manifests.md` - planned update manifest schema for Phase 7
-- `docs/adding-apps.md` - how to integrate future apps/components
-- `docs/theming.md` - shell styling and Teddy-OS branding notes
-- `docs/limitations-and-roadmap.md` - current limits and next milestones
-- `docs/phase-11.md` - Phase 11 window manager and input dispatch improvements
-- `docs/phase-14.md` - Phase 14 storage diagnostics and integrity checks
+- `bootloader/` - stable Rust UEFI Teddy-OS app
+- `docs/` - reset architecture and VMware notes
+- `scripts/` - build, ISO, and clean scripts
 
 ## Build
 
-Prerequisites:
+Host requirements:
 
 - `cargo`
 - `rustup`
 - `mtools` (`mformat`, `mmd`, `mcopy`)
 - `xorriso`
-- `vmrun` for the optional VMware helper
 
-Build and package a debug ISO:
+Build the debug ISO:
 
 ```powershell
 ./scripts/build.ps1
 ```
 
-Build and package a release ISO:
+Build the release ISO:
 
 ```powershell
 ./scripts/build.ps1 -Profile release
 ```
 
-Clean staged and distribution outputs:
+Clean outputs:
 
 ```powershell
 ./scripts/clean.ps1
 ```
 
-Create a release manifest for an already-built ISO:
+## VMware Test
 
-```powershell
-./scripts/release.ps1 -Version 0.1.0
-```
+1. Create a VM with `UEFI` firmware.
+2. Attach `build/dist/teddy-os-debug.iso`.
+3. Boot the VM.
 
-Start a VMware VM from an existing `.vmx`:
+Expected result:
 
-```powershell
-./scripts/run-vmware.ps1 -VmxPath C:\VMs\Teddy-OS\Teddy-OS.vmx
-```
+- blue desktop background
+- light bottom taskbar
+- green start button
+- status panel in the top-right
 
-## Design Principles
+## Next Step
 
-- Keep the early system small and bootable before adding complexity
-- Prefer modular crates and stable interfaces over clever shortcuts
-- Use original Teddy-OS branding and assets only
-- Preserve a familiar desktop workflow without copying proprietary UI assets
-- Document tradeoffs as the system grows
+Once this reset baseline is proven stable in VMware, the next phase is to add a
+small input/event loop before reintroducing a separate kernel.

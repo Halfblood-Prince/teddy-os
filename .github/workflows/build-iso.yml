@@ -2,138 +2,39 @@ name: Build Teddy-OS ISO
 
 on:
   workflow_dispatch:
-    inputs:
-      profile:
-        description: Build profile
-        required: true
-        default: debug
-        type: choice
-        options:
-          - debug
-          - release
-
-permissions:
-  contents: write
+  push:
+    branches: ["main"]
+  pull_request:
 
 jobs:
   build-iso:
     runs-on: ubuntu-latest
 
-    env:
-      PROFILE: ${{ inputs.profile }}
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install host tools
         run: |
           sudo apt-get update
           sudo apt-get install -y xorriso mtools
-        shell: bash
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-uefi
-          components: rust-src, llvm-tools-preview
 
-      - name: Cache Cargo registry + build output
+      - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: teddy-os-${{ runner.os }}-${{ env.PROFILE }}
 
       - name: Build ISO
-        run: |
-          if ($env:PROFILE -eq 'release') {
-            ./scripts/build.ps1 -Profile release
-          }
-          else {
-            ./scripts/build.ps1
-          }
         shell: pwsh
+        run: ./scripts/build.ps1
 
-      - name: Verify ISO output
-        run: |
-          $iso = "build/dist/teddy-os-$env:PROFILE.iso"
-          $sha = "$iso.sha256"
-          $manifest = "build/dist/build-$env:PROFILE.json"
-
-          if (-not (Test-Path $iso)) {
-            throw "Missing ISO: $iso"
-          }
-          if (-not (Test-Path $sha)) {
-            throw "Missing checksum: $sha"
-          }
-          if (-not (Test-Path $manifest)) {
-            throw "Missing build manifest: $manifest"
-          }
-
-          Write-Host "ISO ready: $iso"
+      - name: Verify output
         shell: pwsh
-
-      - name: Verify ISO UEFI boot metadata
         run: |
-          $iso = "build/dist/teddy-os-$env:PROFILE.iso"
-          ./scripts/inspect-iso.ps1 -IsoPath $iso
-        shell: pwsh
-
-      - name: Refresh dist output
-        run: |
-          $sourceIso = "build/dist/teddy-os-$env:PROFILE.iso"
-          $sourceSha = "$sourceIso.sha256"
-          $sourceManifest = "build/dist/build-$env:PROFILE.json"
-          $distDir = "dist"
-          $targetIso = Join-Path $distDir "teddy-os-$env:PROFILE.iso"
-          $targetSha = "$targetIso.sha256"
-          $targetManifest = Join-Path $distDir "build-$env:PROFILE.json"
-
-          if (-not (Test-Path $sourceIso)) {
-            throw "Missing ISO: $sourceIso"
-          }
-          if (-not (Test-Path $sourceSha)) {
-            throw "Missing checksum: $sourceSha"
-          }
-          if (-not (Test-Path $sourceManifest)) {
-            throw "Missing manifest: $sourceManifest"
+          if (-not (Test-Path "build/dist/teddy-os-debug.iso")) {
+            throw "Missing ISO output."
           }
 
-          if (Test-Path $distDir) {
-            Get-ChildItem $distDir -Force | Remove-Item -Recurse -Force
-          }
-          else {
-            New-Item -ItemType Directory -Path $distDir | Out-Null
-          }
-
-          Copy-Item $sourceIso $targetIso -Force
-          Copy-Item $sourceSha $targetSha -Force
-          Copy-Item $sourceManifest $targetManifest -Force
-          Write-Host "Copied ISO to $targetIso"
-        shell: pwsh
-
-      - name: Compute release metadata
-        id: release_meta
-        run: |
-          $tag = "manual-${{ env.PROFILE }}-${{ github.run_number }}"
-          $name = "Teddy-OS manual $env:PROFILE build #${{ github.run_number }}"
-          "tag=$tag" >> $env:GITHUB_OUTPUT
-          "name=$name" >> $env:GITHUB_OUTPUT
-        shell: pwsh
-
-      - name: Upload ISO artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: teddy-os-${{ env.PROFILE }}-iso
-          path: dist/
-          if-no-files-found: error
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.release_meta.outputs.tag }}
-          name: ${{ steps.release_meta.outputs.name }}
-          generate_release_notes: true
-          files: |
-            dist/teddy-os-${{ env.PROFILE }}.iso
-            dist/teddy-os-${{ env.PROFILE }}.iso.sha256
-            dist/build-${{ env.PROFILE }}.json

@@ -1,33 +1,10 @@
-#![no_std]
 #![no_main]
+#![no_std]
 
-extern crate alloc;
-
-use alloc::{boxed::Box, vec, vec::Vec};
-use core::{mem, ptr};
-use teddy_boot_proto::{
-    BootInfo, FramebufferInfo, MemoryRegion, MemoryRegionKind, PixelFormat, MAX_MEMORY_REGIONS,
-};
-use uefi::boot::{self, AllocateType, MemoryType};
-use uefi::cstr16;
-use uefi::mem::memory_map::MemoryMap;
+use core::fmt::Write;
+use uefi::boot;
 use uefi::prelude::*;
-use uefi::proto::console::gop::{
-    GraphicsOutput,
-    Mode,
-    PixelFormat as GopPixelFormat,
-    PixelFormat as UefiPixelFormat,
-};
-use uefi::proto::loaded_image::LoadedImage;
-use uefi::proto::media::file::{File, FileAttribute, FileInfo, FileMode, FileType, RegularFile};
-use uefi::proto::media::fs::SimpleFileSystem;
-use uefi::table::cfg::{ACPI2_GUID, ACPI_GUID};
-use xmas_elf::{
-    program::{ProgramHeader, Type},
-    ElfFile,
-};
-
-const KERNEL_PATH: &uefi::CStr16 = cstr16!(r"\EFI\BOOT\KERNEL.ELF");
+use uefi::proto::console::gop::{GraphicsOutput, PixelFormat};
 
 #[entry]
 fn efi_main() -> Status {
@@ -35,308 +12,283 @@ fn efi_main() -> Status {
         return Status::LOAD_ERROR;
     }
 
-    uefi::println!("Teddy-OS bootloader");
+    let mut stdout = uefi::system::stdout();
+    let _ = writeln!(stdout, "Teddy-OS starting...");
 
-    match boot() {
+    match BootApp::new().and_then(|mut app| app.run()) {
         Ok(()) => Status::SUCCESS,
         Err(status) => {
-            uefi::println!("Boot failed: {:?}", status);
+            let _ = writeln!(stdout, "Teddy-OS boot failure: {:?}", status);
             status
         }
     }
 }
 
-fn boot() -> Result<(), Status> {
-    let image_handle = boot::image_handle();
+struct BootApp {
+    framebuffer: Framebuffer,
+}
 
-    uefi::println!("Loading kernel file...");
-    let kernel_file = read_kernel_file(image_handle)?;
-    uefi::println!("Kernel file loaded ({} bytes).", kernel_file.len());
-
-    uefi::println!("Initializing framebuffer...");
-    let framebuffer = init_framebuffer()?;
-    uefi::println!(
-        "Framebuffer: {}x{} stride {}",
-        framebuffer.width,
-        framebuffer.height,
-        framebuffer.stride
-    );
-
-    uefi::println!("Loading kernel ELF...");
-    let loaded_kernel = load_kernel_elf(&kernel_file)?;
-    uefi::println!(
-        "Kernel ELF loaded: start={:#x}, end={:#x}, entry={:#x}",
-        loaded_kernel.start,
-        loaded_kernel.end,
-        loaded_kernel.entry
-    );
-
-    let rsdp_addr = find_rsdp();
-    let mut boot_info = Box::new(BootInfo::new());
-    let mut memory_regions = Box::new([MemoryRegion::EMPTY; MAX_MEMORY_REGIONS]);
-
-    boot_info.framebuffer = framebuffer;
-    boot_info.rsdp_addr = rsdp_addr;
-    boot_info.kernel_start = loaded_kernel.start;
-    boot_info.kernel_end = loaded_kernel.end;
-
-    uefi::println!("Exiting UEFI boot services...");
-    let memory_map = unsafe { boot::exit_boot_services(MemoryType::LOADER_DATA) };
-
-    let mut count = 0usize;
-    for descriptor in memory_map.entries() {
-        if count >= MAX_MEMORY_REGIONS {
-            break;
-        }
-
-        memory_regions[count] = MemoryRegion {
-            start: descriptor.phys_start,
-            len: descriptor.page_count * 4096,
-            kind: map_memory_kind(descriptor.ty),
-        };
-        count += 1;
+impl BootApp {
+    fn new() -> Result<Self, Status> {
+        let gop_handle = boot::get_handle_for_protocol::<GraphicsOutput>()
+            .map_err(|err| err.status())?;
+        let mut gop = boot::open_protocol_exclusive::<GraphicsOutput>(gop_handle)
+            .map_err(|err| err.status())?;
+        let framebuffer = Framebuffer::from_gop(&mut gop)?;
+        Ok(Self { framebuffer })
     }
 
-    boot_info.memory_regions_ptr = memory_regions.as_mut_ptr() as u64;
-    boot_info.memory_regions_len = count as u64;
+    fn run(&mut self) -> Result<(), Status> {
+        self.draw_desktop();
+        loop {
+            boot::stall(200_000);
+        }
+    }
 
-    let boot_info_ptr = Box::into_raw(boot_info);
-    let _memory_regions_ptr = Box::into_raw(memory_regions);
-    mem::forget(memory_map);
-    paint_debug_marker(framebuffer, 0x0022_8844);
+    fn draw_desktop(&mut self) {
+        let surface = &mut self.framebuffer;
+        surface.clear(Color::rgb(24, 48, 78));
 
-    let entry: extern "sysv64" fn(&'static BootInfo) -> ! =
-        unsafe { mem::transmute(loaded_kernel.entry as usize) };
+        let width = surface.width;
+        let height = surface.height;
+        let taskbar_height = 56usize.min(height);
 
-    entry(unsafe { &*boot_info_ptr });
+        surface.fill_rect(Rect::new(0, 0, width, height), Color::rgb(28, 56, 92));
+        surface.fill_rect(
+            Rect::new(0, height.saturating_sub(taskbar_height), width, taskbar_height),
+            Color::rgb(214, 221, 229),
+        );
+        surface.fill_rect(
+            Rect::new(18, height.saturating_sub(taskbar_height) + 10, 132, 36),
+            Color::rgb(34, 92, 68),
+        );
+        surface.fill_rect(
+            Rect::new(width.saturating_sub(260), 60, 220, 140),
+            Color::rgb(243, 246, 250),
+        );
+        surface.stroke_rect(
+            Rect::new(width.saturating_sub(260), 60, 220, 140),
+            Color::rgb(70, 92, 118),
+        );
+        surface.fill_rect(
+            Rect::new(width.saturating_sub(260), 60, 220, 28),
+            Color::rgb(64, 116, 174),
+        );
+        surface.fill_rect(Rect::new(40, 56, 96, 96), Color::rgb(246, 196, 72));
+        surface.fill_rect(Rect::new(40, 176, 96, 96), Color::rgb(109, 176, 140));
+        surface.fill_rect(Rect::new(160, 56, 96, 96), Color::rgb(236, 140, 108));
+
+        surface.draw_text("TEDDY-OS", 24, 18, Color::rgb(247, 249, 252), 4);
+        surface.draw_text(
+            "RESET BUILD",
+            width.saturating_sub(236),
+            68,
+            Color::rgb(255, 255, 255),
+            3,
+        );
+        surface.draw_text(
+            "BOOT OK",
+            width.saturating_sub(228),
+            104,
+            Color::rgb(37, 57, 84),
+            3,
+        );
+        surface.draw_text(
+            "VMWARE UEFI",
+            width.saturating_sub(228),
+            136,
+            Color::rgb(37, 57, 84),
+            2,
+        );
+        surface.draw_text(
+            "START",
+            42,
+            height.saturating_sub(taskbar_height) + 18,
+            3,
+            Color::rgb(255, 255, 255),
+        );
+    }
 }
 
-fn read_kernel_file(
-    image_handle: Handle,
-) -> Result<Vec<u8>, Status> {
-    let loaded_image = boot::open_protocol_exclusive::<LoadedImage>(image_handle)
-        .map_err(|err| err.status())?;
-    let device_handle = loaded_image.device().ok_or(Status::LOAD_ERROR)?;
-    let mut fs = boot::open_protocol_exclusive::<SimpleFileSystem>(device_handle)
-        .map_err(|err| err.status())?;
-    let mut root = fs.open_volume().map_err(|err| err.status())?;
-    let handle = root
-        .open(KERNEL_PATH, FileMode::Read, FileAttribute::empty())
-        .map_err(|err| err.status())?;
-
-    let mut file = match handle.into_type().map_err(|err| err.status())? {
-        FileType::Regular(file) => file,
-        _ => return Err(Status::LOAD_ERROR),
-    };
-
-    read_regular_file(&mut file)
+#[derive(Clone, Copy)]
+struct Rect {
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
 }
 
-fn read_regular_file(file: &mut RegularFile) -> Result<Vec<u8>, Status> {
-    let mut info_buffer = [0u8; 512];
-    let info = file
-        .get_info::<FileInfo>(&mut info_buffer)
-        .map_err(|err| err.status())?;
-    let mut data = vec![0u8; info.file_size() as usize];
-    let read = file.read(&mut data).map_err(|err| err.status())?;
-    data.truncate(read);
-    Ok(data)
+impl Rect {
+    const fn new(x: usize, y: usize, width: usize, height: usize) -> Self {
+        Self { x, y, width, height }
+    }
 }
 
-fn init_framebuffer() -> Result<FramebufferInfo, Status> {
-    uefi::println!("  framebuffer: locating GOP handle...");
-    let gop_handle = boot::get_handle_for_protocol::<GraphicsOutput>()
-        .map_err(|err| err.status())?;
-    uefi::println!("  framebuffer: GOP handle located.");
-
-    uefi::println!("  framebuffer: opening GOP protocol...");
-    let mut gop = boot::open_protocol_exclusive::<GraphicsOutput>(gop_handle)
-        .map_err(|err| err.status())?;
-    uefi::println!("  framebuffer: GOP protocol opened.");
-
-    uefi::println!("  framebuffer: scanning GOP modes...");
-    let mode = select_preferred_mode(&gop).ok_or(Status::NOT_FOUND)?;
-    let mode_info = *mode.info();
-    let (width, height) = mode_info.resolution();
-    uefi::println!(
-        "  framebuffer: selected mode {}x{} stride {}.",
-        width,
-        height,
-        mode_info.stride()
-    );
-
-    uefi::println!("  framebuffer: setting GOP mode...");
-    gop.set_mode(&mode).map_err(|err| err.status())?;
-    uefi::println!("  framebuffer: GOP mode set.");
-
-    uefi::println!("  framebuffer: acquiring framebuffer view...");
-    let mut fb = gop.frame_buffer();
-    uefi::println!("  framebuffer: framebuffer view ready.");
-
-    Ok(FramebufferInfo {
-        base: fb.as_mut_ptr() as u64,
-        size: fb.size() as u64,
-        width: width as u32,
-        height: height as u32,
-        stride: mode_info.stride() as u32,
-        format: map_pixel_format(mode_info.pixel_format()),
-    })
+#[derive(Clone, Copy)]
+struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
 }
 
-fn select_preferred_mode(gop: &GraphicsOutput) -> Option<Mode> {
-    let mut best_mode = None;
-    let mut best_area = 0usize;
+impl Color {
+    const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+}
 
-    for mode in gop.modes() {
-        let info = mode.info();
-        let pixel_format = info.pixel_format();
-        if pixel_format == UefiPixelFormat::BltOnly {
-            continue;
+struct Framebuffer {
+    base: *mut u8,
+    size: usize,
+    width: usize,
+    height: usize,
+    stride: usize,
+    format: PixelFormat,
+}
+
+impl Framebuffer {
+    fn from_gop(gop: &mut GraphicsOutput) -> Result<Self, Status> {
+        let mode = select_mode(gop).ok_or(Status::NOT_FOUND)?;
+        gop.set_mode(&mode).map_err(|err| err.status())?;
+        let info = gop.current_mode_info();
+        let (width, height) = info.resolution();
+        let mut fb = gop.frame_buffer();
+        Ok(Self {
+            base: fb.as_mut_ptr(),
+            size: fb.size(),
+            width,
+            height,
+            stride: info.stride(),
+            format: info.pixel_format(),
+        })
+    }
+
+    fn clear(&mut self, color: Color) {
+        self.fill_rect(Rect::new(0, 0, self.width, self.height), color);
+    }
+
+    fn fill_rect(&mut self, rect: Rect, color: Color) {
+        let max_x = rect.x.saturating_add(rect.width).min(self.width);
+        let max_y = rect.y.saturating_add(rect.height).min(self.height);
+        for y in rect.y..max_y {
+            for x in rect.x..max_x {
+                self.put_pixel(x, y, color);
+            }
+        }
+    }
+
+    fn stroke_rect(&mut self, rect: Rect, color: Color) {
+        if rect.width == 0 || rect.height == 0 {
+            return;
+        }
+        self.fill_rect(Rect::new(rect.x, rect.y, rect.width, 1), color);
+        self.fill_rect(
+            Rect::new(rect.x, rect.y + rect.height.saturating_sub(1), rect.width, 1),
+            color,
+        );
+        self.fill_rect(Rect::new(rect.x, rect.y, 1, rect.height), color);
+        self.fill_rect(
+            Rect::new(rect.x + rect.width.saturating_sub(1), rect.y, 1, rect.height),
+            color,
+        );
+    }
+
+    fn draw_text(&mut self, text: &str, x: usize, y: usize, scale: usize, color: Color) {
+        let mut cursor_x = x;
+        for ch in text.bytes() {
+            if ch == b' ' {
+                cursor_x += 6 * scale;
+                continue;
+            }
+
+            let glyph = glyph(ch);
+            for (row, bits) in glyph.iter().enumerate() {
+                for col in 0..5 {
+                    if bits & (1 << (4 - col)) == 0 {
+                        continue;
+                    }
+                    self.fill_rect(
+                        Rect::new(
+                            cursor_x + col * scale,
+                            y + row * scale,
+                            scale,
+                            scale,
+                        ),
+                        color,
+                    );
+                }
+            }
+            cursor_x += 6 * scale;
+        }
+    }
+
+    fn put_pixel(&mut self, x: usize, y: usize, color: Color) {
+        if x >= self.width || y >= self.height {
+            return;
         }
 
+        let offset = (y * self.stride + x) * 4;
+        if offset + 3 >= self.size {
+            return;
+        }
+
+        unsafe {
+            let pixel = self.base.add(offset);
+            match self.format {
+                PixelFormat::Rgb => {
+                    *pixel = color.r;
+                    *pixel.add(1) = color.g;
+                    *pixel.add(2) = color.b;
+                    *pixel.add(3) = 0;
+                }
+                PixelFormat::Bgr | _ => {
+                    *pixel = color.b;
+                    *pixel.add(1) = color.g;
+                    *pixel.add(2) = color.r;
+                    *pixel.add(3) = 0;
+                }
+            }
+        }
+    }
+}
+
+fn select_mode(gop: &GraphicsOutput) -> Option<uefi::proto::console::gop::Mode> {
+    let mut best = None;
+    let mut best_area = 0usize;
+    for mode in gop.modes() {
+        let info = mode.info();
+        if info.pixel_format() == PixelFormat::BltOnly {
+            continue;
+        }
         let (width, height) = info.resolution();
         let area = width.saturating_mul(height);
         if area >= best_area {
             best_area = area;
-            best_mode = Some(mode);
+            best = Some(mode);
         }
     }
-
-    best_mode
+    best
 }
 
-fn map_pixel_format(format: GopPixelFormat) -> PixelFormat {
-    match format {
-        GopPixelFormat::Rgb => PixelFormat::Rgb,
-        GopPixelFormat::Bgr => PixelFormat::Bgr,
-        GopPixelFormat::Bitmask => PixelFormat::Bitmask,
-        _ => PixelFormat::Unknown,
-    }
-}
-
-fn load_kernel_elf(image: &[u8]) -> Result<LoadedKernel, Status> {
-    let elf = ElfFile::new(image).map_err(|_| Status::LOAD_ERROR)?;
-
-    let mut kernel_start = u64::MAX;
-    let mut kernel_end = 0u64;
-
-    for header in elf.program_iter() {
-        if header.get_type().map_err(|_| Status::LOAD_ERROR)? != Type::Load {
-            continue;
-        }
-
-        load_segment(image, &header)?;
-
-        kernel_start = kernel_start.min(header.physical_addr());
-        kernel_end = kernel_end.max(header.physical_addr() + header.mem_size());
-    }
-
-    if kernel_start == u64::MAX || kernel_end == 0 {
-        return Err(Status::LOAD_ERROR);
-    }
-
-    Ok(LoadedKernel {
-        entry: elf.header.pt2.entry_point(),
-        start: kernel_start,
-        end: kernel_end,
-    })
-}
-
-fn load_segment(image: &[u8], header: &ProgramHeader<'_>) -> Result<(), Status> {
-    let target = header.physical_addr() as usize;
-    let mem_size = header.mem_size() as usize;
-    let file_size = header.file_size() as usize;
-    let offset = header.offset() as usize;
-
-    if mem_size == 0 {
-        return Ok(());
-    }
-
-    if file_size > mem_size {
-        uefi::println!("ELF segment has file_size larger than mem_size.");
-        return Err(Status::LOAD_ERROR);
-    }
-
-    let file_end = offset.checked_add(file_size).ok_or(Status::LOAD_ERROR)?;
-    if file_end > image.len() {
-        uefi::println!("ELF segment exceeds kernel image bounds.");
-        return Err(Status::LOAD_ERROR);
-    }
-
-    let pages = ((mem_size + 0xfff) / 0x1000) as usize;
-    let memory_type = if header.flags().is_execute() {
-        MemoryType::LOADER_CODE
-    } else {
-        MemoryType::LOADER_DATA
-    };
-
-    unsafe {
-        boot::allocate_pages(
-            AllocateType::Address(target as u64),
-            memory_type,
-            pages,
-        )
-        .map_err(|err| err.status())?;
-
-        ptr::copy_nonoverlapping(image.as_ptr().add(offset), target as *mut u8, file_size);
-        if mem_size > file_size {
-            ptr::write_bytes((target + file_size) as *mut u8, 0, mem_size - file_size);
-        }
-    }
-
-    Ok(())
-}
-
-fn map_memory_kind(kind: MemoryType) -> MemoryRegionKind {
-    match kind {
-        MemoryType::CONVENTIONAL => MemoryRegionKind::Usable,
-        MemoryType::BOOT_SERVICES_CODE
-        | MemoryType::BOOT_SERVICES_DATA
-        | MemoryType::LOADER_CODE
-        | MemoryType::LOADER_DATA => MemoryRegionKind::Bootloader,
-        MemoryType::ACPI_RECLAIM => MemoryRegionKind::AcpiReclaim,
-        MemoryType::ACPI_NON_VOLATILE => MemoryRegionKind::AcpiNvs,
-        MemoryType::MMIO | MemoryType::MMIO_PORT_SPACE => MemoryRegionKind::Mmio,
-        MemoryType::UNUSABLE => MemoryRegionKind::BadMemory,
-        _ => MemoryRegionKind::Reserved,
-    }
-}
-
-fn find_rsdp() -> u64 {
-    uefi::system::with_config_table(|config_table| {
-        for entry in config_table {
-            if entry.guid == ACPI2_GUID || entry.guid == ACPI_GUID {
-                return entry.address as u64;
-            }
-        }
-
-        0
-    })
-}
-
-struct LoadedKernel {
-    entry: u64,
-    start: u64,
-    end: u64,
-}
-
-fn paint_debug_marker(framebuffer: FramebufferInfo, color: u32) {
-    if !framebuffer.is_valid() {
-        return;
-    }
-
-    let width = framebuffer.width as usize;
-    let height = framebuffer.height as usize;
-    let stride = framebuffer.stride as usize;
-    let pixels = framebuffer.base as *mut u32;
-    let marker_width = width.min(160);
-    let marker_height = height.min(48);
-
-    for y in 0..marker_height {
-        for x in 0..marker_width {
-            unsafe {
-                ptr::write_volatile(pixels.add(y * stride + x), color);
-            }
-        }
+fn glyph(ch: u8) -> [u8; 7] {
+    match ch {
+        b'A' => [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+        b'B' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
+        b'D' => [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110],
+        b'E' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
+        b'F' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
+        b'I' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
+        b'K' => [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
+        b'M' => [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
+        b'O' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        b'R' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
+        b'S' => [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
+        b'T' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
+        b'U' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        b'V' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
+        b'W' => [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010],
+        b'Y' => [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
+        b'-' => [0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000],
+        _ => [0, 0, 0, 0, 0, 0, 0],
     }
 }

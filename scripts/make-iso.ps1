@@ -22,15 +22,6 @@ function Reset-Directory {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
-function Write-TextFile {
-    param(
-        [string]$Path,
-        [string]$Content
-    )
-
-    [System.IO.File]::WriteAllText($Path, $Content + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
-}
-
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $buildRoot = Join-Path $repoRoot "build"
 $stagingRoot = Join-Path $buildRoot "staging"
@@ -51,10 +42,7 @@ Require-Command xorriso
 
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 Reset-Directory $isoRoot
-$isoEfiDir = Join-Path $isoRoot "EFI"
-New-Item -ItemType Directory -Force -Path $isoEfiDir | Out-Null
-$isoEfiBootDir = Join-Path $isoEfiDir "BOOT"
-New-Item -ItemType Directory -Force -Path $isoEfiBootDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $isoRoot "EFI\\BOOT") | Out-Null
 
 if (Test-Path $espImage) {
     Remove-Item -Force $espImage
@@ -72,25 +60,12 @@ finally {
 }
 
 & mformat -i $espImage -F ::
-if ($LASTEXITCODE -ne 0) {
-    throw "mformat failed."
-}
-
 & mmd -i $espImage ::/EFI
 & mmd -i $espImage ::/EFI/BOOT
-if ($LASTEXITCODE -ne 0) {
-    throw "mmd failed."
-}
+& mcopy -i $espImage -s (Join-Path $espRoot "*") ::/
 
-$espSource = Join-Path $espRoot "*"
-& mcopy -i $espImage -s $espSource ::/
-if ($LASTEXITCODE -ne 0) {
-    throw "mcopy failed."
-}
-
-Copy-Item $espImage (Join-Path $isoEfiDir "efiboot.img") -Force
-Copy-Item (Join-Path $espRoot "EFI/BOOT/BOOTX64.EFI") (Join-Path $isoEfiBootDir "BOOTX64.EFI") -Force
-Copy-Item (Join-Path $espRoot "EFI/BOOT/KERNEL.ELF") (Join-Path $isoEfiBootDir "KERNEL.ELF") -Force
+Copy-Item $espImage (Join-Path $isoRoot "EFI\\efiboot.img") -Force
+Copy-Item (Join-Path $espRoot "EFI\\BOOT\\BOOTX64.EFI") (Join-Path $isoRoot "EFI\\BOOT\\BOOTX64.EFI") -Force
 
 & xorriso -as mkisofs `
     -R `
@@ -106,16 +81,14 @@ Copy-Item (Join-Path $espRoot "EFI/BOOT/KERNEL.ELF") (Join-Path $isoEfiBootDir "
     -o $isoPath `
     $isoRoot
 
-if ($LASTEXITCODE -ne 0) {
-    throw "xorriso failed."
-}
-
 if (-not (Test-Path $isoPath)) {
     throw "ISO file was not produced at $isoPath"
 }
 
 $isoHash = (Get-FileHash -Algorithm SHA256 $isoPath).Hash.ToLowerInvariant()
-Write-TextFile -Path "$isoPath.sha256" -Content "$isoHash *$(Split-Path -Leaf $isoPath)"
+[System.IO.File]::WriteAllText(
+    "$isoPath.sha256",
+    "$isoHash *$(Split-Path -Leaf $isoPath)" + [Environment]::NewLine,
+    [System.Text.UTF8Encoding]::new($false)
+)
 
-Write-Host "ISO created at $isoPath" -ForegroundColor Green
-Write-Host "SHA256 written to $isoPath.sha256" -ForegroundColor Green

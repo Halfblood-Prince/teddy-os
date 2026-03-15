@@ -1,4 +1,4 @@
-/build/dist/
-/build/staging/
-/build/target/
+/build/
+/dist/
+/target/
 

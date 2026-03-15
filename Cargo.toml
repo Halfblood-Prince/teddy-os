@@ -1,21 +1,9 @@
 [workspace]
-members = [
-    "bootloader",
-    "kernel",
-    "libs/boot_proto",
-]
+members = ["bootloader"]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
 authors = ["Teddy-OS Contributors"]
 license = "MIT"
-
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-panic = "abort"
-codegen-units = 1
-lto = "fat"
 

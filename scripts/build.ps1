@@ -1,9 +1,7 @@
 param(
     [ValidateSet("debug", "release")]
     [string]$Profile = "debug",
-    [switch]$Release,
-    [switch]$SkipIso,
-    [switch]$Clean
+    [switch]$SkipIso
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,111 +14,40 @@ function Require-Command {
     }
 }
 
-function Reset-Directory {
-    param([string]$Path)
-
-    if (Test-Path $Path) {
-        Remove-Item -Recurse -Force $Path
-    }
-    New-Item -ItemType Directory -Force -Path $Path | Out-Null
-}
-
-function Write-BuildManifest {
-    param(
-        [string]$Path,
-        [string]$ProfileName,
-        [string]$BootloaderPath,
-        [string]$KernelPath,
-        [string]$IsoPath
-    )
-
-    $manifest = [ordered]@{
-        profile = $ProfileName
-        bootloader = (Resolve-Path $BootloaderPath).Path
-        kernel = (Resolve-Path $KernelPath).Path
-        iso = if (Test-Path $IsoPath) { (Resolve-Path $IsoPath).Path } else { $null }
-    }
-
-    $json = $manifest | ConvertTo-Json -Depth 4
-    [System.IO.File]::WriteAllText($Path, $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
-}
-
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $buildRoot = Join-Path $repoRoot "build"
 $targetDir = Join-Path $buildRoot "target"
 $stagingRoot = Join-Path $buildRoot "staging"
 $distDir = Join-Path $buildRoot "dist"
+$espRoot = Join-Path $stagingRoot "esp"
+$espBootDir = Join-Path $espRoot "EFI\\BOOT"
 
 Require-Command cargo
 Require-Command rustup
 
 Push-Location $repoRoot
 try {
-    if ($Release) {
-        $Profile = "release"
-    }
-
-    if ($Clean) {
-        Reset-Directory $stagingRoot
-        Reset-Directory $distDir
-    } else {
-        New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
-        New-Item -ItemType Directory -Force -Path $distDir | Out-Null
-    }
-
+    New-Item -ItemType Directory -Force -Path $buildRoot, $stagingRoot, $distDir, $espBootDir | Out-Null
     $env:CARGO_TARGET_DIR = $targetDir
 
     rustup target add x86_64-unknown-uefi | Out-Host
-    rustup target add x86_64-unknown-none | Out-Host
 
-    $cargoArgs = @("build", "-p", "teddy-bootloader", "--target", "x86_64-unknown-uefi")
+    $cargoArgs = @("build", "-p", "teddy-boot", "--target", "x86_64-unknown-uefi")
     if ($Profile -eq "release") {
         $cargoArgs += "--release"
     }
+
     & cargo @cargoArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Bootloader build failed."
+        throw "UEFI boot app build failed."
     }
 
-    $kernelArgs = @("build", "-p", "teddy-kernel", "--target", "x86_64-unknown-none")
-    if ($Profile -eq "release") {
-        $kernelArgs += "--release"
-    }
-    $previousRustFlags = $env:RUSTFLAGS
-    if ([string]::IsNullOrWhiteSpace($previousRustFlags)) {
-        $env:RUSTFLAGS = "-Clink-arg=-Tkernel/linker.ld"
-    } else {
-        $env:RUSTFLAGS = "$previousRustFlags -Clink-arg=-Tkernel/linker.ld"
+    $bootArtifact = Join-Path (Join-Path $targetDir "x86_64-unknown-uefi\\$Profile") "teddy-boot.efi"
+    if (-not (Test-Path $bootArtifact)) {
+        throw "Boot artifact not found at $bootArtifact"
     }
 
-    & cargo @kernelArgs
-    $env:RUSTFLAGS = $previousRustFlags
-    if ($LASTEXITCODE -ne 0) {
-        throw "Kernel build failed."
-    }
-
-    $espRoot = Join-Path $stagingRoot "esp"
-    $espEfiDir = Join-Path $espRoot "EFI"
-    $espBootDir = Join-Path $espEfiDir "BOOT"
-    Reset-Directory $espRoot
-    New-Item -ItemType Directory -Force -Path $espBootDir | Out-Null
-
-    $bootloaderTargetDir = Join-Path (Join-Path $targetDir "x86_64-unknown-uefi") $Profile
-    $kernelTargetDir = Join-Path (Join-Path $targetDir "x86_64-unknown-none") $Profile
-    $bootloaderArtifact = Join-Path $bootloaderTargetDir "teddy-bootloader.efi"
-    $kernelArtifact = Join-Path $kernelTargetDir "teddy-kernel"
-
-    if (-not (Test-Path $bootloaderArtifact)) {
-        throw "Bootloader artifact not found at $bootloaderArtifact"
-    }
-    if (-not (Test-Path $kernelArtifact)) {
-        throw "Kernel artifact not found at $kernelArtifact"
-    }
-
-    Copy-Item $bootloaderArtifact (Join-Path $espBootDir "BOOTX64.EFI") -Force
-    Copy-Item $kernelArtifact (Join-Path $espBootDir "KERNEL.ELF") -Force
-
-    Write-Host "EFI staging tree ready at build\staging\esp" -ForegroundColor Green
+    Copy-Item $bootArtifact (Join-Path $espBootDir "BOOTX64.EFI") -Force
 
     if (-not $SkipIso) {
         & (Join-Path $PSScriptRoot "make-iso.ps1") -Profile $Profile
@@ -128,18 +55,8 @@ try {
             throw "ISO generation failed."
         }
     }
-
-    $isoPath = Join-Path $distDir "teddy-os-$Profile.iso"
-    $buildManifestPath = Join-Path $distDir "build-$Profile.json"
-    Write-BuildManifest `
-        -Path $buildManifestPath `
-        -ProfileName $Profile `
-        -BootloaderPath $bootloaderArtifact `
-        -KernelPath $kernelArtifact `
-        -IsoPath $isoPath
-
-    Write-Host "Build manifest written to $buildManifestPath" -ForegroundColor Green
 }
 finally {
     Pop-Location
 }
+
