@@ -3,6 +3,10 @@ ORG 0x8000
 
 %define INPUT_BUFFER_SIZE 64
 %define STAGE2_SECTORS 96
+%define KERNEL_LOAD_ADDR 0x20000
+%define KERNEL_LOAD_SEG  0x2000
+%define KERNEL_SECTORS   128
+%define KERNEL_LBA_START (1 + STAGE2_SECTORS)
 
 stage2_start:
     cli
@@ -196,8 +200,16 @@ execute_command:
     jmp .done
 
 .kernel:
+    call load_kernel_image
+    jc .kernel_failed
     call enter_long_mode
     jmp $
+
+.kernel_failed:
+    mov si, kernel_fail_text
+    call print_string
+    call print_newline
+    jmp .done
 
 .done:
     ret
@@ -393,6 +405,80 @@ fill_rect_13h:
     pop ax
     ret
 
+load_kernel_image:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    mov ax, KERNEL_LOAD_SEG
+    mov es, ax
+    xor bx, bx
+    mov si, KERNEL_LBA_START
+    mov di, KERNEL_SECTORS
+
+.load_loop:
+    cmp di, 0
+    je .success
+
+    mov ax, si
+    call lba_to_chs
+
+    mov ah, 0x02
+    mov al, 0x01
+    mov dl, [boot_drive]
+    int 0x13
+    jc .error
+
+    mov ax, es
+    add ax, 0x20
+    mov es, ax
+    inc si
+    dec di
+    jmp .load_loop
+
+.success:
+    clc
+    jmp .out
+
+.error:
+    stc
+
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+lba_to_chs:
+    push ax
+    push bx
+    push dx
+
+    xor dx, dx
+    mov bx, 18
+    div bx
+    mov cl, dl
+    inc cl
+
+    xor dx, dx
+    mov bx, 2
+    div bx
+    mov dh, dl
+    mov ch, al
+
+    pop dx
+    pop bx
+    pop ax
+    ret
+
 enter_long_mode:
     cli
     call enable_a20_fast
@@ -473,50 +559,8 @@ long_mode_entry:
     mov gs, ax
     mov rsp, 0x7000
 
-    mov rdi, 0xB8000
-    mov eax, 0x1F201F20
-    mov ecx, 80 * 25 / 2
-    rep stosd
-
-    mov rdi, 0xB8000 + ((2 * 80) + 8) * 2
-    mov rsi, lm_title
-    mov ah, 0x1F
-    call draw_string_lm
-
-    mov rdi, 0xB8000 + ((5 * 80) + 8) * 2
-    mov rsi, lm_status
-    mov ah, 0x1E
-    call draw_string_lm
-
-    mov rdi, 0xB8000 + ((8 * 80) + 8) * 2
-    mov rsi, lm_detail
-    mov ah, 0x17
-    call draw_string_lm
-
-    mov rdi, 0xB8000 + ((11 * 80) + 8) * 2
-    mov rsi, lm_next
-    mov ah, 0x1A
-    call draw_string_lm
-
-    mov rdi, 0xB8000 + ((22 * 80) + 8) * 2
-    mov rsi, lm_footer
-    mov ah, 0x70
-    call draw_string_lm
-
-.halt:
-    pause
-    jmp .halt
-
-draw_string_lm:
-    lodsb
-    test al, al
-    jz .done
-    mov [rdi], al
-    mov [rdi + 1], ah
-    add rdi, 2
-    jmp draw_string_lm
-.done:
-    ret
+    mov rax, KERNEL_LOAD_ADDR
+    jmp rax
 
 BITS 16
 bios_warm_reboot:
@@ -584,11 +628,12 @@ help_text_1 db "help  - list commands", 0
 help_text_2 db "info  - show stage information", 0
 help_text_3 db "clear - clear, echo X, graphics, kernel, reboot", 0
 info_text_1 db "Teddy-OS BIOS Stage 2 is using INT 16h for keyboard input.", 0
-info_text_2 db "The kernel demo now enters x86_64 long mode.", 0
+info_text_2 db "The kernel command now loads and jumps to a Rust x86_64 kernel.", 0
 gfx_title db "TEDDY-OS GRAPHICS", 0
 gfx_panel_title db "RESET GUI", 0
 gfx_panel_body db "Mode 13h online", 0
 gfx_footer db "Press any key to return", 0
+kernel_fail_text db "Rust kernel load failed.", 0
 
 cmd_help db "help", 0
 cmd_clear db "clear", 0
@@ -602,13 +647,6 @@ rect_color db 0
 boot_drive db 0
 input_len db 0
 input_buffer times INPUT_BUFFER_SIZE db 0
-
-align 8
-lm_title db "TEDDY-OS KERNEL", 0
-lm_status db "x86_64 long mode entry succeeded", 0
-lm_detail db "Stage 2 enabled paging and entered 64-bit mode safely", 0
-lm_next db "Next: replace this demo with a real Rust x86_64 kernel", 0
-lm_footer db "64-bit kernel demo active - halt loop", 0
 
 align 8
 gdt_start:

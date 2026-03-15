@@ -32,7 +32,12 @@ jobs:
       - name: Install host tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso nasm
+          sudo apt-get install -y xorriso nasm binutils
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-none
 
       - name: Build ISO
         shell: pwsh

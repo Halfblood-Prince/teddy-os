@@ -6,7 +6,7 @@ in VMware in legacy BIOS mode.
 The current repository is a minimal BIOS-first baseline. It builds a tiny
 legacy BIOS boot image with a real second-stage loader, a small interactive
 text-mode shell, a simple graphics-mode demo, and a tiny x86_64 long-mode
-kernel entry demo, then packages it into a
+kernel entry demo that can jump into a real Rust x86_64 kernel, then packages it into a
 bootable ISO for VMware.
 
 ## What Exists Now
@@ -14,7 +14,7 @@ bootable ISO for VMware.
 - a BIOS boot sector and second stage in `bios/`
 - keyboard input and a tiny BIOS shell in stage 2
 - a VGA mode `13h` graphics demo launched from the shell
-- a `kernel` command that switches stage 2 into x86_64 long mode
+- a `kernel` command that loads and jumps to a real Rust x86_64 kernel binary
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
@@ -32,6 +32,9 @@ Host requirements:
 
 - `nasm`
 - `xorriso`
+- `cargo`
+- `rustup`
+- `objcopy` or `llvm-objcopy`
 
 Build the debug ISO:
 
@@ -87,4 +90,4 @@ Example commands:
 ## Next Step
 
 Once this BIOS baseline is proven stable in VMware, the next phase is to
-replace the long-mode demo with a real Rust x86_64 kernel payload.
+grow the Rust kernel beyond VGA text output and start passing real boot info.
