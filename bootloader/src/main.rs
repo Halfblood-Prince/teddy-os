@@ -1,7 +1,6 @@
 #![no_main]
 #![no_std]
 
-use core::fmt::Write;
 use uefi::boot;
 use uefi::prelude::*;
 use uefi::proto::console::gop::{GraphicsOutput, PixelFormat};
@@ -12,15 +11,9 @@ fn efi_main() -> Status {
         return Status::LOAD_ERROR;
     }
 
-    let mut stdout = uefi::system::stdout();
-    let _ = writeln!(stdout, "Teddy-OS starting...");
-
     match BootApp::new().and_then(|mut app| app.run()) {
         Ok(()) => Status::SUCCESS,
-        Err(status) => {
-            let _ = writeln!(stdout, "Teddy-OS boot failure: {:?}", status);
-            status
-        }
+        Err(status) => status,
     }
 }
 
@@ -78,27 +71,27 @@ impl BootApp {
         surface.fill_rect(Rect::new(40, 176, 96, 96), Color::rgb(109, 176, 140));
         surface.fill_rect(Rect::new(160, 56, 96, 96), Color::rgb(236, 140, 108));
 
-        surface.draw_text("TEDDY-OS", 24, 18, Color::rgb(247, 249, 252), 4);
+        surface.draw_text("TEDDY-OS", 24, 18, 4, Color::rgb(247, 249, 252));
         surface.draw_text(
             "RESET BUILD",
             width.saturating_sub(236),
             68,
-            Color::rgb(255, 255, 255),
             3,
+            Color::rgb(255, 255, 255),
         );
         surface.draw_text(
             "BOOT OK",
             width.saturating_sub(228),
             104,
-            Color::rgb(37, 57, 84),
             3,
+            Color::rgb(37, 57, 84),
         );
         surface.draw_text(
             "VMWARE UEFI",
             width.saturating_sub(228),
             136,
-            Color::rgb(37, 57, 84),
             2,
+            Color::rgb(37, 57, 84),
         );
         surface.draw_text(
             "START",
