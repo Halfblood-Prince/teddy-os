@@ -160,10 +160,16 @@ impl TeddyFs {
         }
     }
 
-    fn format(&mut self) -> Result<(), &'static str> {
-        self.entries = [FsEntry::empty(); ENTRY_COUNT];
-        self.data = [[0; MAX_FILE_BYTES]; ENTRY_COUNT];
+    fn reset_in_place(&mut self) {
+        self.entries.fill(FsEntry::empty());
+        self.data.fill([0; MAX_FILE_BYTES]);
         self.cwd = 0;
+        self.mounted = false;
+        self.persistent = false;
+    }
+
+    fn format(&mut self) -> Result<(), &'static str> {
+        self.reset_in_place();
         self.entries[0].used = true;
         self.entries[0].kind = EntryKind::Directory;
         self.entries[0].parent = 0;
@@ -217,9 +223,7 @@ impl TeddyFs {
     }
 
     fn mount_ephemeral(&mut self) {
-        self.entries = [FsEntry::empty(); ENTRY_COUNT];
-        self.data = [[0; MAX_FILE_BYTES]; ENTRY_COUNT];
-        self.cwd = 0;
+        self.reset_in_place();
         self.entries[0].used = true;
         self.entries[0].kind = EntryKind::Directory;
         self.entries[0].parent = 0;
