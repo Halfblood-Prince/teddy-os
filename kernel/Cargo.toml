@@ -9,7 +9,7 @@ pc-keyboard = "0.8"
 pic8259 = "0.10"
 spin = "0.9"
 teddy-boot-proto = { path = "../libs/boot_proto" }
-x86_64 = { version = "0.15", default-features = false, features = ["instructions"] }
+x86_64 = { version = "0.14.13", default-features = false, features = ["instructions"] }
 
 [[bin]]
 name = "teddy-kernel"
