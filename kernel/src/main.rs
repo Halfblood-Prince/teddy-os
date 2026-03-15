@@ -26,15 +26,21 @@ use teddy_boot_proto::{BootInfo, BOOTINFO_MAGIC};
 pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     paint_early_boot_marker(boot_info, 0x0088_2222);
     serial::init();
-    interrupts::init_exceptions();
+    paint_early_boot_marker(boot_info, 0x0088_6622);
 
     if boot_info.magic != BOOTINFO_MAGIC {
+        paint_early_boot_marker(boot_info, 0x00aa_00aa);
         serial::write_str("Invalid BootInfo magic.\n");
         halt_forever();
     }
 
+    paint_early_boot_marker(boot_info, 0x0088_8844);
     logger::init(boot_info);
+    paint_early_boot_marker(boot_info, 0x0022_66aa);
     logln!("[boot] logger online");
+
+    interrupts::init_exceptions();
+    paint_early_boot_marker(boot_info, 0x0022_aa66);
     logln!(
         "[boot] exception handlers online: {}",
         interrupts::exceptions_ready()
