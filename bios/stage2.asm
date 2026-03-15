@@ -495,6 +495,11 @@ lba_to_chs:
 enter_protected_mode:
     cli
     call enable_a20_fast
+    xor eax, eax
+    mov ax, ds
+    shl eax, 4
+    add eax, gdt_start
+    mov [gdt_descriptor + 2], eax
     lgdt [gdt_descriptor]
 
     mov eax, cr0
@@ -611,7 +616,7 @@ gdt_end:
 
 gdt_descriptor:
     dw gdt_end - gdt_start - 1
-    dd gdt_start
+    dd 0
 
 rect_color db 0
 boot_drive db 0
