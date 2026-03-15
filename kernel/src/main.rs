@@ -28,6 +28,10 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     serial::init();
     paint_early_boot_marker(boot_info, 0x0088_6622);
 
+    // UEFI firmware may leave IF set when transferring control to the kernel.
+    // Keep IRQ delivery off until Teddy-OS has an IDT installed.
+    interrupts::disable();
+
     if boot_info.magic != BOOTINFO_MAGIC {
         paint_early_boot_marker(boot_info, 0x00aa_00aa);
         serial::write_str("Invalid BootInfo magic.\n");
@@ -39,7 +43,8 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     paint_early_boot_marker(boot_info, 0x0022_66aa);
     logln!("[boot] logger online");
 
-    logln!("[boot] exception setup deferred for VMware compatibility");
+    interrupts::init_exceptions();
+    logln!("[boot] exception handling online");
 
     logln!("[boot] initializing memory manager");
     memory::init(boot_info);
