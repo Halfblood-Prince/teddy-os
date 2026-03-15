@@ -504,7 +504,7 @@ long_mode_entry:
     call draw_string_lm
 
 .halt:
-    hlt
+    pause
     jmp .halt
 
 draw_string_lm:
