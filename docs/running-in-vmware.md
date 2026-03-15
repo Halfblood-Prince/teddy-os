@@ -21,6 +21,15 @@ Try `graphics` at the prompt. You should see a simple Teddy-OS graphics screen
 and return to the shell after pressing a key.
 
 Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
-64-bit Rust kernel screen and stop there in a halt loop.
+64-bit Rust kernel screen, verify the boot contract, and remain in an idle loop.
 
-If that screen appears and remains stable, the reset baseline is working.
+The kernel screen should include:
+
+- `TEDDY-OS KERNEL`
+- `Rust x86_64 kernel loaded successfully`
+- `Serial logging active on COM1 (0x3F8)`
+- `Boot contract: verified`
+- `Kernel idle loop active`
+
+If VMware is configured to expose a serial port, the same boot progress is also
+written to COM1 for debugging.

@@ -1,0 +1,53 @@
+const VGA_BUFFER: *mut u8 = 0xB8000 as *mut u8;
+const VGA_WIDTH: usize = 80;
+const VGA_HEIGHT: usize = 25;
+
+pub fn clear_screen(attribute: u8) {
+    for row in 0..VGA_HEIGHT {
+        for col in 0..VGA_WIDTH {
+            write_cell(row, col, b' ', attribute);
+        }
+    }
+}
+
+pub fn write_line(row: usize, col: usize, text: &str, attribute: u8) {
+    for (index, byte) in text.bytes().enumerate() {
+        let x = col + index;
+        if x >= VGA_WIDTH {
+            break;
+        }
+        write_cell(row, x, byte, attribute);
+    }
+}
+
+pub fn write_hex_byte(row: usize, col: usize, label: &str, value: u8, attribute: u8) {
+    write_line(row, col, label, attribute);
+    let start = col + label.len();
+    write_hex_digits(row, start, value as u16, 2, attribute);
+}
+
+pub fn write_hex_word(row: usize, col: usize, label: &str, value: u16, attribute: u8) {
+    write_line(row, col, label, attribute);
+    let start = col + label.len();
+    write_hex_digits(row, start, value, 4, attribute);
+}
+
+fn write_hex_digits(row: usize, col: usize, value: u16, digits: usize, attribute: u8) {
+    for index in 0..digits {
+        let shift = (digits - 1 - index) * 4;
+        let nibble = ((value >> shift) & 0x0F) as u8;
+        let byte = match nibble {
+            0..=9 => b'0' + nibble,
+            _ => b'A' + (nibble - 10),
+        };
+        write_cell(row, col + index, byte, attribute);
+    }
+}
+
+fn write_cell(row: usize, col: usize, byte: u8, attribute: u8) {
+    let index = (row * VGA_WIDTH + col) * 2;
+    unsafe {
+        VGA_BUFFER.add(index).write_volatile(byte);
+        VGA_BUFFER.add(index + 1).write_volatile(attribute);
+    }
+}
