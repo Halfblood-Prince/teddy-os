@@ -45,6 +45,8 @@ start:
     mov ah, 0x70
     call draw_string
 
+    xor ax, ax
+    mov es, ax
     xor bx, bx
     mov bx, STAGE2_LOAD_ADDR
     mov si, 1
