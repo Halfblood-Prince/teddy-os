@@ -1,8 +1,8 @@
 BITS 16
 ORG 0x7C00
 
-%define STAGE2_SEGMENT 0x0800
-%define STAGE2_SECTORS 24
+%define STAGE2_LOAD_ADDR 0x8000
+%define STAGE2_SECTORS 64
 
 start:
     cli
@@ -45,27 +45,31 @@ start:
     mov ah, 0x70
     call draw_string
 
-    xor ax, ax
-    mov es, ax
-    mov bx, 0
-    mov dl, [boot_drive]
-    mov ah, 0x00
-    int 0x13
-    jc disk_error
-
-    mov ax, STAGE2_SEGMENT
-    mov es, ax
     xor bx, bx
+    mov bx, STAGE2_LOAD_ADDR
+    mov si, 1
+    mov di, STAGE2_SECTORS
+
+.load_loop:
+    cmp di, 0
+    je .loaded
+
+    mov ax, si
+    call lba_to_chs
+
     mov ah, 0x02
-    mov al, STAGE2_SECTORS
-    mov ch, 0x00
-    mov cl, 0x02
-    mov dh, 0x00
+    mov al, 0x01
     mov dl, [boot_drive]
     int 0x13
     jc disk_error
 
-    jmp STAGE2_SEGMENT:0x0000
+    add bx, 512
+    inc si
+    dec di
+    jmp .load_loop
+
+.loaded:
+    jmp 0x0000:STAGE2_LOAD_ADDR
 
 disk_error:
     mov ax, 0xB800
@@ -79,6 +83,28 @@ disk_error:
     hlt
     jmp .halt
 
+lba_to_chs:
+    push ax
+    push bx
+    push dx
+
+    xor dx, dx
+    mov bx, 18
+    div bx
+    mov cl, dl
+    inc cl
+
+    xor dx, dx
+    mov bx, 2
+    div bx
+    mov dh, dl
+    mov ch, al
+
+    pop dx
+    pop bx
+    pop ax
+    ret
+
 draw_string:
     lodsb
     test al, al
@@ -90,7 +116,7 @@ draw_string:
 
 title_text db "TEDDY-OS", 0
 status_text db "Legacy BIOS stage 1 online", 0
-hint_text db "Loading second stage from boot image", 0
+hint_text db "Loading x86_64 stage 2 from boot image", 0
 loading_text db "Stage 2 loading...", 0
 error_text db "Stage 2 load failed", 0
 boot_drive db 0

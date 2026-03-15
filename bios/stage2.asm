@@ -1,23 +1,20 @@
 BITS 16
-ORG 0x0000
+ORG 0x8000
 
 %define INPUT_BUFFER_SIZE 64
-%define STAGE2_SECTORS 24
-%define KERNEL_SEGMENT 0x1000
-%define KERNEL_SECTORS 16
-%define KERNEL_LBA_START (1 + STAGE2_SECTORS)
+%define STAGE2_SECTORS 64
 
 stage2_start:
     cli
-    mov ax, cs
+    xor ax, ax
     mov ds, ax
+    mov es, ax
     mov ss, ax
-    mov sp, 0xFFFE
+    mov sp, 0x7000
     sti
     mov [boot_drive], dl
 
     call redraw_shell_screen
-
     mov byte [input_len], 0
 
 shell_loop:
@@ -102,8 +99,7 @@ read_line:
     jmp .read_key
 
 .enter:
-    mov al, 0
-    mov [di], al
+    mov byte [di], 0
     call print_newline
     ret
 
@@ -137,16 +133,16 @@ execute_command:
     je .reboot
 
     mov si, input_buffer
-    mov di, cmd_kernel
-    call strings_equal
-    cmp al, 1
-    je .kernel
-
-    mov si, input_buffer
     mov di, cmd_graphics
     call strings_equal
     cmp al, 1
     je .graphics
+
+    mov si, input_buffer
+    mov di, cmd_kernel
+    call strings_equal
+    cmp al, 1
+    je .kernel
 
     mov si, input_buffer
     mov di, cmd_echo_prefix
@@ -172,20 +168,7 @@ execute_command:
     jmp .done
 
 .clear:
-    mov ax, 0x0003
-    int 0x10
-    mov si, title_text
-    call print_string
-    call print_newline
-    mov si, status_text
-    call print_string
-    call print_newline
-    mov si, detail_text
-    call print_string
-    call print_newline
-    mov si, shell_text
-    call print_string
-    call print_newline
+    call redraw_shell_screen
     jmp .done
 
 .info:
@@ -213,16 +196,8 @@ execute_command:
     jmp .done
 
 .kernel:
-    call load_kernel_image
-    jc .kernel_failed
-    call enter_protected_mode
+    call enter_long_mode
     jmp $
-
-.kernel_failed:
-    mov si, kernel_fail_text
-    call print_string
-    call print_newline
-    jmp .done
 
 .done:
     ret
@@ -418,94 +393,13 @@ fill_rect_13h:
     pop ax
     ret
 
-load_kernel_image:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-
-    mov ax, KERNEL_SEGMENT
-    mov es, ax
-    xor bx, bx
-    mov si, KERNEL_LBA_START
-    mov di, KERNEL_SECTORS
-
-.next_sector:
-    cmp di, 0
-    je .success
-
-    mov ax, si
-    call lba_to_chs
-
-    mov ah, 0x02
-    mov al, 0x01
-    mov dl, [boot_drive]
-    int 0x13
-    jc .error
-
-    add bx, 512
-    inc si
-    dec di
-    jmp .next_sector
-
-.success:
-    clc
-    jmp .out
-
-.error:
-    stc
-
-.out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-lba_to_chs:
-    push ax
-    push bx
-    push dx
-
-    xor dx, dx
-    mov bx, 18
-    div bx
-
-    mov cl, dl
-    inc cl
-
-    xor dx, dx
-    mov bx, 2
-    div bx
-
-    mov dh, dl
-    mov ch, al
-
-    pop dx
-    pop bx
-    pop ax
-    ret
-
-enter_protected_mode:
+enter_long_mode:
     cli
     call enable_a20_fast
-    xor eax, eax
-    mov ax, ds
-    shl eax, 4
-    add eax, gdt_start
-    mov [gdt_descriptor + 2], eax
     lgdt [gdt_descriptor]
-
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-
     jmp 0x08:protected_mode_entry
 
 enable_a20_fast:
@@ -522,11 +416,98 @@ protected_mode_entry:
     mov fs, ax
     mov gs, ax
     mov ss, ax
-    mov esp, 0x9E000
-    jmp 0x08:0x10000
+    mov esp, 0x7000
+
+    call setup_page_tables
+
+    mov eax, pml4_table
+    mov cr3, eax
+
+    mov eax, cr4
+    or eax, 1 << 5
+    mov cr4, eax
+
+    mov ecx, 0xC0000080
+    rdmsr
+    or eax, 1 << 8
+    wrmsr
+
+    mov eax, cr0
+    or eax, 0x80000000
+    mov cr0, eax
+
+    jmp 0x18:long_mode_entry
+
+setup_page_tables:
+    mov edi, pml4_table
+    xor eax, eax
+    mov ecx, (4096 * 3) / 4
+    rep stosd
+
+    mov dword [pml4_table], pdpt_table | 0x003
+    mov dword [pml4_table + 4], 0
+    mov dword [pdpt_table], pd_table | 0x003
+    mov dword [pdpt_table + 4], 0
+    mov dword [pd_table], 0x00000083
+    mov dword [pd_table + 4], 0
+    ret
+
+BITS 64
+long_mode_entry:
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov fs, ax
+    mov gs, ax
+    mov rsp, 0x7000
+
+    mov rdi, 0xB8000
+    mov eax, 0x1F201F20
+    mov ecx, 80 * 25 / 2
+    rep stosd
+
+    mov rdi, 0xB8000 + ((2 * 80) + 8) * 2
+    mov rsi, lm_title
+    mov ah, 0x1F
+    call draw_string_lm
+
+    mov rdi, 0xB8000 + ((5 * 80) + 8) * 2
+    mov rsi, lm_status
+    mov ah, 0x1E
+    call draw_string_lm
+
+    mov rdi, 0xB8000 + ((8 * 80) + 8) * 2
+    mov rsi, lm_detail
+    mov ah, 0x17
+    call draw_string_lm
+
+    mov rdi, 0xB8000 + ((11 * 80) + 8) * 2
+    mov rsi, lm_next
+    mov ah, 0x1A
+    call draw_string_lm
+
+    mov rdi, 0xB8000 + ((22 * 80) + 8) * 2
+    mov rsi, lm_footer
+    mov ah, 0x70
+    call draw_string_lm
+
+.halt:
+    hlt
+    jmp .halt
+
+draw_string_lm:
+    lodsb
+    test al, al
+    jz .done
+    mov [rdi], al
+    mov [rdi + 1], ah
+    add rdi, 2
+    jmp draw_string_lm
+.done:
+    ret
 
 BITS 16
-
 bios_warm_reboot:
     cli
     xor ax, ax
@@ -583,7 +564,7 @@ starts_with:
 title_text db "TEDDY-OS", 0
 status_text db "Legacy BIOS stage 2 online", 0
 detail_text db "Stage 1 loaded this program from disk sectors", 0
-next_text db "Next: graphics mode and Rust kernel handoff", 0
+next_text db "Next: graphics mode and x86_64 kernel handoff", 0
 shell_text db "Shell ready. Commands: help, clear, info, echo, graphics, kernel, reboot", 0
 footer_text db "Boot OK - Stage 2 running", 0
 prompt_text db "> ", 0
@@ -591,13 +572,12 @@ unknown_text db "Unknown command. Type help.", 0
 help_text_1 db "help  - list commands", 0
 help_text_2 db "info  - show stage information", 0
 help_text_3 db "clear - clear, echo X, graphics, kernel, reboot", 0
-info_text_1 db "Teddy-OS BIOS Stage 2 is reading keyboard input via INT 16h.", 0
-info_text_2 db "Graphics mode and kernel handoff now exist in this baseline.", 0
+info_text_1 db "Teddy-OS BIOS Stage 2 is using INT 16h for keyboard input.", 0
+info_text_2 db "The kernel demo now enters x86_64 long mode.", 0
 gfx_title db "TEDDY-OS GRAPHICS", 0
 gfx_panel_title db "RESET GUI", 0
 gfx_panel_body db "Mode 13h online", 0
 gfx_footer db "Press any key to return", 0
-kernel_fail_text db "Kernel load failed.", 0
 
 cmd_help db "help", 0
 cmd_clear db "clear", 0
@@ -607,20 +587,40 @@ cmd_kernel db "kernel", 0
 cmd_reboot db "reboot", 0
 cmd_echo_prefix db "echo ", 0
 
-align 4
-gdt_start:
-    dq 0x0000000000000000
-    dq 0x00CF9A000000FFFF
-    dq 0x00CF92000000FFFF
-gdt_end:
-
-gdt_descriptor:
-    dw gdt_end - gdt_start - 1
-    dd 0
-
 rect_color db 0
 boot_drive db 0
 input_len db 0
 input_buffer times INPUT_BUFFER_SIZE db 0
+
+align 8
+lm_title db "TEDDY-OS KERNEL", 0
+lm_status db "x86_64 long mode entry succeeded", 0
+lm_detail db "Stage 2 enabled paging and entered 64-bit mode safely", 0
+lm_next db "Next: replace this demo with a real Rust x86_64 kernel", 0
+lm_footer db "64-bit kernel demo active - halt loop", 0
+
+align 8
+gdt_start:
+    dq 0x0000000000000000
+    dq 0x00CF9A000000FFFF
+    dq 0x00CF92000000FFFF
+    dq 0x00AF9A000000FFFF
+gdt_end:
+
+gdt_descriptor:
+    dw gdt_end - gdt_start - 1
+    dd gdt_start
+
+align 4096
+pml4_table:
+    times 512 dq 0
+
+align 4096
+pdpt_table:
+    times 512 dq 0
+
+align 4096
+pd_table:
+    times 512 dq 0
 
 times (STAGE2_SECTORS * 512) - ($ - $$) db 0

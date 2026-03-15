@@ -21,6 +21,6 @@ Try `graphics` at the prompt. You should see a simple Teddy-OS graphics screen
 and return to the shell after pressing a key.
 
 Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
-kernel screen and stop there in a halt loop.
+64-bit screen and stop there in a halt loop.
 
 If that screen appears and remains stable, the reset baseline is working.

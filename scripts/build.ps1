@@ -31,13 +31,10 @@ $binDir = Join-Path $buildRoot "bin"
 $isoRoot = Join-Path $stagingRoot "iso"
 $bootAsm = Join-Path $repoRoot "bios\\boot.asm"
 $stage2Asm = Join-Path $repoRoot "bios\\stage2.asm"
-$kernelAsm = Join-Path $repoRoot "bios\\kernel.asm"
 $bootBin = Join-Path $binDir "boot.bin"
 $stage2Bin = Join-Path $binDir "stage2.bin"
-$kernelBin = Join-Path $binDir "kernel.bin"
 $bootImg = Join-Path $isoRoot "boot.img"
-$stage2Size = 24 * 512
-$kernelSize = 16 * 512
+$stage2Size = 64 * 512
 
 Require-Command nasm
 
@@ -56,19 +53,11 @@ try {
         throw "BIOS stage 2 build failed."
     }
 
-    & nasm -f bin $kernelAsm -o $kernelBin
-    if ($LASTEXITCODE -ne 0) {
-        throw "BIOS kernel build failed."
-    }
-
     if ((Get-Item $bootBin).Length -ne 512) {
         throw "Boot sector must be exactly 512 bytes."
     }
     if ((Get-Item $stage2Bin).Length -ne $stage2Size) {
         throw "Stage 2 must be exactly $stage2Size bytes."
-    }
-    if ((Get-Item $kernelBin).Length -ne $kernelSize) {
-        throw "Kernel image must be exactly $kernelSize bytes."
     }
 
     $stream = [System.IO.File]::Create($bootImg)
@@ -86,9 +75,6 @@ try {
         $stage2Bytes = [System.IO.File]::ReadAllBytes($stage2Bin)
         $image.Seek(512, [System.IO.SeekOrigin]::Begin) | Out-Null
         $image.Write($stage2Bytes, 0, $stage2Bytes.Length)
-        $kernelBytes = [System.IO.File]::ReadAllBytes($kernelBin)
-        $image.Seek(512 + $stage2Size, [System.IO.SeekOrigin]::Begin) | Out-Null
-        $image.Write($kernelBytes, 0, $kernelBytes.Length)
     }
     finally {
         $image.Dispose()
