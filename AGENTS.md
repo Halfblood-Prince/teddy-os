@@ -13,10 +13,10 @@ Create a minimal but usable x86_64 hobby OS with:
 
 Important constraints:
 - Target architecture: x86_64
-- Boot mode: UEFI
+- Boot mode: BIOS
 - Virtualization target: VMware
 - Output: bootable ISO
-- Language preference: Rust
+- Language preference: Rust Stable
 - Must be modular and readable
 - Must include comments and docs
 - Must not depend on Linux after boot
