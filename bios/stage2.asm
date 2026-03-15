@@ -194,7 +194,7 @@ execute_command:
     jmp .done
 
 .reboot:
-    int 0x19
+    call bios_warm_reboot
     jmp $
 
 .graphics:
@@ -395,6 +395,13 @@ fill_rect_13h:
     pop bx
     pop ax
     ret
+
+bios_warm_reboot:
+    cli
+    xor ax, ax
+    mov ds, ax
+    mov word [0x0472], 0x1234
+    jmp 0xFFFF:0x0000
 
 strings_equal:
     push si
