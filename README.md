@@ -4,13 +4,15 @@ Teddy-OS has been reset and rebuilt from scratch around one goal: boot cleanly
 in VMware in legacy BIOS mode.
 
 The current repository is a minimal BIOS-first baseline. It builds a tiny
-legacy BIOS boot image with a real second-stage loader and a small interactive
-text-mode shell, then packages it into a bootable ISO for VMware.
+legacy BIOS boot image with a real second-stage loader, a small interactive
+text-mode shell, and a simple graphics-mode demo, then packages it into a
+bootable ISO for VMware.
 
 ## What Exists Now
 
 - a BIOS boot sector and second stage in `bios/`
 - keyboard input and a tiny BIOS shell in stage 2
+- a VGA mode `13h` graphics demo launched from the shell
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
@@ -76,9 +78,10 @@ Example commands:
 - `info`
 - `clear`
 - `echo hello`
+- `graphics`
 - `reboot`
 
 ## Next Step
 
-Once this BIOS baseline is proven stable in VMware, the next phase is to switch
-stage 2 into graphics mode before moving back toward a Rust kernel.
+Once this BIOS baseline is proven stable in VMware, the next phase is to move
+the graphics path toward a real loader-to-kernel handoff in Rust.

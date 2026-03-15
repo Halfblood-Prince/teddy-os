@@ -2,7 +2,7 @@ BITS 16
 ORG 0x7C00
 
 %define STAGE2_SEGMENT 0x0800
-%define STAGE2_SECTORS 8
+%define STAGE2_SECTORS 16
 
 start:
     cli
@@ -97,4 +97,3 @@ boot_drive db 0
 
 times 510 - ($ - $$) db 0
 dw 0xAA55
-

@@ -32,8 +32,9 @@ $isoRoot = Join-Path $stagingRoot "iso"
 $bootAsm = Join-Path $repoRoot "bios\\boot.asm"
 $stage2Asm = Join-Path $repoRoot "bios\\stage2.asm"
 $bootBin = Join-Path $binDir "boot.bin"
-$stage2Bin = Join-Path $binDir "stage2.bin"
-$bootImg = Join-Path $isoRoot "boot.img"
+    $stage2Bin = Join-Path $binDir "stage2.bin"
+    $bootImg = Join-Path $isoRoot "boot.img"
+    $stage2Size = 16 * 512
 
 Require-Command nasm
 
@@ -55,8 +56,8 @@ try {
     if ((Get-Item $bootBin).Length -ne 512) {
         throw "Boot sector must be exactly 512 bytes."
     }
-    if ((Get-Item $stage2Bin).Length -ne (8 * 512)) {
-        throw "Stage 2 must be exactly 4096 bytes."
+    if ((Get-Item $stage2Bin).Length -ne $stage2Size) {
+        throw "Stage 2 must be exactly $stage2Size bytes."
     }
 
     $stream = [System.IO.File]::Create($bootImg)

@@ -17,4 +17,7 @@ You should see:
 - a `Boot OK - Stage 2 running` footer
 - a `>` shell prompt that responds to keyboard input
 
+Try `graphics` at the prompt. You should see a simple Teddy-OS graphics screen
+and return to the shell after pressing a key.
+
 If that screen appears and remains stable, the reset baseline is working.

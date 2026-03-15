@@ -2,6 +2,7 @@ BITS 16
 ORG 0x0000
 
 %define INPUT_BUFFER_SIZE 64
+%define STAGE2_SECTORS 16
 
 stage2_start:
     cli
@@ -11,46 +12,7 @@ stage2_start:
     mov sp, 0xFFFE
     sti
 
-    mov ax, 0x0003
-    int 0x10
-
-    mov ax, 0xB800
-    mov es, ax
-    xor di, di
-    mov ah, 0x1F
-    mov al, ' '
-    mov cx, 80 * 25
-    rep stosw
-
-    mov si, title_text
-    mov di, 80 * 2 * 2 + 8 * 2
-    mov ah, 0x1F
-    call draw_string
-
-    mov si, status_text
-    mov di, 80 * 2 * 5 + 8 * 2
-    mov ah, 0x1E
-    call draw_string
-
-    mov si, detail_text
-    mov di, 80 * 2 * 8 + 8 * 2
-    mov ah, 0x17
-    call draw_string
-
-    mov si, next_text
-    mov di, 80 * 2 * 11 + 8 * 2
-    mov ah, 0x1A
-    call draw_string
-
-    mov si, shell_text
-    mov di, 80 * 2 * 14 + 8 * 2
-    mov ah, 0x1F
-    call draw_string
-
-    mov si, footer_text
-    mov di, 80 * 2 * 22 + 8 * 2
-    mov ah, 0x70
-    call draw_string
+    call redraw_shell_screen
 
     mov byte [input_len], 0
 
@@ -171,6 +133,12 @@ execute_command:
     je .reboot
 
     mov si, input_buffer
+    mov di, cmd_graphics
+    call strings_equal
+    cmp al, 1
+    je .graphics
+
+    mov si, input_buffer
     mov di, cmd_echo_prefix
     call starts_with
     cmp al, 1
@@ -229,7 +197,203 @@ execute_command:
     int 0x19
     jmp $
 
+.graphics:
+    call graphics_demo
+    call redraw_shell_screen
+    jmp .done
+
 .done:
+    ret
+
+redraw_shell_screen:
+    mov ax, 0x0003
+    int 0x10
+
+    mov ax, 0xB800
+    mov es, ax
+    xor di, di
+    mov ah, 0x1F
+    mov al, ' '
+    mov cx, 80 * 25
+    rep stosw
+
+    mov si, title_text
+    mov di, 80 * 2 * 2 + 8 * 2
+    mov ah, 0x1F
+    call draw_string
+
+    mov si, status_text
+    mov di, 80 * 2 * 5 + 8 * 2
+    mov ah, 0x1E
+    call draw_string
+
+    mov si, detail_text
+    mov di, 80 * 2 * 8 + 8 * 2
+    mov ah, 0x17
+    call draw_string
+
+    mov si, next_text
+    mov di, 80 * 2 * 11 + 8 * 2
+    mov ah, 0x1A
+    call draw_string
+
+    mov si, shell_text
+    mov di, 80 * 2 * 14 + 8 * 2
+    mov ah, 0x1F
+    call draw_string
+
+    mov si, footer_text
+    mov di, 80 * 2 * 22 + 8 * 2
+    mov ah, 0x70
+    call draw_string
+    ret
+
+graphics_demo:
+    mov ax, 0x0013
+    int 0x10
+
+    mov ax, 0xA000
+    mov es, ax
+
+    mov al, 1
+    call clear_vga
+
+    mov ax, 0
+    mov bx, 0
+    mov cx, 320
+    mov dx, 200
+    mov si, 1
+    call fill_rect_13h
+
+    mov ax, 0
+    mov bx, 176
+    mov cx, 320
+    mov dx, 24
+    mov si, 7
+    call fill_rect_13h
+
+    mov ax, 8
+    mov bx, 180
+    mov cx, 72
+    mov dx, 16
+    mov si, 2
+    call fill_rect_13h
+
+    mov ax, 214
+    mov bx, 26
+    mov cx, 88
+    mov dx, 56
+    mov si, 15
+    call fill_rect_13h
+
+    mov ax, 214
+    mov bx, 26
+    mov cx, 88
+    mov dx, 10
+    mov si, 9
+    call fill_rect_13h
+
+    mov ax, 18
+    mov bx, 22
+    mov cx, 34
+    mov dx, 34
+    mov si, 14
+    call fill_rect_13h
+
+    mov ax, 62
+    mov bx, 22
+    mov cx, 34
+    mov dx, 34
+    mov si, 10
+    call fill_rect_13h
+
+    mov ax, 106
+    mov bx, 22
+    mov cx, 34
+    mov dx, 34
+    mov si, 12
+    call fill_rect_13h
+
+    mov dh, 1
+    mov dl, 2
+    call set_cursor
+    mov si, gfx_title
+    call print_string
+
+    mov dh, 5
+    mov dl, 28
+    call set_cursor
+    mov si, gfx_panel_title
+    call print_string
+
+    mov dh, 7
+    mov dl, 28
+    call set_cursor
+    mov si, gfx_panel_body
+    call print_string
+
+    mov dh, 23
+    mov dl, 2
+    call set_cursor
+    mov si, gfx_footer
+    call print_string
+
+    xor ah, ah
+    int 0x16
+    ret
+
+set_cursor:
+    mov ah, 0x02
+    mov bh, 0x00
+    int 0x10
+    ret
+
+clear_vga:
+    xor di, di
+    mov cx, 320 * 200
+    rep stosb
+    ret
+
+fill_rect_13h:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+
+    mov bp, ax
+    mov ax, si
+    mov [rect_color], al
+.row_loop:
+    cmp dx, 0
+    je .done
+
+    mov ax, bx
+    mov di, ax
+    shl ax, 8
+    shl di, 6
+    add di, ax
+    add di, bp
+
+    mov al, [rect_color]
+    push dx
+    rep stosb
+    pop dx
+
+    inc bx
+    dec dx
+    jmp .row_loop
+
+.done:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 strings_equal:
@@ -282,23 +446,29 @@ title_text db "TEDDY-OS", 0
 status_text db "Legacy BIOS stage 2 online", 0
 detail_text db "Stage 1 loaded this program from disk sectors", 0
 next_text db "Next: graphics mode and Rust kernel handoff", 0
-shell_text db "Shell ready. Commands: help, clear, info, echo, reboot", 0
+shell_text db "Shell ready. Commands: help, clear, info, echo, graphics, reboot", 0
 footer_text db "Boot OK - Stage 2 running", 0
 prompt_text db "> ", 0
 unknown_text db "Unknown command. Type help.", 0
 help_text_1 db "help  - list commands", 0
 help_text_2 db "info  - show stage information", 0
-help_text_3 db "clear - clear screen, echo X, reboot", 0
+help_text_3 db "clear - clear screen, echo X, graphics, reboot", 0
 info_text_1 db "Teddy-OS BIOS Stage 2 is reading keyboard input via INT 16h.", 0
-info_text_2 db "This is the first interactive reset baseline.", 0
+info_text_2 db "Graphics mode now runs through BIOS VGA mode 13h.", 0
+gfx_title db "TEDDY-OS GRAPHICS", 0
+gfx_panel_title db "RESET GUI", 0
+gfx_panel_body db "Mode 13h online", 0
+gfx_footer db "Press any key to return", 0
 
 cmd_help db "help", 0
 cmd_clear db "clear", 0
 cmd_info db "info", 0
+cmd_graphics db "graphics", 0
 cmd_reboot db "reboot", 0
 cmd_echo_prefix db "echo ", 0
 
+rect_color db 0
 input_len db 0
 input_buffer times INPUT_BUFFER_SIZE db 0
 
-times (8 * 512) - ($ - $$) db 0
+times (STAGE2_SECTORS * 512) - ($ - $$) db 0

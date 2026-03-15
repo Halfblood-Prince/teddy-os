@@ -7,6 +7,7 @@ This reset starts from a small but extensible BIOS baseline:
 - no separate kernel yet
 - no advanced drivers or networking beyond BIOS services
 - text-mode Teddy-OS status screen and tiny shell
+- optional VGA mode `13h` graphics demo launched from the shell
 - reproducible ISO output for VMware legacy BIOS boot
 
 ## Why This Reset Exists
@@ -23,6 +24,7 @@ The new baseline restores a known-good target:
 2. Stage 1 reads a fixed second stage from disk sectors
 3. Stage 2 switches to text mode, paints a Teddy-OS status screen, and starts a shell
 4. Keyboard input is handled via BIOS INT 16h
+5. A graphics demo can switch to VGA mode `13h` and return to the shell
 
 ## Next Phases
 
