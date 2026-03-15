@@ -139,12 +139,23 @@ fn read_regular_file(file: &mut RegularFile) -> Result<Vec<u8>, Status> {
 }
 
 fn init_framebuffer() -> Result<FramebufferInfo, Status> {
+    uefi::println!("  framebuffer: locating GOP handle...");
     let gop_handle = boot::get_handle_for_protocol::<GraphicsOutput>()
         .map_err(|err| err.status())?;
+    uefi::println!("  framebuffer: GOP handle located.");
+
+    uefi::println!("  framebuffer: opening GOP protocol...");
     let mut gop = boot::open_protocol_exclusive::<GraphicsOutput>(gop_handle)
         .map_err(|err| err.status())?;
+    uefi::println!("  framebuffer: GOP protocol opened.");
+
+    uefi::println!("  framebuffer: reading current mode info...");
     let mode = gop.current_mode_info();
+    uefi::println!("  framebuffer: mode info ready.");
+
+    uefi::println!("  framebuffer: acquiring framebuffer view...");
     let mut fb = gop.frame_buffer();
+    uefi::println!("  framebuffer: framebuffer view ready.");
 
     Ok(FramebufferInfo {
         base: fb.as_mut_ptr() as u64,
