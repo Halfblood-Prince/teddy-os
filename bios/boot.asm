@@ -2,7 +2,7 @@ BITS 16
 ORG 0x7C00
 
 %define STAGE2_SEGMENT 0x0800
-%define STAGE2_SECTORS 16
+%define STAGE2_SECTORS 24
 
 start:
     cli
