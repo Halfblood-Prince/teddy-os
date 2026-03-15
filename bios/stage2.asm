@@ -396,6 +396,11 @@ fill_rect_13h:
 enter_long_mode:
     cli
     call enable_a20_fast
+    xor eax, eax
+    mov ax, ds
+    shl eax, 4
+    add eax, gdt_start
+    mov [gdt_descriptor + 2], eax
     lgdt [gdt_descriptor]
     mov eax, cr0
     or eax, 1
@@ -444,10 +449,16 @@ setup_page_tables:
     mov ecx, (4096 * 3) / 4
     rep stosd
 
-    mov dword [pml4_table], pdpt_table | 0x003
+    mov eax, pdpt_table
+    or eax, 0x003
+    mov [pml4_table], eax
     mov dword [pml4_table + 4], 0
-    mov dword [pdpt_table], pd_table | 0x003
+
+    mov eax, pd_table
+    or eax, 0x003
+    mov [pdpt_table], eax
     mov dword [pdpt_table + 4], 0
+
     mov dword [pd_table], 0x00000083
     mov dword [pd_table + 4], 0
     ret
@@ -609,7 +620,7 @@ gdt_end:
 
 gdt_descriptor:
     dw gdt_end - gdt_start - 1
-    dd gdt_start
+    dd 0
 
 align 4096
 pml4_table:
