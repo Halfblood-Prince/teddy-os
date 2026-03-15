@@ -10,7 +10,7 @@ const VGA_HEIGHT: usize = 25;
 
 global_asm!(
     r#"
-    .section .text
+    .section .text.boot,"ax"
     .global _start
 _start:
     mov rsp, 0x9f000

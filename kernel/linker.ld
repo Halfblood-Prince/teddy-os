@@ -5,6 +5,11 @@ SECTIONS
 {
     . = 0x20000;
 
+    .text.boot : ALIGN(16)
+    {
+        KEEP(*(.text.boot))
+    }
+
     .text : ALIGN(4K)
     {
         *(.text .text.*)
@@ -26,4 +31,3 @@ SECTIONS
         *(.bss .bss.*)
     }
 }
-
