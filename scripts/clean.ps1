@@ -7,4 +7,3 @@ foreach ($path in @("build", "dist", "target")) {
         Remove-Item -Recurse -Force $full
     }
 }
-

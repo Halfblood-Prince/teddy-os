@@ -1,24 +1,22 @@
 # Teddy-OS
 
 Teddy-OS has been reset and rebuilt from scratch around one goal: boot cleanly
-in VMware under UEFI.
+in VMware in legacy BIOS mode.
 
-The current repository is a minimal Phase 1 baseline implemented in stable
-Rust. It builds a single `x86_64-unknown-uefi` Teddy-OS application that opens
-the UEFI framebuffer and renders an original desktop-style screen.
+The current repository is a minimal BIOS-first baseline. It builds a tiny
+legacy BIOS boot image and packages it into a bootable ISO for VMware.
 
 ## What Exists Now
 
-- a clean Rust workspace
-- a single UEFI boot application in `bootloader/`
-- framebuffer desktop-style rendering
+- a BIOS boot sector in `bios/`
+- a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
 - fresh architecture and VMware docs
 
 ## Repo Layout
 
-- `bootloader/` - stable Rust UEFI Teddy-OS app
+- `bios/` - legacy BIOS boot sector
 - `docs/` - reset architecture and VMware notes
 - `scripts/` - build, ISO, and clean scripts
 
@@ -26,9 +24,7 @@ the UEFI framebuffer and renders an original desktop-style screen.
 
 Host requirements:
 
-- `cargo`
-- `rustup`
-- `mtools` (`mformat`, `mmd`, `mcopy`)
+- `nasm`
 - `xorriso`
 
 Build the debug ISO:
@@ -61,18 +57,17 @@ can:
 
 ## VMware Test
 
-1. Create a VM with `UEFI` firmware.
+1. Create a VM with legacy BIOS firmware.
 2. Attach `build/dist/teddy-os-debug.iso`.
 3. Boot the VM.
 
 Expected result:
 
-- blue desktop background
-- light bottom taskbar
-- green start button
-- status panel in the top-right
+- Teddy-OS text screen in BIOS mode
+- the message `Legacy BIOS boot path online`
+- the message `Boot OK - BIOS mode`
 
 ## Next Step
 
-Once this reset baseline is proven stable in VMware, the next phase is to add a
-small input/event loop before reintroducing a separate kernel.
+Once this BIOS baseline is proven stable in VMware, the next phase is to add a
+second-stage loader and move back toward a Rust kernel.

@@ -32,15 +32,7 @@ jobs:
       - name: Install host tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso mtools
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-uefi
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+          sudo apt-get install -y xorriso nasm
 
       - name: Build ISO
         shell: pwsh

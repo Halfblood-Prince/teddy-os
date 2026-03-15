@@ -14,40 +14,57 @@ function Require-Command {
     }
 }
 
+function Reset-Directory {
+    param([string]$Path)
+
+    if (Test-Path $Path) {
+        Remove-Item -Recurse -Force $Path
+    }
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $buildRoot = Join-Path $repoRoot "build"
-$targetDir = Join-Path $buildRoot "target"
 $stagingRoot = Join-Path $buildRoot "staging"
 $distDir = Join-Path $buildRoot "dist"
-$espRoot = Join-Path $stagingRoot "esp"
-$espBootDir = Join-Path $espRoot "EFI\\BOOT"
+$binDir = Join-Path $buildRoot "bin"
+$isoRoot = Join-Path $stagingRoot "iso"
+$bootAsm = Join-Path $repoRoot "bios\\boot.asm"
+$bootBin = Join-Path $binDir "boot.bin"
+$bootImg = Join-Path $isoRoot "boot.img"
 
-Require-Command cargo
-Require-Command rustup
+Require-Command nasm
 
 Push-Location $repoRoot
 try {
-    New-Item -ItemType Directory -Force -Path $buildRoot, $stagingRoot, $distDir, $espBootDir | Out-Null
-    $env:CARGO_TARGET_DIR = $targetDir
+    Reset-Directory $stagingRoot
+    New-Item -ItemType Directory -Force -Path $buildRoot, $distDir, $binDir, $isoRoot | Out-Null
 
-    rustup target add x86_64-unknown-uefi | Out-Host
-
-    $cargoArgs = @("build", "-p", "teddy-boot", "--target", "x86_64-unknown-uefi")
-    if ($Profile -eq "release") {
-        $cargoArgs += "--release"
-    }
-
-    & cargo @cargoArgs
+    & nasm -f bin $bootAsm -o $bootBin
     if ($LASTEXITCODE -ne 0) {
-        throw "UEFI boot app build failed."
+        throw "BIOS boot sector build failed."
     }
 
-    $bootArtifact = Join-Path (Join-Path $targetDir "x86_64-unknown-uefi\\$Profile") "teddy-boot.efi"
-    if (-not (Test-Path $bootArtifact)) {
-        throw "Boot artifact not found at $bootArtifact"
+    if ((Get-Item $bootBin).Length -ne 512) {
+        throw "Boot sector must be exactly 512 bytes."
     }
 
-    Copy-Item $bootArtifact (Join-Path $espBootDir "BOOTX64.EFI") -Force
+    $stream = [System.IO.File]::Create($bootImg)
+    try {
+        $stream.SetLength(1474560)
+    }
+    finally {
+        $stream.Dispose()
+    }
+
+    $bootBytes = [System.IO.File]::ReadAllBytes($bootBin)
+    $image = [System.IO.File]::Open($bootImg, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write)
+    try {
+        $image.Write($bootBytes, 0, $bootBytes.Length)
+    }
+    finally {
+        $image.Dispose()
+    }
 
     if (-not $SkipIso) {
         & (Join-Path $PSScriptRoot "make-iso.ps1") -Profile $Profile
