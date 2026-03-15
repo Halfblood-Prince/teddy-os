@@ -34,18 +34,23 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
     write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
     write_line(8, 8, "Stage 2 entered long mode and jumped into Rust code", 0x17);
+    write_line(10, 8, "Checkpoint A: entered kernel_main", 0x1F);
     if let Some(boot_info) = BootInfo::from_addr(boot_info_addr) {
         write_line(11, 8, "Boot contract: stage 2 handoff verified", 0x1A);
-        write_hex_byte(14, 8, "Boot drive: 0x", boot_info.boot_drive, 0x1F);
-        write_hex_word(15, 8, "Kernel load segment: 0x", boot_info.kernel_segment, 0x1F);
-        write_hex_word(16, 8, "Kernel sectors: 0x", boot_info.kernel_sectors, 0x1F);
+        write_line(12, 8, "Checkpoint B: boot info validated", 0x1F);
+        let _ = boot_info.boot_drive;
+        let _ = boot_info.kernel_segment;
+        let _ = boot_info.kernel_sectors;
     } else {
         write_line(11, 8, "Boot contract: invalid handoff signature", 0x4F);
     }
-    write_line(22, 8, "Rust kernel active - halt loop", 0x70);
+    write_line(14, 8, "Checkpoint C: entering idle loop", 0x1F);
+    write_line(22, 8, "Kernel idle loop active", 0x70);
 
     loop {
-        core::hint::spin_loop();
+        unsafe {
+            core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
+        }
     }
 }
 
@@ -94,37 +99,6 @@ fn write_line(row: usize, col: usize, text: &str, attribute: u8) {
             break;
         }
         write_cell(row, x, byte, attribute);
-    }
-}
-
-fn write_hex_byte(row: usize, col: usize, prefix: &str, value: u8, attribute: u8) {
-    write_hex_line(row, col, prefix, value as u64, 2, attribute);
-}
-
-fn write_hex_word(row: usize, col: usize, prefix: &str, value: u16, attribute: u8) {
-    write_hex_line(row, col, prefix, value as u64, 4, attribute);
-}
-
-fn write_hex_line(
-    row: usize,
-    col: usize,
-    prefix: &str,
-    value: u64,
-    digits: usize,
-    attribute: u8,
-) {
-    write_line(row, col, prefix, attribute);
-    let mut buffer = [b'0'; 16];
-    for index in 0..digits {
-        let shift = (digits - 1 - index) * 4;
-        let nibble = ((value >> shift) & 0xF) as u8;
-        buffer[index] = match nibble {
-            0..=9 => b'0' + nibble,
-            _ => b'A' + (nibble - 10),
-        };
-    }
-    for (index, byte) in buffer[..digits].iter().enumerate() {
-        write_cell(row, col + prefix.len() + index, *byte, attribute);
     }
 }
 
