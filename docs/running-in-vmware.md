@@ -13,7 +13,7 @@ You should see:
 
 - a black text-mode screen
 - a `TEDDY-OS` title
-- a `Legacy BIOS boot path online` status line
-- a `Boot OK - BIOS mode` footer
+- a `Legacy BIOS stage 2 online` status line
+- a `Boot OK - Stage 2 running` footer
 
 If that screen appears and remains stable, the reset baseline is working.

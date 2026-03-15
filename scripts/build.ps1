@@ -30,7 +30,9 @@ $distDir = Join-Path $buildRoot "dist"
 $binDir = Join-Path $buildRoot "bin"
 $isoRoot = Join-Path $stagingRoot "iso"
 $bootAsm = Join-Path $repoRoot "bios\\boot.asm"
+$stage2Asm = Join-Path $repoRoot "bios\\stage2.asm"
 $bootBin = Join-Path $binDir "boot.bin"
+$stage2Bin = Join-Path $binDir "stage2.bin"
 $bootImg = Join-Path $isoRoot "boot.img"
 
 Require-Command nasm
@@ -45,8 +47,16 @@ try {
         throw "BIOS boot sector build failed."
     }
 
+    & nasm -f bin $stage2Asm -o $stage2Bin
+    if ($LASTEXITCODE -ne 0) {
+        throw "BIOS stage 2 build failed."
+    }
+
     if ((Get-Item $bootBin).Length -ne 512) {
         throw "Boot sector must be exactly 512 bytes."
+    }
+    if ((Get-Item $stage2Bin).Length -ne (8 * 512)) {
+        throw "Stage 2 must be exactly 4096 bytes."
     }
 
     $stream = [System.IO.File]::Create($bootImg)
@@ -61,6 +71,9 @@ try {
     $image = [System.IO.File]::Open($bootImg, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write)
     try {
         $image.Write($bootBytes, 0, $bootBytes.Length)
+        $stage2Bytes = [System.IO.File]::ReadAllBytes($stage2Bin)
+        $image.Seek(512, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $image.Write($stage2Bytes, 0, $stage2Bytes.Length)
     }
     finally {
         $image.Dispose()
@@ -76,4 +89,3 @@ try {
 finally {
     Pop-Location
 }
-
