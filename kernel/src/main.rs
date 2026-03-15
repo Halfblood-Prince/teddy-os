@@ -24,6 +24,7 @@ use teddy_boot_proto::{BootInfo, BOOTINFO_MAGIC};
 #[no_mangle]
 pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     serial::init();
+    interrupts::init_exceptions();
 
     if boot_info.magic != BOOTINFO_MAGIC {
         serial::write_str("Invalid BootInfo magic.\n");
@@ -31,38 +32,59 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     }
 
     logger::init(boot_info);
-    logln!("Boot step: logger online");
-    memory::init(boot_info);
-    logln!("Boot step: memory online");
-    timer::init();
-    logln!("Boot step: timer online");
-    logln!("Boot step: entering storage init");
-    storage::init();
-    logln!("Boot step: storage probe complete");
-    logln!("Boot step: entering filesystem init");
-    let mount_status = fs::init();
-    let storage_info = storage::stats();
+    logln!("[boot] logger online");
     logln!(
-        "Boot step: filesystem probe complete (mounted={} persistent={})",
-        mount_status.mounted,
-        mount_status.persistent
+        "[boot] exception handlers online: {}",
+        interrupts::exceptions_ready()
     );
+
+    logln!("[boot] initializing memory manager");
+    memory::init(boot_info);
+    logln!("[boot] memory online");
+
+    logln!("[boot] initializing timer");
+    timer::init();
+    logln!("[boot] timer online");
+
+    logln!("[boot] preparing storage subsystem");
+    storage::init();
+    let storage_info = storage::stats();
+    logln!("[boot] storage probe complete: present={}", storage_info.present);
+
+    logln!("[boot] mounting filesystem");
+    let mount_status = fs::init();
+    logln!(
+        "[boot] filesystem ready: mounted={} persistent={} formatted={}",
+        mount_status.mounted,
+        mount_status.persistent,
+        mount_status.formatted
+    );
+
+    logln!("[boot] initializing input subsystem");
     let input_status = input::init(
         boot_info.framebuffer.width as usize,
         boot_info.framebuffer.height as usize,
     );
     logln!(
-        "Boot step: input online (mouse_ready={})",
+        "[boot] input online: mouse_ready={}",
         input_status.mouse_ready
     );
+
+    logln!("[boot] initializing file explorer");
     file_explorer::init();
-    logln!("Boot step: explorer online");
+    logln!("[boot] file explorer online");
+
+    logln!("[boot] initializing terminal");
     terminal::init();
-    logln!("Boot step: terminal online");
+    logln!("[boot] terminal online");
+
+    logln!("[boot] initializing runtime scheduler");
     runtime::init(boot_info);
-    logln!("Boot step: runtime online");
-    interrupts::init();
-    logln!("Boot step: interrupts online");
+    logln!("[boot] runtime online");
+
+    logln!("[boot] initializing interrupt controllers");
+    interrupts::init_hardware();
+    logln!("[boot] hardware interrupts online");
 
     logln!("Teddy-OS kernel entered.");
     logln!(

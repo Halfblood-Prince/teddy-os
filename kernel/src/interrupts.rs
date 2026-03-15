@@ -16,7 +16,8 @@ const PIT_FREQUENCY_HZ: u32 = 100;
 
 static IDT: Once<InterruptDescriptorTable> = Once::new();
 static PICS: Mutex<Option<ChainedPics>> = Mutex::new(None);
-static INITIALIZED: AtomicBool = AtomicBool::new(false);
+static EXCEPTIONS_READY: AtomicBool = AtomicBool::new(false);
+static HARDWARE_READY: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -33,9 +34,16 @@ impl InterruptIndex {
 
 }
 
-pub fn init() {
+pub fn init_exceptions() {
     let idt = IDT.call_once(build_idt);
     idt.load();
+    EXCEPTIONS_READY.store(true, Ordering::SeqCst);
+}
+
+pub fn init_hardware() {
+    if !EXCEPTIONS_READY.load(Ordering::SeqCst) {
+        init_exceptions();
+    }
 
     {
         let mut pics = PICS.lock();
@@ -47,7 +55,7 @@ pub fn init() {
 
     configure_irq_masks(input::mouse_ready());
     initialize_pit(PIT_FREQUENCY_HZ);
-    INITIALIZED.store(true, Ordering::SeqCst);
+    HARDWARE_READY.store(true, Ordering::SeqCst);
 }
 
 pub fn enable() {
@@ -62,8 +70,12 @@ pub fn timer_frequency_hz() -> u32 {
     PIT_FREQUENCY_HZ
 }
 
+pub fn exceptions_ready() -> bool {
+    EXCEPTIONS_READY.load(Ordering::SeqCst)
+}
+
 pub fn is_initialized() -> bool {
-    INITIALIZED.load(Ordering::SeqCst)
+    HARDWARE_READY.load(Ordering::SeqCst)
 }
 
 fn build_idt() -> InterruptDescriptorTable {

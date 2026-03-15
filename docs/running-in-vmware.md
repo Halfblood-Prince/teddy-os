@@ -67,6 +67,6 @@ Expected: an EFI El Torito entry and `/EFI/BOOT/BOOTX64.EFI` listed.
 ## Debugging
 
 - use the serial log file from VMware for early boot failures
-- if boot stops on the kernel boot log screen, note the last on-screen `Boot step:` line; early init now reports progress there even when COM1 logging is unavailable
+- if boot stops on the kernel boot log screen, note the last on-screen `[boot]` line; early init now reports progress there even when COM1 logging is unavailable
 - if the ISO boots but the desktop does not update, inspect framebuffer and input logs
 - if persistence fails, verify the TeddyFS disk is attached and writable
