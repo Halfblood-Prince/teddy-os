@@ -556,6 +556,7 @@ protected_mode_entry:
     mov esp, 0x7000
     cld
 
+    call enable_fpu_sse
     call setup_page_tables
 
     mov eax, pml4_table
@@ -575,6 +576,21 @@ protected_mode_entry:
     mov cr0, eax
 
     jmp 0x18:long_mode_entry
+
+enable_fpu_sse:
+    mov eax, cr0
+    and eax, 0xFFFFFFFB
+    or eax, 0x00000002
+    mov cr0, eax
+
+    clts
+
+    mov eax, cr4
+    or eax, (1 << 9) | (1 << 10)
+    mov cr4, eax
+
+    fninit
+    ret
 
 setup_page_tables:
     mov edi, pml4_table
