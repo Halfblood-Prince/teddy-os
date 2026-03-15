@@ -5,6 +5,7 @@
 mod framebuffer;
 mod file_explorer;
 mod fs;
+mod gdt;
 mod input;
 mod interrupts;
 mod logger;
@@ -42,6 +43,9 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     logger::init(boot_info);
     paint_early_boot_marker(boot_info, 0x0022_66aa);
     logln!("[boot] logger online");
+
+    gdt::init();
+    logln!("[boot] gdt online");
 
     interrupts::init_exceptions();
     logln!("[boot] exception handling online");

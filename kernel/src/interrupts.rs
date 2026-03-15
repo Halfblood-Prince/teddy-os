@@ -8,7 +8,7 @@ use x86_64::structures::idt::{
     InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode,
 };
 
-use crate::{input, logln, timer};
+use crate::{gdt, input, logln, timer};
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
@@ -81,7 +81,11 @@ pub fn is_initialized() -> bool {
 fn build_idt() -> InterruptDescriptorTable {
     let mut idt = InterruptDescriptorTable::new();
     idt.breakpoint.set_handler_fn(breakpoint_handler);
-    idt.double_fault.set_handler_fn(double_fault_handler);
+    unsafe {
+        idt.double_fault
+            .set_handler_fn(double_fault_handler)
+            .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
+    }
     idt.divide_error.set_handler_fn(divide_error_handler);
     idt.general_protection_fault
         .set_handler_fn(general_protection_fault_handler);
