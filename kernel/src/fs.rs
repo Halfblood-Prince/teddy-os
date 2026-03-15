@@ -649,7 +649,7 @@ static FS: Mutex<TeddyFs> = Mutex::new(TeddyFs::new());
 
 pub fn init() -> MountStatus {
     let mut fs = FS.lock();
-    fs.reset_in_place();
+    *fs = TeddyFs::new();
     let status = if storage::is_ready() {
         match fs.mount() {
             Ok(formatted) => MountStatus {
