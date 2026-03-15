@@ -75,12 +75,30 @@ jobs:
           ./scripts/inspect-iso.ps1 -IsoPath $iso
         shell: pwsh
 
+      - name: Refresh dist output
+        run: |
+          $sourceIso = "build/dist/teddy-os-$env:PROFILE.iso"
+          $distDir = "dist"
+          $targetIso = Join-Path $distDir "teddy-os-$env:PROFILE.iso"
+
+          if (-not (Test-Path $sourceIso)) {
+            throw "Missing ISO: $sourceIso"
+          }
+
+          if (Test-Path $distDir) {
+            Get-ChildItem $distDir -Force | Remove-Item -Recurse -Force
+          }
+          else {
+            New-Item -ItemType Directory -Path $distDir | Out-Null
+          }
+
+          Copy-Item $sourceIso $targetIso -Force
+          Write-Host "Copied ISO to $targetIso"
+        shell: pwsh
+
       - name: Upload ISO artifacts
         uses: actions/upload-artifact@v4
         with:
           name: teddy-os-${{ env.PROFILE }}-iso
-          path: |
-            build/dist/teddy-os-${{ env.PROFILE }}.iso
-            build/dist/teddy-os-${{ env.PROFILE }}.iso.sha256
-            build/dist/build-${{ env.PROFILE }}.json
+          path: dist/teddy-os-${{ env.PROFILE }}.iso
           if-no-files-found: error
