@@ -69,6 +69,10 @@ try {
 
     $previousRustFlags = $env:RUSTFLAGS
     $kernelRustFlags = @(
+        "-Ctarget-cpu=x86-64",
+        "-Ctarget-feature=-mmx,-sse,-sse2,-avx,-avx2",
+        "-Cforce-frame-pointers=yes",
+        "-Cno-redzone=yes",
         "-Crelocation-model=static",
         "-Clink-arg=-Tkernel/linker.ld",
         "-Clink-arg=--build-id=none"
