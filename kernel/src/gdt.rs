@@ -29,7 +29,7 @@ pub fn init() {
 
         let mut tss = TaskStateSegment::new();
         let stack_start = VirtAddr::from_ptr(DOUBLE_FAULT_STACK.as_ptr());
-        let stack_end = stack_start + DOUBLE_FAULT_STACK_SIZE;
+        let stack_end = stack_start + DOUBLE_FAULT_STACK_SIZE as u64;
         tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = stack_end;
         TSS.write(tss);
 
