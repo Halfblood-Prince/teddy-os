@@ -3,6 +3,8 @@ ORG 0x8000
 
 %define INPUT_BUFFER_SIZE 64
 %define STAGE2_SECTORS 96
+%define BOOT_INFO_ADDR   0x18000
+%define BOOT_INFO_SEG    0x1800
 %define KERNEL_LOAD_ADDR 0x20000
 %define KERNEL_LOAD_SEG  0x2000
 %define KERNEL_SECTORS   128
@@ -202,6 +204,7 @@ execute_command:
 .kernel:
     call load_kernel_image
     jc .kernel_failed
+    call write_boot_info
     call enter_long_mode
     jmp $
 
@@ -457,6 +460,48 @@ load_kernel_image:
     pop ax
     ret
 
+write_boot_info:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push ds
+    push es
+
+    xor ax, ax
+    mov ds, ax
+    mov ax, BOOT_INFO_SEG
+    mov es, ax
+    xor di, di
+
+    mov si, boot_info_signature
+    mov cx, 8
+    rep movsb
+
+    mov byte [es:di], 1
+    inc di
+    mov al, [boot_drive]
+    mov [es:di], al
+    inc di
+    mov ax, KERNEL_LOAD_SEG
+    mov [es:di], ax
+    add di, 2
+    mov ax, KERNEL_SECTORS
+    mov [es:di], ax
+    add di, 2
+    mov ax, STAGE2_SECTORS
+    mov [es:di], ax
+
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 lba_to_chs:
     push ax
     push bx
@@ -557,8 +602,9 @@ long_mode_entry:
     mov ss, ax
     mov fs, ax
     mov gs, ax
-    mov rsp, 0x7000
+    mov rsp, 0x80000
 
+    mov rdi, BOOT_INFO_ADDR
     mov rax, KERNEL_LOAD_ADDR
     jmp rax
 
@@ -634,6 +680,7 @@ gfx_panel_title db "RESET GUI", 0
 gfx_panel_body db "Mode 13h online", 0
 gfx_footer db "Press any key to return", 0
 kernel_fail_text db "Rust kernel load failed.", 0
+boot_info_signature db "TEDDYOS", 0
 
 cmd_help db "help", 0
 cmd_clear db "clear", 0
