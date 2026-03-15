@@ -13,7 +13,7 @@ the UEFI framebuffer and renders an original desktop-style screen.
 - a single UEFI boot application in `bootloader/`
 - framebuffer desktop-style rendering
 - reproducible PowerShell build and ISO scripts
-- GitHub Actions ISO build workflow
+- GitHub Actions ISO build-and-release workflow
 - fresh architecture and VMware docs
 
 ## Repo Layout
@@ -48,6 +48,16 @@ Clean outputs:
 ```powershell
 ./scripts/clean.ps1
 ```
+
+## GitHub Actions
+
+The workflow in [.github/workflows/build-iso.yml](c:/Users/HP/Downloads/teddy-os/.github/workflows/build-iso.yml)
+can:
+
+- build a debug or release ISO with `workflow_dispatch`
+- upload the ISO and checksum as workflow artifacts
+- publish them as a GitHub release
+- publish automatically for pushed tags like `v0.1.0`
 
 ## VMware Test
 
