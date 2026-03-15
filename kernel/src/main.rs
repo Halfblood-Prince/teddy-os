@@ -18,11 +18,13 @@ mod terminal;
 mod timer;
 
 use core::panic::PanicInfo;
+use core::ptr;
 
 use teddy_boot_proto::{BootInfo, BOOTINFO_MAGIC};
 
 #[no_mangle]
 pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
+    paint_early_boot_marker(boot_info, 0x0088_2222);
     serial::init();
     interrupts::init_exceptions();
 
@@ -177,6 +179,28 @@ fn halt_forever() -> ! {
     loop {
         unsafe {
             core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
+        }
+    }
+}
+
+fn paint_early_boot_marker(boot_info: &BootInfo, color: u32) {
+    let framebuffer = boot_info.framebuffer;
+    if !framebuffer.is_valid() {
+        return;
+    }
+
+    let width = framebuffer.width as usize;
+    let height = framebuffer.height as usize;
+    let stride = framebuffer.stride as usize;
+    let pixels = framebuffer.base as *mut u32;
+    let marker_width = width.min(160);
+    let marker_height = height.min(48);
+
+    for y in 0..marker_height {
+        for x in 0..marker_width {
+            unsafe {
+                ptr::write_volatile(pixels.add(y * stride + x), color);
+            }
         }
     }
 }

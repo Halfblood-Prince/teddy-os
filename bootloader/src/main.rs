@@ -103,11 +103,11 @@ fn boot() -> Result<(), Status> {
     let boot_info_ptr = Box::into_raw(boot_info);
     let _memory_regions_ptr = Box::into_raw(memory_regions);
     mem::forget(memory_map);
+    paint_debug_marker(framebuffer, 0x0022_8844);
 
     let entry: extern "sysv64" fn(&'static BootInfo) -> ! =
         unsafe { mem::transmute(loaded_kernel.entry as usize) };
 
-    uefi::println!("Jumping to kernel entry point...");
     entry(unsafe { &*boot_info_ptr });
 }
 
@@ -318,4 +318,25 @@ struct LoadedKernel {
     entry: u64,
     start: u64,
     end: u64,
+}
+
+fn paint_debug_marker(framebuffer: FramebufferInfo, color: u32) {
+    if !framebuffer.is_valid() {
+        return;
+    }
+
+    let width = framebuffer.width as usize;
+    let height = framebuffer.height as usize;
+    let stride = framebuffer.stride as usize;
+    let pixels = framebuffer.base as *mut u32;
+    let marker_width = width.min(160);
+    let marker_height = height.min(48);
+
+    for y in 0..marker_height {
+        for x in 0..marker_width {
+            unsafe {
+                ptr::write_volatile(pixels.add(y * stride + x), color);
+            }
+        }
+    }
 }
