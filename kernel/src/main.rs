@@ -1,4 +1,3 @@
-#![feature(abi_x86_interrupt)]
 #![no_std]
 #![no_main]
 
@@ -59,11 +58,6 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     logln!("[boot] initializing timer");
     timer::init();
     logln!("[boot] timer online");
-
-    logln!("[boot] preparing storage subsystem");
-    storage::init();
-    let storage_info = storage::stats();
-    logln!("[boot] storage probe complete: present={}", storage_info.present);
 
     logln!("[boot] mounting filesystem");
     let mount_status = fs::init();
@@ -151,20 +145,11 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
         interrupts::timer_frequency_hz()
     );
     logln!(
-        "Storage: present={} persistent_fs={} formatted={}",
-        storage_info.present,
+        "Storage: deferred. persistent_fs={} formatted={}",
         mount_status.persistent,
         mount_status.formatted
     );
-    if storage_info.present {
-        logln!(
-            "Storage model={} sectors={} sector_size={}",
-            storage_info.model.as_str(),
-            storage_info.total_sectors,
-            storage_info.sector_size
-        );
-    }
-    logln!("Keyboard and mouse IRQ handlers armed. Entering desktop shell runtime.");
+    logln!("Keyboard and mouse IRQ handlers deferred. Entering desktop shell runtime.");
 
     loop {
         timer::advance_polled_tick();

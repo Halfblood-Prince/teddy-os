@@ -16,6 +16,7 @@ const DATA_START_LBA: u32 = 1 + ENTRY_SECTORS;
 const FILE_SECTORS: u32 = 8;
 const MAX_NAME: usize = 24;
 const MAX_FILE_BYTES: usize = (FILE_SECTORS as usize) * 512;
+const STORAGE_BOOT_ENABLED: bool = false;
 
 #[derive(Clone, Copy)]
 pub struct FsTextBuffer {
@@ -191,12 +192,6 @@ impl TeddyFs {
     }
 
     fn mount(&mut self) -> Result<bool, &'static str> {
-        if !storage::is_ready() {
-            self.mounted = false;
-            self.persistent = false;
-            return Ok(false);
-        }
-
         self.persistent = true;
 
         let mut sector = [0u8; 512];
@@ -650,31 +645,30 @@ static FS: Mutex<TeddyFs> = Mutex::new(TeddyFs::new());
 pub fn init() -> MountStatus {
     let mut fs = FS.lock();
     *fs = TeddyFs::new();
-    let status = if storage::is_ready() {
-        match fs.mount() {
-            Ok(formatted) => MountStatus {
-                mounted: true,
-                formatted,
-                persistent: true,
-            },
-            Err(_) => {
-                fs.mount_ephemeral();
-                MountStatus {
-                    mounted: true,
-                    formatted: false,
-                    persistent: false,
-                }
-            }
-        }
-    } else {
+    if !STORAGE_BOOT_ENABLED {
         fs.mount_ephemeral();
-        MountStatus {
+        return MountStatus {
             mounted: true,
             formatted: false,
             persistent: false,
+        };
+    }
+
+    match fs.mount() {
+        Ok(formatted) => MountStatus {
+            mounted: true,
+            formatted,
+            persistent: true,
+        },
+        Err(_) => {
+            fs.mount_ephemeral();
+            MountStatus {
+                mounted: true,
+                formatted: false,
+                persistent: false,
+            }
         }
-    };
-    status
+    }
 }
 
 pub fn is_ready() -> bool {

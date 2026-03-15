@@ -18,14 +18,13 @@ Optional:
 
 ## Toolchain Setup
 
-Install Rust and make sure the nightly toolchain is available, because the
-kernel uses `build-std` and nightly-only flags.
+Install Rust stable. The kernel now builds on stable Rust and no longer relies
+on nightly-only compiler flags.
 
-The build script installs these Rust components if needed:
+The build script installs these Rust targets if needed:
 
 - `x86_64-unknown-uefi`
-- `rust-src`
-- `llvm-tools-preview`
+- `x86_64-unknown-none`
 
 ## Clean Build
 

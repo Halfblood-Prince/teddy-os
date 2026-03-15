@@ -71,7 +71,7 @@ try {
     $env:CARGO_TARGET_DIR = $targetDir
 
     rustup target add x86_64-unknown-uefi | Out-Host
-    rustup component add rust-src llvm-tools-preview | Out-Host
+    rustup target add x86_64-unknown-none | Out-Host
 
     $cargoArgs = @("build", "-p", "teddy-bootloader", "--target", "x86_64-unknown-uefi")
     if ($Profile -eq "release") {
@@ -82,14 +82,7 @@ try {
         throw "Bootloader build failed."
     }
 
-    $kernelArgs = @(
-        "+nightly",
-        "build",
-        "-Z", "build-std=core,compiler_builtins",
-        "-Z", "json-target-spec",
-        "-p", "teddy-kernel",
-        "--target", "kernel/x86_64-teddy-kernel.json"
-    )
+    $kernelArgs = @("build", "-p", "teddy-kernel", "--target", "x86_64-unknown-none")
     if ($Profile -eq "release") {
         $kernelArgs += "--release"
     }
@@ -113,7 +106,7 @@ try {
     New-Item -ItemType Directory -Force -Path $espBootDir | Out-Null
 
     $bootloaderTargetDir = Join-Path (Join-Path $targetDir "x86_64-unknown-uefi") $Profile
-    $kernelTargetDir = Join-Path (Join-Path $targetDir "x86_64-teddy-kernel") $Profile
+    $kernelTargetDir = Join-Path (Join-Path $targetDir "x86_64-unknown-none") $Profile
     $bootloaderArtifact = Join-Path $bootloaderTargetDir "teddy-bootloader.efi"
     $kernelArtifact = Join-Path $kernelTargetDir "teddy-kernel"
 

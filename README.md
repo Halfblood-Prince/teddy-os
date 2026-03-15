@@ -3,12 +3,12 @@
 Teddy-OS is a hobby x86_64 operating system built in Rust for educational use.
 The target environment is UEFI boot on VMware from a reproducible ISO image.
 
-This repository is being developed in phases. Phase 6 is implemented as a
-desktop shell with both a terminal and a GUI file explorer backed by the
-persistent TeddyFS volume. Phase 8 and Phase 9 are implemented as the
-build/release workflow and documentation pass. Phase 7 remains intentionally
-deferred, and the networking work is still a Phase 10 foundation rather than a
-complete updater-ready internet stack.
+This repository is being developed in phases. The current boot profile is being
+kept intentionally small so it can start reliably in VMware: stable Rust,
+framebuffer desktop, and an in-memory TeddyFS volume during boot. Phase 8 and
+Phase 9 are implemented as the build/release workflow and documentation pass.
+Phase 7 remains intentionally deferred, and the networking work is still a
+Phase 10 foundation rather than a complete updater-ready internet stack.
 
 ## Current Status
 
@@ -25,6 +25,7 @@ complete updater-ready internet stack.
 - Phase 10 deferred: networking support removed from the active boot path for stability
 - Phase 11 complete: desktop input routing, focus, window controls, and resizing
 - Phase 14 complete: storage diagnostics and TeddyFS integrity reporting
+- Current boot profile: storage probing deferred, filesystem mounted in memory, stable Rust toolchain
 
 ## Repository Layout
 

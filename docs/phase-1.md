@@ -39,9 +39,8 @@
 Install the following on the Windows host:
 
 - Rust with `cargo` and `rustup` on `PATH`
-- nightly toolchain
 - UEFI target: `x86_64-unknown-uefi`
-- `rust-src` and `llvm-tools-preview` components
+- freestanding kernel target: `x86_64-unknown-none`
 - `mtools` commands: `mformat`, `mmd`, `mcopy`
 - `xorriso`
 - VMware Workstation or VMware Player configured for UEFI boot
