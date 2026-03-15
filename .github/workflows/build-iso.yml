@@ -12,6 +12,9 @@ on:
           - debug
           - release
 
+permissions:
+  contents: write
+
 jobs:
   build-iso:
     runs-on: ubuntu-latest
@@ -78,11 +81,21 @@ jobs:
       - name: Refresh dist output
         run: |
           $sourceIso = "build/dist/teddy-os-$env:PROFILE.iso"
+          $sourceSha = "$sourceIso.sha256"
+          $sourceManifest = "build/dist/build-$env:PROFILE.json"
           $distDir = "dist"
           $targetIso = Join-Path $distDir "teddy-os-$env:PROFILE.iso"
+          $targetSha = "$targetIso.sha256"
+          $targetManifest = Join-Path $distDir "build-$env:PROFILE.json"
 
           if (-not (Test-Path $sourceIso)) {
             throw "Missing ISO: $sourceIso"
+          }
+          if (-not (Test-Path $sourceSha)) {
+            throw "Missing checksum: $sourceSha"
+          }
+          if (-not (Test-Path $sourceManifest)) {
+            throw "Missing manifest: $sourceManifest"
           }
 
           if (Test-Path $distDir) {
@@ -93,12 +106,34 @@ jobs:
           }
 
           Copy-Item $sourceIso $targetIso -Force
+          Copy-Item $sourceSha $targetSha -Force
+          Copy-Item $sourceManifest $targetManifest -Force
           Write-Host "Copied ISO to $targetIso"
+        shell: pwsh
+
+      - name: Compute release metadata
+        id: release_meta
+        run: |
+          $tag = "manual-${{ env.PROFILE }}-${{ github.run_number }}"
+          $name = "Teddy-OS manual $env:PROFILE build #${{ github.run_number }}"
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "name=$name" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
       - name: Upload ISO artifacts
         uses: actions/upload-artifact@v4
         with:
           name: teddy-os-${{ env.PROFILE }}-iso
-          path: dist/teddy-os-${{ env.PROFILE }}.iso
+          path: dist/
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          name: ${{ steps.release_meta.outputs.name }}
+          generate_release_notes: true
+          files: |
+            dist/teddy-os-${{ env.PROFILE }}.iso
+            dist/teddy-os-${{ env.PROFILE }}.iso.sha256
+            dist/build-${{ env.PROFILE }}.json
