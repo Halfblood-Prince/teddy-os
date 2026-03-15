@@ -13,8 +13,8 @@ global_asm!(
     .section .text
     .global _start
 _start:
-    mov $0x9f000, %rsp
-    and $-16, %rsp
+    mov rsp, 0x9f000
+    and rsp, -16
     call kernel_main
 1:
     pause
