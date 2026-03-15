@@ -2,7 +2,8 @@ BITS 16
 ORG 0x7C00
 
 %define STAGE2_LOAD_ADDR 0x8000
-%define STAGE2_SECTORS 64
+%define STAGE2_LOAD_SEG  0x0800
+%define STAGE2_SECTORS 96
 
 start:
     cli
@@ -45,10 +46,9 @@ start:
     mov ah, 0x70
     call draw_string
 
-    xor ax, ax
+    mov ax, STAGE2_LOAD_SEG
     mov es, ax
     xor bx, bx
-    mov bx, STAGE2_LOAD_ADDR
     mov si, 1
     mov di, STAGE2_SECTORS
 
@@ -65,7 +65,9 @@ start:
     int 0x13
     jc disk_error
 
-    add bx, 512
+    mov ax, es
+    add ax, 0x20
+    mov es, ax
     inc si
     dec di
     jmp .load_loop

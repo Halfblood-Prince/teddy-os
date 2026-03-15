@@ -34,7 +34,7 @@ $stage2Asm = Join-Path $repoRoot "bios\\stage2.asm"
 $bootBin = Join-Path $binDir "boot.bin"
 $stage2Bin = Join-Path $binDir "stage2.bin"
 $bootImg = Join-Path $isoRoot "boot.img"
-$stage2Size = 64 * 512
+$stage2Size = 96 * 512
 
 Require-Command nasm
 

@@ -2,7 +2,7 @@ BITS 16
 ORG 0x8000
 
 %define INPUT_BUFFER_SIZE 64
-%define STAGE2_SECTORS 64
+%define STAGE2_SECTORS 96
 
 stage2_start:
     cli
