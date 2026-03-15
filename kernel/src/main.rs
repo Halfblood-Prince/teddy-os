@@ -1,14 +1,29 @@
 #![no_std]
 #![no_main]
 
+use core::arch::global_asm;
 use core::panic::PanicInfo;
 
 const VGA_BUFFER: *mut u8 = 0xB8000 as *mut u8;
 const VGA_WIDTH: usize = 80;
 const VGA_HEIGHT: usize = 25;
 
+global_asm!(
+    r#"
+    .section .text
+    .global _start
+_start:
+    mov $0x9f000, %rsp
+    and $-16, %rsp
+    call kernel_main
+1:
+    pause
+    jmp 1b
+"#
+);
+
 #[no_mangle]
-pub extern "C" fn _start() -> ! {
+extern "C" fn kernel_main() -> ! {
     clear_screen(0x1F);
     write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
     write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
@@ -55,4 +70,3 @@ fn write_cell(row: usize, col: usize, byte: u8, attribute: u8) {
         VGA_BUFFER.add(index + 1).write_volatile(attribute);
     }
 }
-
