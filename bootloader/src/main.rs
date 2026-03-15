@@ -12,7 +12,12 @@ use uefi::boot::{self, AllocateType, MemoryType};
 use uefi::cstr16;
 use uefi::mem::memory_map::MemoryMap;
 use uefi::prelude::*;
-use uefi::proto::console::gop::{GraphicsOutput, PixelFormat as GopPixelFormat};
+use uefi::proto::console::gop::{
+    GraphicsOutput,
+    Mode,
+    PixelFormat as GopPixelFormat,
+    PixelFormat as UefiPixelFormat,
+};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileInfo, FileMode, FileType, RegularFile};
 use uefi::proto::media::fs::SimpleFileSystem;
@@ -149,9 +154,20 @@ fn init_framebuffer() -> Result<FramebufferInfo, Status> {
         .map_err(|err| err.status())?;
     uefi::println!("  framebuffer: GOP protocol opened.");
 
-    uefi::println!("  framebuffer: reading current mode info...");
-    let mode = gop.current_mode_info();
-    uefi::println!("  framebuffer: mode info ready.");
+    uefi::println!("  framebuffer: scanning GOP modes...");
+    let mode = select_preferred_mode(&gop).ok_or(Status::NOT_FOUND)?;
+    let mode_info = *mode.info();
+    let (width, height) = mode_info.resolution();
+    uefi::println!(
+        "  framebuffer: selected mode {}x{} stride {}.",
+        width,
+        height,
+        mode_info.stride()
+    );
+
+    uefi::println!("  framebuffer: setting GOP mode...");
+    gop.set_mode(&mode).map_err(|err| err.status())?;
+    uefi::println!("  framebuffer: GOP mode set.");
 
     uefi::println!("  framebuffer: acquiring framebuffer view...");
     let mut fb = gop.frame_buffer();
@@ -160,11 +176,33 @@ fn init_framebuffer() -> Result<FramebufferInfo, Status> {
     Ok(FramebufferInfo {
         base: fb.as_mut_ptr() as u64,
         size: fb.size() as u64,
-        width: mode.resolution().0 as u32,
-        height: mode.resolution().1 as u32,
-        stride: mode.stride() as u32,
-        format: map_pixel_format(mode.pixel_format()),
+        width: width as u32,
+        height: height as u32,
+        stride: mode_info.stride() as u32,
+        format: map_pixel_format(mode_info.pixel_format()),
     })
+}
+
+fn select_preferred_mode(gop: &GraphicsOutput) -> Option<Mode> {
+    let mut best_mode = None;
+    let mut best_area = 0usize;
+
+    for mode in gop.modes() {
+        let info = mode.info();
+        let pixel_format = info.pixel_format();
+        if pixel_format == UefiPixelFormat::BltOnly {
+            continue;
+        }
+
+        let (width, height) = info.resolution();
+        let area = width.saturating_mul(height);
+        if area >= best_area {
+            best_area = area;
+            best_mode = Some(mode);
+        }
+    }
+
+    best_mode
 }
 
 fn map_pixel_format(format: GopPixelFormat) -> PixelFormat {
