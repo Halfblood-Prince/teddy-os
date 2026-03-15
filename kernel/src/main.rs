@@ -30,27 +30,13 @@ _start:
 
 #[no_mangle]
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
+    let _ = boot_info_addr;
     clear_screen(0x1F);
     write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
     write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
-    write_line(8, 8, "Stage 2 entered long mode and jumped into Rust code", 0x17);
-    write_line(10, 8, "Checkpoint A: entered kernel_main", 0x1F);
-    if let Some(boot_info) = BootInfo::from_addr(boot_info_addr) {
-        write_line(11, 8, "Boot contract: stage 2 handoff verified", 0x1A);
-        write_line(12, 8, "Checkpoint B: boot info validated", 0x1F);
-        let _ = boot_info.boot_drive;
-        let _ = boot_info.kernel_segment;
-        let _ = boot_info.kernel_sectors;
-    } else {
-        write_line(11, 8, "Boot contract: invalid handoff signature", 0x4F);
-    }
-    write_line(14, 8, "Checkpoint C: entering idle loop", 0x1F);
-    write_line(22, 8, "Kernel idle loop active", 0x70);
 
     loop {
-        unsafe {
-            core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
-        }
+        core::hint::spin_loop();
     }
 }
 
@@ -60,27 +46,6 @@ fn panic(_info: &PanicInfo<'_>) -> ! {
     write_line(10, 8, "TEDDY-OS KERNEL PANIC", 0x4F);
     loop {
         core::hint::spin_loop();
-    }
-}
-
-#[repr(C)]
-struct BootInfo {
-    signature: [u8; 8],
-    version: u8,
-    boot_drive: u8,
-    kernel_segment: u16,
-    kernel_sectors: u16,
-    stage2_sectors: u16,
-}
-
-impl BootInfo {
-    fn from_addr(addr: usize) -> Option<&'static Self> {
-        let info = unsafe { &*(addr as *const Self) };
-        if &info.signature == b"TEDDYOS\0" && info.version == 1 {
-            Some(info)
-        } else {
-            None
-        }
     }
 }
 
