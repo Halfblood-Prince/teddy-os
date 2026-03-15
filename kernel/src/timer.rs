@@ -18,6 +18,10 @@ pub fn on_tick() {
     TICKS.fetch_add(1, Ordering::SeqCst);
 }
 
+pub fn advance_polled_tick() {
+    TICKS.fetch_add(1, Ordering::SeqCst);
+}
+
 pub fn ticks() -> u64 {
     TICKS.load(Ordering::SeqCst)
 }

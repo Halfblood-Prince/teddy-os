@@ -39,12 +39,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     paint_early_boot_marker(boot_info, 0x0022_66aa);
     logln!("[boot] logger online");
 
-    interrupts::init_exceptions();
-    paint_early_boot_marker(boot_info, 0x0022_aa66);
-    logln!(
-        "[boot] exception handlers online: {}",
-        interrupts::exceptions_ready()
-    );
+    logln!("[boot] exception setup deferred for VMware compatibility");
 
     logln!("[boot] initializing memory manager");
     memory::init(boot_info);
@@ -90,9 +85,7 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     runtime::init(boot_info);
     logln!("[boot] runtime online");
 
-    logln!("[boot] initializing interrupt controllers");
-    interrupts::init_hardware();
-    logln!("[boot] hardware interrupts online");
+    logln!("[boot] interrupt controller setup deferred");
 
     logln!("Teddy-OS kernel entered.");
     logln!(
@@ -162,13 +155,9 @@ pub extern "sysv64" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     }
     logln!("Keyboard and mouse IRQ handlers armed. Entering desktop shell runtime.");
 
-    interrupts::enable();
-
     loop {
+        timer::advance_polled_tick();
         runtime::run_next_task();
-        unsafe {
-            core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
-        }
     }
 }
 
