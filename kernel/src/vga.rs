@@ -23,16 +23,33 @@ pub fn write_line(row: usize, col: usize, text: &str, attribute: u8) {
 pub fn write_hex_byte(row: usize, col: usize, label: &str, value: u8, attribute: u8) {
     write_line(row, col, label, attribute);
     let start = col + label.len();
-    write_hex_digits(row, start, value as u16, 2, attribute);
+    write_hex_digits(row, start, value as u64, 2, attribute);
 }
 
 pub fn write_hex_word(row: usize, col: usize, label: &str, value: u16, attribute: u8) {
     write_line(row, col, label, attribute);
     let start = col + label.len();
-    write_hex_digits(row, start, value, 4, attribute);
+    write_hex_digits(row, start, value as u64, 4, attribute);
 }
 
-fn write_hex_digits(row: usize, col: usize, value: u16, digits: usize, attribute: u8) {
+pub fn write_hex_dword(row: usize, col: usize, value: u32, attribute: u8) {
+    write_hex_digits(row, col, value as u64, 8, attribute);
+}
+
+pub fn write_hex_qword(row: usize, col: usize, value: u64, attribute: u8) {
+    write_hex_digits(row, col, value, 16, attribute);
+}
+
+pub fn write_ascii(row: usize, col: usize, value: u8, attribute: u8) {
+    let byte = match value {
+        b'\n' => 0x14,
+        0x20..=0x7E => value,
+        _ => b'.',
+    };
+    write_cell(row, col, byte, attribute);
+}
+
+fn write_hex_digits(row: usize, col: usize, value: u64, digits: usize, attribute: u8) {
     for index in 0..digits {
         let shift = (digits - 1 - index) * 4;
         let nibble = ((value >> shift) & 0x0F) as u8;

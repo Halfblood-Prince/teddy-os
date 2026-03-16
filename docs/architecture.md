@@ -31,7 +31,8 @@ The new baseline restores a known-good target:
 6. A kernel demo can switch stage 2 through protected mode into x86_64 long mode
 7. Long mode uses identity-mapped paging so the kernel path is truly 64-bit
 8. Stage 2 can load a flat Rust kernel binary from later disk sectors and jump to it
-9. The Rust kernel currently focuses on a stable long-mode VGA console baseline
+9. The Rust kernel currently includes a stable long-mode VGA console baseline
+10. The kernel now owns a minimal IDT, PIC/PIT timer path, and PS/2 keyboard IRQ path
 
 ## Next Phases
 
@@ -39,3 +40,4 @@ The new baseline restores a known-good target:
 - Phase 2 reset: load a second stage from disk
 - Phase 3 reset: move stage 2 toward graphics and kernel handoff
 - Phase 4 reset: add interrupts, timer ticks, and keyboard input inside the Rust kernel
+- Phase 5 reset: keep the BIOS handoff stable while moving early services fully into Rust

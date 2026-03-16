@@ -4,6 +4,9 @@
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
+mod cpu;
+mod interrupts;
+mod port;
 mod vga;
 
 const KERNEL_STACK_TOP: usize = 0x80000;
@@ -34,13 +37,17 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     vga::write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
     vga::write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
     vga::write_line(8, 8, "Checkpoint: VGA console online", 0x17);
-    vga::write_line(11, 8, "Boot contract: deferred for next phase", 0x1A);
+    vga::write_line(11, 8, "Boot contract: BIOS handoff stable", 0x1A);
     vga::write_line(12, 8, "Kernel core is stable again", 0x1F);
+    vga::write_line(22, 8, "Timer + keyboard IRQs armed", 0x70);
+    vga::write_line(23, 8, "Press keys in VMware to test PS/2 input", 0x70);
 
-    vga::write_line(22, 8, "Kernel idle loop active", 0x70);
+    interrupts::init();
+    interrupts::render_status();
+    cpu::enable_interrupts();
 
     loop {
-        core::hint::spin_loop();
+        cpu::halt();
     }
 }
 

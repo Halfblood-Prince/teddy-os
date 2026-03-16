@@ -21,13 +21,17 @@ Try `graphics` at the prompt. You should see a simple Teddy-OS graphics screen
 and return to the shell after pressing a key.
 
 Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
-64-bit Rust kernel screen and remain in an idle loop.
+64-bit Rust kernel screen, arm hardware interrupts, and update live status fields.
 
 The kernel screen should include:
 
 - `TEDDY-OS KERNEL`
 - `Rust x86_64 kernel loaded successfully`
 - `Checkpoint: VGA console online`
-- `Boot contract: deferred for next phase`
+- `Boot contract: BIOS handoff stable`
 - `Kernel core is stable again`
-- `Kernel idle loop active`
+- `Interrupts: IDT+PIC+PIT online`
+
+Press a few keys in VMware after the kernel screen appears. The `Timer ticks`,
+`Uptime seconds`, `Last keyboard scancode`, and `Last keyboard ascii` fields
+should update without returning to the BIOS shell.
