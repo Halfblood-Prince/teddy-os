@@ -268,7 +268,7 @@ pub fn last_ascii() -> u8 {
 pub fn render_status() {
     let ticks = TIMER_TICKS.load(Ordering::Relaxed);
     let seconds = ticks / PIT_TICKS_PER_SECOND as u64;
-    vga::write_line(14, 8, "Interrupts: IDT+PIC+PIT online", 0x1E);
+    vga::write_line(14, 8, "Interrupt path parked for terminal bring-up", 0x1E);
     vga::write_line(15, 8, "Timer ticks:", 0x1F);
     vga::write_hex_dword(15, 21, ticks as u32, 0x1F);
     vga::write_line(16, 8, "Uptime seconds:", 0x17);
