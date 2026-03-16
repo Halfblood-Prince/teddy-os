@@ -1,7 +1,7 @@
 use core::arch::global_asm;
-use core::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, Ordering};
 
-use crate::{cpu, port, vga};
+use crate::{cpu, input, port, vga};
 
 const IDT_ENTRIES: usize = 256;
 const PIC1_COMMAND: u16 = 0x20;
@@ -18,9 +18,6 @@ const TIMER_VECTOR: u8 = 32;
 const KEYBOARD_VECTOR: u8 = 33;
 
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
-static LAST_SCANCODE: AtomicU8 = AtomicU8::new(0);
-static LAST_ASCII: AtomicU8 = AtomicU8::new(b'-');
-
 #[repr(C)]
 struct InterruptStackFrame {
     instruction_pointer: u64,
@@ -256,18 +253,34 @@ pub fn init() {
     init_pit(PIT_TICKS_PER_SECOND);
 }
 
+pub fn timer_ticks() -> u64 {
+    TIMER_TICKS.load(Ordering::Relaxed)
+}
+
+pub fn last_scancode() -> u8 {
+    input::last_scancode()
+}
+
+pub fn last_ascii() -> u8 {
+    input::last_ascii()
+}
+
 pub fn render_status() {
     let ticks = TIMER_TICKS.load(Ordering::Relaxed);
     let seconds = ticks / PIT_TICKS_PER_SECOND as u64;
     vga::write_line(14, 8, "Interrupts: IDT+PIC+PIT online", 0x1E);
-    vga::write_line(16, 8, "Timer ticks:", 0x1F);
-    vga::write_hex_dword(16, 21, ticks as u32, 0x1F);
-    vga::write_line(17, 8, "Uptime seconds:", 0x17);
-    vga::write_hex_dword(17, 24, seconds as u32, 0x17);
-    vga::write_line(19, 8, "Last keyboard scancode:", 0x1F);
-    vga::write_hex_byte(19, 31, "", LAST_SCANCODE.load(Ordering::Relaxed), 0x1F);
-    vga::write_line(20, 8, "Last keyboard ascii:", 0x1A);
-    vga::write_ascii(20, 28, LAST_ASCII.load(Ordering::Relaxed), 0x1A);
+    vga::write_line(15, 8, "Timer ticks:", 0x1F);
+    vga::write_hex_dword(15, 21, ticks as u32, 0x1F);
+    vga::write_line(16, 8, "Uptime seconds:", 0x17);
+    vga::write_hex_dword(16, 24, seconds as u32, 0x17);
+    vga::write_line(17, 8, "Key queue:", 0x1A);
+    vga::write_hex_dword(17, 19, input::pending_events() as u32, 0x1A);
+    vga::write_line(17, 30, "Dropped:", 0x1A);
+    vga::write_hex_dword(17, 39, input::dropped_events() as u32, 0x1A);
+    vga::write_line(18, 8, "Last keyboard scancode:", 0x1F);
+    vga::write_hex_byte(18, 31, "", input::last_scancode(), 0x1F);
+    vga::write_line(19, 8, "Last keyboard ascii:", 0x1A);
+    vga::write_ascii(19, 28, input::last_ascii(), 0x1A);
 }
 
 #[no_mangle]
@@ -290,12 +303,13 @@ fn handle_timer_irq() {
 
 fn handle_keyboard_irq() {
     let scancode = port::inb(0x60);
-    LAST_SCANCODE.store(scancode, Ordering::Relaxed);
-
-    if scancode & 0x80 == 0 {
-        LAST_ASCII.store(decode_scancode(scancode).unwrap_or(b'?'), Ordering::Relaxed);
-        render_status();
-    }
+    let ascii = if scancode & 0x80 == 0 {
+        Some(decode_scancode(scancode))
+    } else {
+        None
+    };
+    input::push_key(scancode, ascii);
+    render_status();
 
     end_of_interrupt(KEYBOARD_VECTOR);
 }
@@ -323,47 +337,48 @@ fn render_exception_frame(stack_frame: *const InterruptStackFrame, start_row: us
     vga::write_hex_qword(start_row + 2, 16, frame.cpu_flags, attribute);
 }
 
-fn decode_scancode(scancode: u8) -> Option<u8> {
+fn decode_scancode(scancode: u8) -> u8 {
     match scancode {
-        0x02 => Some(b'1'),
-        0x03 => Some(b'2'),
-        0x04 => Some(b'3'),
-        0x05 => Some(b'4'),
-        0x06 => Some(b'5'),
-        0x07 => Some(b'6'),
-        0x08 => Some(b'7'),
-        0x09 => Some(b'8'),
-        0x0A => Some(b'9'),
-        0x0B => Some(b'0'),
-        0x10 => Some(b'q'),
-        0x11 => Some(b'w'),
-        0x12 => Some(b'e'),
-        0x13 => Some(b'r'),
-        0x14 => Some(b't'),
-        0x15 => Some(b'y'),
-        0x16 => Some(b'u'),
-        0x17 => Some(b'i'),
-        0x18 => Some(b'o'),
-        0x19 => Some(b'p'),
-        0x1C => Some(b'\n'),
-        0x1E => Some(b'a'),
-        0x1F => Some(b's'),
-        0x20 => Some(b'd'),
-        0x21 => Some(b'f'),
-        0x22 => Some(b'g'),
-        0x23 => Some(b'h'),
-        0x24 => Some(b'j'),
-        0x25 => Some(b'k'),
-        0x26 => Some(b'l'),
-        0x2C => Some(b'z'),
-        0x2D => Some(b'x'),
-        0x2E => Some(b'c'),
-        0x2F => Some(b'v'),
-        0x30 => Some(b'b'),
-        0x31 => Some(b'n'),
-        0x32 => Some(b'm'),
-        0x39 => Some(b' '),
-        _ => None,
+        0x02 => b'1',
+        0x03 => b'2',
+        0x04 => b'3',
+        0x05 => b'4',
+        0x06 => b'5',
+        0x07 => b'6',
+        0x08 => b'7',
+        0x09 => b'8',
+        0x0A => b'9',
+        0x0B => b'0',
+        0x0E => 8,
+        0x10 => b'q',
+        0x11 => b'w',
+        0x12 => b'e',
+        0x13 => b'r',
+        0x14 => b't',
+        0x15 => b'y',
+        0x16 => b'u',
+        0x17 => b'i',
+        0x18 => b'o',
+        0x19 => b'p',
+        0x1C => b'\n',
+        0x1E => b'a',
+        0x1F => b's',
+        0x20 => b'd',
+        0x21 => b'f',
+        0x22 => b'g',
+        0x23 => b'h',
+        0x24 => b'j',
+        0x25 => b'k',
+        0x26 => b'l',
+        0x2C => b'z',
+        0x2D => b'x',
+        0x2E => b'c',
+        0x2F => b'v',
+        0x30 => b'b',
+        0x31 => b'n',
+        0x32 => b'm',
+        0x39 => b' ',
+        _ => b'?',
     }
 }
 

@@ -21,7 +21,7 @@ Try `graphics` at the prompt. You should see a simple Teddy-OS graphics screen
 and return to the shell after pressing a key.
 
 Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
-64-bit Rust kernel screen, arm hardware interrupts, and update live status fields.
+64-bit Rust kernel screen, arm hardware interrupts, and show a small kernel terminal.
 
 The kernel screen should include:
 
@@ -33,5 +33,5 @@ The kernel screen should include:
 - `Interrupts: IDT+PIC+PIT online`
 
 Press a few keys in VMware after the kernel screen appears. The `Timer ticks`,
-`Uptime seconds`, `Last keyboard scancode`, and `Last keyboard ascii` fields
-should update without returning to the BIOS shell.
+`Uptime seconds`, keyboard queue fields, and terminal prompt should update
+without returning to the BIOS shell. Try `help`, `ticks`, `key`, and `clear`.
