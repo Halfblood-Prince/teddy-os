@@ -18,10 +18,8 @@ $buildRoot = Join-Path $repoRoot "build"
 $stagingRoot = Join-Path $buildRoot "staging"
 $isoRoot = Join-Path $stagingRoot "iso"
 $distDir = Join-Path $buildRoot "dist"
-$repoIsoDir = Join-Path $repoRoot "iso"
 $bootImg = Join-Path $isoRoot "boot.img"
 $isoPath = Join-Path $distDir "teddy-os-$Profile.iso"
-$repoIsoPath = Join-Path $repoIsoDir "teddy-os-$Profile.iso"
 
 if (-not (Test-Path $bootImg)) {
     throw "BIOS boot image not found at $bootImg. Run scripts/build.ps1 first."
@@ -29,12 +27,9 @@ if (-not (Test-Path $bootImg)) {
 
 Require-Command xorriso
 
-New-Item -ItemType Directory -Force -Path $distDir, $repoIsoDir | Out-Null
+New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 if (Test-Path $isoPath) {
     Remove-Item -Force $isoPath
-}
-if (Test-Path $repoIsoPath) {
-    Remove-Item -Force $repoIsoPath
 }
 
 & xorriso -as mkisofs `
@@ -52,12 +47,5 @@ $isoHash = (Get-FileHash -Algorithm SHA256 $isoPath).Hash.ToLowerInvariant()
 [System.IO.File]::WriteAllText(
     "$isoPath.sha256",
     "$isoHash *$(Split-Path -Leaf $isoPath)" + [Environment]::NewLine,
-    [System.Text.UTF8Encoding]::new($false)
-)
-
-Copy-Item $isoPath $repoIsoPath -Force
-[System.IO.File]::WriteAllText(
-    "$repoIsoPath.sha256",
-    "$isoHash *$(Split-Path -Leaf $repoIsoPath)" + [Environment]::NewLine,
     [System.Text.UTF8Encoding]::new($false)
 )

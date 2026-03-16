@@ -18,6 +18,7 @@ bootable ISO for VMware.
 - a modular Rust kernel with stable VGA text output
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
+- GitHub Actions ISO build-and-release workflow
 - fresh architecture and VMware docs
 
 ## Repo Layout
@@ -42,25 +43,11 @@ Build the debug ISO:
 ./scripts/build.ps1
 ```
 
-Local ISO outputs:
-
-- `build/dist/teddy-os-debug.iso`
-- `build/dist/teddy-os-debug.iso.sha256`
-- `iso/teddy-os-debug.iso`
-- `iso/teddy-os-debug.iso.sha256`
-
 Build the release ISO:
 
 ```powershell
 ./scripts/build.ps1 -Profile release
 ```
-
-Local ISO outputs:
-
-- `build/dist/teddy-os-release.iso`
-- `build/dist/teddy-os-release.iso.sha256`
-- `iso/teddy-os-release.iso`
-- `iso/teddy-os-release.iso.sha256`
 
 Clean outputs:
 
@@ -68,10 +55,20 @@ Clean outputs:
 ./scripts/clean.ps1
 ```
 
+## GitHub Actions
+
+The workflow in [.github/workflows/build-iso.yml](c:/Users/HP/Downloads/teddy-os/.github/workflows/build-iso.yml)
+can:
+
+- build a debug or release ISO with `workflow_dispatch`
+- upload the ISO and checksum as workflow artifacts
+- publish them as a GitHub release
+- publish automatically for pushed tags like `v0.1.0`
+
 ## VMware Test
 
 1. Create a VM with legacy BIOS firmware.
-2. Attach `iso/teddy-os-debug.iso` or `build/dist/teddy-os-debug.iso`.
+2. Attach `build/dist/teddy-os-debug.iso`.
 3. Boot the VM.
 
 Expected result:
