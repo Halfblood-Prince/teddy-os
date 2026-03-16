@@ -36,6 +36,7 @@ _start:
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     let _ = boot_info_addr;
     let mut terminal = terminal::Terminal::new();
+    let mut last_status_tick = 0;
     vga::clear_screen(0x1F);
     vga::write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
     vga::write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
@@ -50,12 +51,21 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     cpu::enable_interrupts();
 
     loop {
+        let mut redraw = false;
         while let Some(event) = input::pop_key() {
             let _ = event.scancode;
             if let Some(ascii) = event.ascii {
                 terminal.handle_byte(ascii);
+                redraw = true;
             }
         }
+
+        let tick = interrupts::timer_ticks();
+        if redraw || tick != last_status_tick {
+            interrupts::render_status();
+            last_status_tick = tick;
+        }
+
         cpu::halt();
     }
 }

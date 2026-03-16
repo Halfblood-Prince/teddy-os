@@ -294,10 +294,7 @@ extern "C" fn interrupt_dispatch(vector: u64, error_code: u64, stack_frame: *con
 }
 
 fn handle_timer_irq() {
-    let ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed) + 1;
-    if ticks % 10 == 0 {
-        render_status();
-    }
+    TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
     end_of_interrupt(TIMER_VECTOR);
 }
 
@@ -309,8 +306,6 @@ fn handle_keyboard_irq() {
         None
     };
     input::push_key(scancode, ascii);
-    render_status();
-
     end_of_interrupt(KEYBOARD_VECTOR);
 }
 
