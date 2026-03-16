@@ -506,7 +506,6 @@ write_boot_info:
 lba_to_chs:
     push ax
     push bx
-    push dx
 
     xor dx, dx
     mov bx, 18
@@ -517,10 +516,10 @@ lba_to_chs:
     xor dx, dx
     mov bx, 2
     div bx
+    ; Return CHS in CH, CL, and DH for INT 13h sector reads.
     mov dh, dl
     mov ch, al
 
-    pop dx
     pop bx
     pop ax
     ret
