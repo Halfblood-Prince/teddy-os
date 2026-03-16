@@ -30,6 +30,7 @@ The kernel screen should include:
 - `Checkpoint: VGA console online`
 - `Boot contract: BIOS handoff stable`
 - `Kernel core is stable again`
+- boot metadata from the stage 2 handoff
 - `Interrupts: IDT+PIC+PIT online`
 
 Press a few keys in VMware after the kernel screen appears. The `Timer ticks`,

@@ -4,6 +4,7 @@
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
+mod boot_info;
 mod cpu;
 mod interrupts;
 mod port;
@@ -32,7 +33,6 @@ _start:
 
 #[no_mangle]
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
-    let _ = boot_info_addr;
     vga::clear_screen(0x1F);
     vga::write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
     vga::write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
@@ -41,6 +41,11 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     vga::write_line(12, 8, "Kernel core is stable again", 0x1F);
     vga::write_line(22, 8, "Timer + keyboard IRQs armed", 0x70);
     vga::write_line(23, 8, "Press keys in VMware to test PS/2 input", 0x70);
+
+    match boot_info::BootInfo::parse(boot_info_addr) {
+        Some(info) => info.render(),
+        None => vga::write_line(14, 48, "Boot info parse failed", 0x4F),
+    }
 
     interrupts::init();
     interrupts::render_status();
