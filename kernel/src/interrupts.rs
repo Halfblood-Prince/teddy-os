@@ -53,7 +53,9 @@ impl IdtEntry {
 
     fn set_handler(&mut self, handler: usize) {
         self.offset_low = handler as u16;
-        self.selector = 0x08;
+        // The BIOS handoff jumps into long mode on GDT selector 0x18.
+        // Interrupt gates must use the same 64-bit code segment.
+        self.selector = 0x18;
         self.options = 0x8E00;
         self.offset_mid = (handler >> 16) as u16;
         self.offset_high = (handler >> 32) as u32;
