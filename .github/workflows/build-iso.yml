@@ -14,6 +14,8 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - "iso/**"
     tags:
       - "v*"
   pull_request:
@@ -30,6 +32,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install host tools
         run: |
@@ -79,6 +83,36 @@ jobs:
           name: teddy-os-${{ env.PROFILE }}-iso
           path: dist/
           if-no-files-found: error
+
+      - name: Publish ISO to repository
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $repoIsoDir = "iso"
+          $builtIso = "build/dist/teddy-os-$env:PROFILE.iso"
+          $builtSha = "$builtIso.sha256"
+
+          if (Test-Path $repoIsoDir) {
+            Get-ChildItem -Force $repoIsoDir | Remove-Item -Recurse -Force
+          } else {
+            New-Item -ItemType Directory -Force -Path $repoIsoDir | Out-Null
+          }
+
+          Copy-Item $builtIso (Join-Path $repoIsoDir "teddy-os-$env:PROFILE.iso") -Force
+          Copy-Item $builtSha (Join-Path $repoIsoDir "teddy-os-$env:PROFILE.iso.sha256") -Force
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A --force $repoIsoDir
+
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "No ISO changes to commit."
+            exit 0
+          }
+
+          git commit -m "ci: refresh iso artifacts [skip ci]"
+          git push origin HEAD:main
 
       - name: Compute release metadata
         id: release_meta
