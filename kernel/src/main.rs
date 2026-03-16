@@ -5,10 +5,8 @@ use core::arch::global_asm;
 use core::panic::PanicInfo;
 
 mod cpu;
-mod input;
 mod interrupts;
 mod port;
-mod terminal;
 mod vga;
 
 const KERNEL_STACK_TOP: usize = 0x80000;
@@ -35,27 +33,21 @@ _start:
 #[no_mangle]
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     let _ = boot_info_addr;
-    let mut terminal = terminal::Terminal::new();
     vga::clear_screen(0x1F);
     vga::write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
     vga::write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
     vga::write_line(8, 8, "Checkpoint: VGA console online", 0x17);
     vga::write_line(11, 8, "Boot contract: BIOS handoff stable", 0x1A);
     vga::write_line(12, 8, "Kernel core is stable again", 0x1F);
-    vga::write_line(10, 8, "Kernel terminal uses PS/2 polling for stability", 0x1A);
+    vga::write_line(22, 8, "Timer + keyboard IRQs armed", 0x70);
+    vga::write_line(23, 8, "Press keys in VMware to test PS/2 input", 0x70);
 
+    interrupts::init();
     interrupts::render_status();
-    terminal.init();
+    cpu::enable_interrupts();
 
     loop {
-        while let Some(event) = input::poll_key() {
-            let _ = event.scancode;
-            if let Some(ascii) = event.ascii {
-                terminal.handle_byte(ascii);
-            }
-        }
-        interrupts::render_status();
-        core::hint::spin_loop();
+        cpu::halt();
     }
 }
 

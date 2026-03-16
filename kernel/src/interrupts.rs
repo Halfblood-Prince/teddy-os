@@ -1,7 +1,7 @@
 use core::arch::global_asm;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
-use crate::{cpu, input, port, vga};
+use crate::{cpu, port, vga};
 
 const IDT_ENTRIES: usize = 256;
 const PIC1_COMMAND: u16 = 0x20;
@@ -18,6 +18,9 @@ const TIMER_VECTOR: u8 = 32;
 const KEYBOARD_VECTOR: u8 = 33;
 
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
+static LAST_SCANCODE: AtomicU8 = AtomicU8::new(0);
+static LAST_ASCII: AtomicU8 = AtomicU8::new(b'-');
+
 #[repr(C)]
 struct InterruptStackFrame {
     instruction_pointer: u64,
@@ -253,34 +256,18 @@ pub fn init() {
     init_pit(PIT_TICKS_PER_SECOND);
 }
 
-pub fn timer_ticks() -> u64 {
-    TIMER_TICKS.load(Ordering::Relaxed)
-}
-
-pub fn last_scancode() -> u8 {
-    input::last_scancode()
-}
-
-pub fn last_ascii() -> u8 {
-    input::last_ascii()
-}
-
 pub fn render_status() {
     let ticks = TIMER_TICKS.load(Ordering::Relaxed);
     let seconds = ticks / PIT_TICKS_PER_SECOND as u64;
-    vga::write_line(14, 8, "Interrupt path parked for terminal bring-up", 0x1E);
+    vga::write_line(14, 8, "Interrupts: IDT+PIC+PIT online", 0x1E);
     vga::write_line(15, 8, "Timer ticks:", 0x1F);
     vga::write_hex_dword(15, 21, ticks as u32, 0x1F);
     vga::write_line(16, 8, "Uptime seconds:", 0x17);
     vga::write_hex_dword(16, 24, seconds as u32, 0x17);
-    vga::write_line(17, 8, "Key queue:", 0x1A);
-    vga::write_hex_dword(17, 19, input::pending_events() as u32, 0x1A);
-    vga::write_line(17, 30, "Dropped:", 0x1A);
-    vga::write_hex_dword(17, 39, input::dropped_events() as u32, 0x1A);
     vga::write_line(18, 8, "Last keyboard scancode:", 0x1F);
-    vga::write_hex_byte(18, 31, "", input::last_scancode(), 0x1F);
+    vga::write_hex_byte(18, 31, "", LAST_SCANCODE.load(Ordering::Relaxed), 0x1F);
     vga::write_line(19, 8, "Last keyboard ascii:", 0x1A);
-    vga::write_ascii(19, 28, input::last_ascii(), 0x1A);
+    vga::write_ascii(19, 28, LAST_ASCII.load(Ordering::Relaxed), 0x1A);
 }
 
 #[no_mangle]
@@ -294,18 +281,20 @@ extern "C" fn interrupt_dispatch(vector: u64, error_code: u64, stack_frame: *con
 }
 
 fn handle_timer_irq() {
-    TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
+    let ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed) + 1;
+    if ticks % 10 == 0 {
+        render_status();
+    }
     end_of_interrupt(TIMER_VECTOR);
 }
 
 fn handle_keyboard_irq() {
     let scancode = port::inb(0x60);
-    let ascii = if scancode & 0x80 == 0 {
-        Some(decode_scancode(scancode))
-    } else {
-        None
-    };
-    input::push_key(scancode, ascii);
+    LAST_SCANCODE.store(scancode, Ordering::Relaxed);
+    if scancode & 0x80 == 0 {
+        LAST_ASCII.store(decode_scancode(scancode), Ordering::Relaxed);
+        render_status();
+    }
     end_of_interrupt(KEYBOARD_VECTOR);
 }
 

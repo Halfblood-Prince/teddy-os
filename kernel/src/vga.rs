@@ -20,12 +20,6 @@ pub fn write_line(row: usize, col: usize, text: &str, attribute: u8) {
     }
 }
 
-pub fn clear_row(row: usize, attribute: u8) {
-    for col in 0..VGA_WIDTH {
-        write_cell(row, col, b' ', attribute);
-    }
-}
-
 pub fn write_hex_byte(row: usize, col: usize, label: &str, value: u8, attribute: u8) {
     write_line(row, col, label, attribute);
     let start = col + label.len();
