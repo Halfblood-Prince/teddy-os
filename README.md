@@ -98,11 +98,10 @@ When you run `kernel`, the current kernel MVP should show:
 - boot metadata parsed from stage 2
 - `Interrupts: IDT+PIC+PIT online`
 - a ticking timer counter
-- a one-line input buffer plus one retained `Previous:` command line
+- a one-line input buffer plus retained `Previous:` and `Output:` lines
 - the last keyboard scancode and ASCII value as you press keys
 
 ## Next Step
 
 Once this BIOS baseline is proven stable in VMware, the next phase is to
-add one more retained output/history line if VMware stays stable, before trying
-a fuller scrollback area again.
+try a tiny two-command history area before attempting a fuller scrollback area.
