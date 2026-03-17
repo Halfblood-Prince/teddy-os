@@ -98,11 +98,11 @@ When you run `kernel`, the current kernel MVP should show:
 - boot metadata parsed from stage 2
 - `Interrupts: IDT+PIC+PIT online`
 - a ticking timer counter
-- a tiny shell area with a few lines of scrollback plus `help`, `clear`, `ticks`, and `about`
+- a one-line input buffer with `help`, `clear`, `ticks`, and `about`
 - the last keyboard scancode and ASCII value as you press keys
 
 ## Next Step
 
 Once this BIOS baseline is proven stable in VMware, the next phase is to
-grow the tiny shell into a more complete command surface with path-like commands
-and the first internal filesystem-facing abstractions.
+turn the one-line input into a tiny shell area with a small scrollback, while
+keeping the current interrupt path stable.
