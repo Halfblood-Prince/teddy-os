@@ -1,7 +1,7 @@
 use core::arch::global_asm;
 use core::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
-use crate::{cpu, port, vga};
+use crate::{cpu, port, trace, vga};
 
 const IDT_ENTRIES: usize = 256;
 const PIC1_COMMAND: u16 = 0x20;
@@ -240,8 +240,11 @@ global_asm!(
 
 pub fn init() {
     unsafe {
-        for (index, handler) in isr_stub_table.iter().copied().enumerate() {
+        let mut index = 0usize;
+        while index < 48 {
+            let handler = isr_stub_table[index];
             IDT[index].set_handler(handler);
+            index += 1;
         }
         cpu::load_idt(
             core::ptr::addr_of!(IDT) as *const _ as u64,
@@ -301,6 +304,8 @@ fn handle_exception(vector: u8, error_code: u64, stack_frame: *const InterruptSt
     vga::write_hex_byte(6, 16, "", vector, 0x4F);
     vga::write_line(7, 8, "Error code:", 0x4F);
     vga::write_hex_dword(7, 20, error_code as u32, 0x4F);
+    vga::write_line(8, 8, "Boot stage:", 0x4F);
+    vga::write_hex_byte(8, 20, "", trace::boot_stage(), 0x4F);
     render_exception_frame(stack_frame, 9, 0x4F);
     loop {
         cpu::halt();

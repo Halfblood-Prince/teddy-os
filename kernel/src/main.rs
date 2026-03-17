@@ -10,6 +10,7 @@ mod interrupts;
 mod port;
 mod shell;
 mod terminal;
+mod trace;
 mod vga;
 
 const KERNEL_STACK_TOP: usize = 0x80000;
@@ -38,12 +39,18 @@ _start:
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     let mut last_seen_scancode = 0u8;
     let mut last_seen_second = 0u64;
+    trace::set_boot_stage(1);
     interrupts::init();
+    trace::set_boot_stage(2);
     let boot_info = boot_info::BootInfo::parse(boot_info_addr);
+    trace::set_boot_stage(3);
     let desktop = unsafe { &mut *core::ptr::addr_of_mut!(DESKTOP_SHELL) };
     desktop.init(boot_info);
+    trace::set_boot_stage(4);
     desktop.render();
+    trace::set_boot_stage(5);
     cpu::enable_interrupts();
+    trace::set_boot_stage(6);
 
     loop {
         let uptime_seconds = interrupts::uptime_seconds();
