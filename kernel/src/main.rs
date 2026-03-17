@@ -11,7 +11,7 @@ mod port;
 mod vga;
 
 const KERNEL_STACK_TOP: usize = 0x80000;
-const KEY_PREVIEW_LEN: usize = 32;
+const INPUT_BUFFER_LEN: usize = 32;
 
 global_asm!(
     r#"
@@ -35,7 +35,8 @@ _start:
 #[no_mangle]
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     let mut last_seen_scancode = 0u8;
-    let mut recent_keys = [b' '; KEY_PREVIEW_LEN];
+    let mut input_buffer = [0u8; INPUT_BUFFER_LEN];
+    let mut input_len = 0usize;
     vga::clear_screen(0x1F);
     vga::write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
     vga::write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
@@ -53,7 +54,8 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
 
     interrupts::init();
     interrupts::render_status();
-    render_recent_keys(&recent_keys);
+    render_input_line(&input_buffer, input_len);
+    render_result_line("Commands: help, clear, ticks, about");
     cpu::enable_interrupts();
 
     loop {
@@ -61,34 +63,99 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
         if scancode != last_seen_scancode {
             last_seen_scancode = scancode;
             if scancode & 0x80 == 0 {
-                push_recent_key(&mut recent_keys, interrupts::last_ascii());
-                render_recent_keys(&recent_keys);
+                handle_key(
+                    interrupts::last_ascii(),
+                    &mut input_buffer,
+                    &mut input_len,
+                );
             }
         }
         cpu::halt();
     }
 }
 
-fn push_recent_key(buffer: &mut [u8; KEY_PREVIEW_LEN], ascii: u8) {
-    let byte = match ascii {
-        8 => b'<',
-        b'\n' => b'#',
-        0x20..=0x7E => ascii,
-        _ => b'.',
-    };
-
-    for index in 1..KEY_PREVIEW_LEN {
-        buffer[index - 1] = buffer[index];
+fn handle_key(ascii: u8, input_buffer: &mut [u8; INPUT_BUFFER_LEN], input_len: &mut usize) {
+    match ascii {
+        8 => {
+            if *input_len > 0 {
+                *input_len -= 1;
+            }
+        }
+        b'\n' => {
+            submit_command(input_buffer, input_len);
+        }
+        0x20..=0x7E => {
+            if *input_len < INPUT_BUFFER_LEN {
+                input_buffer[*input_len] = ascii;
+                *input_len += 1;
+            }
+        }
+        _ => {}
     }
-    buffer[KEY_PREVIEW_LEN - 1] = byte;
+    render_input_line(input_buffer, *input_len);
 }
 
-fn render_recent_keys(buffer: &[u8; KEY_PREVIEW_LEN]) {
-    vga::write_line(20, 8, "Recent keys:", 0x1F);
-    for (index, byte) in buffer.iter().enumerate() {
-        vga::write_ascii(20, 21 + index, *byte, 0x1F);
+fn submit_command(input_buffer: &mut [u8; INPUT_BUFFER_LEN], input_len: &mut usize) {
+    let command = core::str::from_utf8(&input_buffer[..*input_len]).unwrap_or("");
+    match command {
+        "" => render_result_line(""),
+        "help" => render_result_line("help clear ticks about"),
+        "clear" => render_result_line(""),
+        "ticks" => {
+            let mut text = [b' '; 32];
+            let len = format_ticks(&mut text, interrupts::timer_ticks() as u32);
+            render_result_bytes(&text, len);
+        }
+        "about" => render_result_line("Teddy-OS one-line input MVP"),
+        _ => render_result_line("Unknown command"),
     }
-    vga::write_line(21, 8, "< = backspace, # = enter", 0x17);
+    *input_len = 0;
+    render_input_line(input_buffer, *input_len);
+}
+
+fn render_input_line(buffer: &[u8; INPUT_BUFFER_LEN], len: usize) {
+    vga::clear_row(20, 0x1F);
+    vga::write_line(20, 8, "Input: ", 0x1F);
+    for (index, byte) in buffer.iter().take(len).enumerate() {
+        vga::write_ascii(20, 15 + index, *byte, 0x1F);
+    }
+    vga::write_line(20, 50, "Enter=submit Backspace=edit", 0x17);
+}
+
+fn render_result_line(text: &str) {
+    vga::clear_row(21, 0x17);
+    vga::write_line(21, 8, "Result: ", 0x17);
+    vga::write_line(21, 16, text, 0x17);
+}
+
+fn render_result_bytes(bytes: &[u8; 32], len: usize) {
+    vga::clear_row(21, 0x17);
+    vga::write_line(21, 8, "Result: ", 0x17);
+    for (index, byte) in bytes.iter().take(len).enumerate() {
+        vga::write_ascii(21, 16 + index, *byte, 0x17);
+    }
+}
+
+fn format_ticks(buffer: &mut [u8; 32], value: u32) -> usize {
+    let prefix = b"ticks=0x";
+    let mut len = 0;
+    for byte in prefix {
+        buffer[len] = *byte;
+        len += 1;
+    }
+    let mut started = false;
+    for shift in (0..8).rev() {
+        let nibble = ((value >> (shift * 4)) & 0x0F) as u8;
+        if nibble != 0 || started || shift == 0 {
+            buffer[len] = match nibble {
+                0..=9 => b'0' + nibble,
+                _ => b'A' + (nibble - 10),
+            };
+            len += 1;
+            started = true;
+        }
+    }
+    len
 }
 
 #[panic_handler]

@@ -98,11 +98,11 @@ When you run `kernel`, the current kernel MVP should show:
 - boot metadata parsed from stage 2
 - `Interrupts: IDT+PIC+PIT online`
 - a ticking timer counter
-- a recent-key preview line driven by the stable keyboard IRQ path
+- a one-line input buffer with `help`, `clear`, `ticks`, and `about`
 - the last keyboard scancode and ASCII value as you press keys
 
 ## Next Step
 
 Once this BIOS baseline is proven stable in VMware, the next phase is to
-grow the Rust kernel with a tiny input buffer and one-line command entry while
+turn the one-line input into a tiny shell area with a small scrollback, while
 keeping the current interrupt path stable.
