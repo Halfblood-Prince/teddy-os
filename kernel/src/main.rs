@@ -9,6 +9,7 @@ mod cpu;
 mod interrupts;
 mod port;
 mod shell;
+mod terminal;
 mod vga;
 
 const KERNEL_STACK_TOP: usize = 0x80000;
@@ -53,9 +54,27 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
         if scancode != last_seen_scancode {
             last_seen_scancode = scancode;
             if scancode & 0x80 == 0 {
-                desktop.handle_key(scancode, interrupts::last_ascii());
+                if let Some(action) = desktop.handle_key(scancode, interrupts::last_ascii()) {
+                    match action {
+                        shell::ShellAction::Reboot => reboot_system(),
+                        shell::ShellAction::Shutdown => shutdown_system(),
+                    }
+                }
             }
         }
+        cpu::halt();
+    }
+}
+
+fn reboot_system() -> ! {
+    port::outb(0x64, 0xFE);
+    loop {
+        cpu::halt();
+    }
+}
+
+fn shutdown_system() -> ! {
+    loop {
         cpu::halt();
     }
 }

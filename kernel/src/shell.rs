@@ -1,11 +1,18 @@
-use crate::{boot_info::BootInfo, interrupts, vga};
+use crate::{boot_info::BootInfo, interrupts, terminal::{TerminalAction, TerminalApp}, vga};
 
-const MAX_WINDOWS: usize = 3;
+const MAX_WINDOWS: usize = 4;
 const TASKBAR_ROW: usize = 24;
 const DESKTOP_HEIGHT: usize = 24;
+const TERMINAL_VIEW_LINES: usize = 8;
+
+pub enum ShellAction {
+    Reboot,
+    Shutdown,
+}
 
 pub struct DesktopShell {
     boot_info: Option<BootInfo>,
+    terminal: TerminalApp,
     windows: [Window; MAX_WINDOWS],
     focus_index: usize,
     launcher_open: bool,
@@ -17,10 +24,12 @@ impl DesktopShell {
     pub fn new(boot_info: Option<BootInfo>) -> Self {
         Self {
             boot_info,
+            terminal: TerminalApp::new(),
             windows: [
-                Window::new(WindowKind::Welcome, 3, 2, 34, 10, true),
-                Window::new(WindowKind::System, 26, 4, 31, 14, true),
-                Window::new(WindowKind::Roadmap, 14, 11, 42, 8, false),
+                Window::new(WindowKind::Terminal, 2, 2, 60, 12, true),
+                Window::new(WindowKind::Welcome, 47, 2, 30, 9, true),
+                Window::new(WindowKind::System, 45, 11, 32, 12, false),
+                Window::new(WindowKind::Roadmap, 8, 15, 36, 8, false),
             ],
             focus_index: 0,
             launcher_open: false,
@@ -45,36 +54,55 @@ impl DesktopShell {
         }
     }
 
-    pub fn handle_key(&mut self, _scancode: u8, ascii: u8) {
-        let should_render = if self.launcher_open {
-            self.handle_launcher_key(ascii)
-        } else {
-            self.handle_desktop_key(ascii)
-        };
-
-        if should_render {
-            self.render();
+    pub fn handle_key(&mut self, scancode: u8, ascii: u8) -> Option<ShellAction> {
+        if self.launcher_open {
+            if self.handle_launcher_key(ascii) {
+                self.render();
+            }
+            return None;
         }
+
+        if self.handle_global_key(scancode, ascii) {
+            self.render();
+            return None;
+        }
+
+        if self.focused_kind() == WindowKind::Terminal {
+            let action = self.terminal.handle_key(ascii);
+            self.render();
+            return match action {
+                TerminalAction::None => None,
+                TerminalAction::Reboot => Some(ShellAction::Reboot),
+                TerminalAction::Shutdown => Some(ShellAction::Shutdown),
+            };
+        }
+
+        None
     }
 
     fn handle_launcher_key(&mut self, ascii: u8) -> bool {
         match ascii {
             b'1' => {
-                self.open_window(WindowKind::Welcome);
+                self.open_window(WindowKind::Terminal);
                 self.launcher_open = false;
                 true
             }
             b'2' => {
-                self.open_window(WindowKind::System);
+                self.open_window(WindowKind::Welcome);
                 self.launcher_open = false;
                 true
             }
             b'3' => {
+                self.open_window(WindowKind::System);
+                self.launcher_open = false;
+                true
+            }
+            b'4' => {
                 self.open_window(WindowKind::Roadmap);
                 self.launcher_open = false;
                 true
             }
-            b'l' | 27 => {
+            27 => {
                 self.launcher_open = false;
                 true
             }
@@ -82,17 +110,17 @@ impl DesktopShell {
         }
     }
 
-    fn handle_desktop_key(&mut self, ascii: u8) -> bool {
-        match ascii {
-            b'l' => {
+    fn handle_global_key(&mut self, scancode: u8, ascii: u8) -> bool {
+        match scancode {
+            0x3B => {
                 self.launcher_open = !self.launcher_open;
                 true
             }
-            b'\t' => {
+            0x3C => {
                 self.focus_next_window();
                 true
             }
-            b'm' => {
+            0x3D => {
                 if self.has_visible_window() {
                     self.move_mode = !self.move_mode;
                     true
@@ -100,27 +128,15 @@ impl DesktopShell {
                     false
                 }
             }
-            b'x' => {
+            0x3E => {
                 self.close_focused_window();
                 true
             }
-            b'r' => {
+            0x3F => {
                 self.reset_layout();
                 true
             }
-            b'1' => {
-                self.open_window(WindowKind::Welcome);
-                true
-            }
-            b'2' => {
-                self.open_window(WindowKind::System);
-                true
-            }
-            b'3' => {
-                self.open_window(WindowKind::Roadmap);
-                true
-            }
-            b'w' | b'a' | b's' | b'd' if self.move_mode => {
+            _ if self.move_mode && matches!(ascii, b'w' | b'a' | b's' | b'd') => {
                 self.move_focused_window(ascii);
                 true
             }
@@ -138,8 +154,8 @@ impl DesktopShell {
 
         vga::fill_rect(0, 0, 2, vga::width(), b' ', 0x30);
         vga::write_line(0, 2, "Teddy-OS Desktop Shell", 0x3F);
-        vga::write_line(1, 2, "Text-mode MVP for the future framebuffer desktop", 0x3E);
-        vga::write_line(1, 50, "Original Teddy shell theme", 0x3E);
+        vga::write_line(1, 2, "Terminal phase MVP in text mode", 0x3E);
+        vga::write_line(1, 46, "Original Teddy shell theme", 0x3E);
     }
 
     fn render_windows(&self) {
@@ -155,7 +171,7 @@ impl DesktopShell {
     fn render_window(&self, window: &Window, focused: bool) {
         let border_attr = if focused { 0x1F } else { 0x17 };
         let title_attr = if focused { 0x70 } else { 0x30 };
-        let body_attr = 0x1E;
+        let body_attr = if window.kind == WindowKind::Terminal { 0x07 } else { 0x1E };
 
         vga::fill_rect(window.y, window.x, window.height, window.width, b' ', body_attr);
         vga::draw_box(window.y, window.x, window.height, window.width, border_attr);
@@ -167,27 +183,48 @@ impl DesktopShell {
 
     fn render_window_body(&self, window: &Window) {
         match window.kind {
+            WindowKind::Terminal => self.render_terminal(window),
             WindowKind::Welcome => self.render_welcome(window),
             WindowKind::System => self.render_system(window),
             WindowKind::Roadmap => self.render_roadmap(window),
         }
     }
 
+    fn render_terminal(&self, window: &Window) {
+        let available_lines = core::cmp::min(window.height.saturating_sub(4), TERMINAL_VIEW_LINES);
+        let start = self.terminal.history_len().saturating_sub(available_lines);
+        for line_index in 0..available_lines {
+            let history_index = start + line_index;
+            if history_index < self.terminal.history_len() {
+                vga::write_line(
+                    window.y + 2 + line_index,
+                    window.x + 2,
+                    self.terminal.history_line(history_index),
+                    0x07,
+                );
+            }
+        }
+
+        let prompt_row = window.y + window.height - 2;
+        vga::write_line(prompt_row, window.x + 2, self.terminal.cwd(), 0x0F);
+        vga::write_line(prompt_row, window.x + 2 + self.terminal.cwd().len(), " $ ", 0x0F);
+        vga::write_line(prompt_row, window.x + 5 + self.terminal.cwd().len(), self.terminal.input(), 0x07);
+    }
+
     fn render_welcome(&self, window: &Window) {
         let lines = [
-            "Welcome to Teddy-OS shell MVP.",
-            "L = launcher   TAB = next window",
-            "M = move mode  WASD = move",
-            "X = close      R = reset layout",
-            "1/2/3 open Welcome/System/Roadmap",
-            "Next phase: real terminal + framebuffer UI",
+            "Welcome to Teddy Terminal.",
+            "Type commands in the terminal window.",
+            "F1 launcher  F2 focus  F3 move mode",
+            "F4 close     F5 reset layout",
+            "Use WASD while move mode is active.",
         ];
         self.write_lines(window, &lines);
     }
 
     fn render_system(&self, window: &Window) {
         let mut line = window.y + 2;
-        self.write_kv(line, window.x + 2, "Kernel", "stable text shell phase");
+        self.write_kv(line, window.x + 2, "Kernel", "terminal phase");
         line += 1;
         self.write_u64(line, window.x + 2, "Ticks", interrupts::timer_ticks());
         line += 1;
@@ -202,10 +239,10 @@ impl DesktopShell {
 
     fn render_roadmap(&self, window: &Window) {
         let lines = [
-            "Desktop shell is now separate from IRQ handling.",
-            "This phase keeps BIOS text mode to stay reliable.",
-            "Planned upgrades: framebuffer, mouse, real apps.",
-            "Terminal and file explorer will reuse this shell.",
+            "Terminal now has parsing, scrollback, and fs stubs.",
+            "Filesystem is still in-memory for this phase.",
+            "Next: persistent storage and file explorer UI.",
+            "Later: framebuffer windows and mouse input.",
         ];
         self.write_lines(window, &lines);
     }
@@ -214,16 +251,16 @@ impl DesktopShell {
         let row = 13;
         let col = 1;
         let height = 10;
-        let width = 25;
+        let width = 29;
         vga::fill_rect(row, col, height, width, b' ', 0x1E);
         vga::draw_box(row, col, height, width, 0x1F);
         vga::fill_rect(row, col + 1, 1, width - 2, b' ', 0x70);
         vga::write_line(row, col + 2, "Teddy Launcher", 0x70);
-        vga::write_line(row + 2, col + 2, "[1] Welcome", 0x1F);
-        vga::write_line(row + 3, col + 2, "[2] System Monitor", 0x1F);
-        vga::write_line(row + 4, col + 2, "[3] Roadmap", 0x1F);
-        vga::write_line(row + 6, col + 2, "L or Esc closes", 0x17);
-        vga::write_line(row + 7, col + 2, "Text shell MVP", 0x17);
+        vga::write_line(row + 2, col + 2, "[1] Terminal", 0x1F);
+        vga::write_line(row + 3, col + 2, "[2] Welcome", 0x1F);
+        vga::write_line(row + 4, col + 2, "[3] System Monitor", 0x1F);
+        vga::write_line(row + 5, col + 2, "[4] Roadmap", 0x1F);
+        vga::write_line(row + 7, col + 2, "Esc closes launcher", 0x17);
     }
 
     fn render_taskbar(&self) {
@@ -231,11 +268,11 @@ impl DesktopShell {
         vga::write_line(TASKBAR_ROW, 1, "[Teddy]", 0x7F);
         vga::write_line(TASKBAR_ROW, 10, self.focused_window_title(), 0x70);
         if self.move_mode {
-            vga::write_line(TASKBAR_ROW, 34, "MOVE", 0x4F);
+            vga::write_line(TASKBAR_ROW, 30, "MOVE", 0x4F);
         } else {
-            vga::write_line(TASKBAR_ROW, 34, "DESK", 0x2F);
+            vga::write_line(TASKBAR_ROW, 30, "DESK", 0x2F);
         }
-        vga::write_line(TASKBAR_ROW, 40, "L launcher  TAB focus  M move", 0x70);
+        vga::write_line(TASKBAR_ROW, 36, "F1 launch F2 focus F3 move", 0x70);
 
         let mut clock = [b' '; 16];
         let len = format_clock(self.uptime_seconds, &mut clock);
@@ -290,6 +327,10 @@ impl DesktopShell {
         }
     }
 
+    fn focused_kind(&self) -> WindowKind {
+        self.windows[self.focus_index].kind
+    }
+
     fn focus_next_window(&mut self) {
         for _ in 0..MAX_WINDOWS {
             self.focus_index = (self.focus_index + 1) % MAX_WINDOWS;
@@ -314,6 +355,7 @@ impl DesktopShell {
         self.move_mode = false;
         if !self.has_visible_window() {
             self.focus_index = 0;
+            self.windows[0].visible = true;
             return;
         }
         self.focus_next_window();
@@ -336,9 +378,10 @@ impl DesktopShell {
 
     fn reset_layout(&mut self) {
         self.windows = [
-            Window::new(WindowKind::Welcome, 3, 2, 34, 10, true),
-            Window::new(WindowKind::System, 26, 4, 31, 14, true),
-            Window::new(WindowKind::Roadmap, 14, 11, 42, 8, false),
+            Window::new(WindowKind::Terminal, 2, 2, 60, 12, true),
+            Window::new(WindowKind::Welcome, 47, 2, 30, 9, true),
+            Window::new(WindowKind::System, 45, 11, 32, 12, false),
+            Window::new(WindowKind::Roadmap, 8, 15, 36, 8, false),
         ];
         self.focus_index = 0;
         self.launcher_open = false;
@@ -381,17 +424,19 @@ impl Window {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
 enum WindowKind {
-    Welcome = 0,
-    System = 1,
-    Roadmap = 2,
+    Terminal = 0,
+    Welcome = 1,
+    System = 2,
+    Roadmap = 3,
 }
 
 impl WindowKind {
     const fn title(self) -> &'static str {
         match self {
+            Self::Terminal => "Terminal",
             Self::Welcome => "Welcome",
             Self::System => "System Monitor",
             Self::Roadmap => "Roadmap",

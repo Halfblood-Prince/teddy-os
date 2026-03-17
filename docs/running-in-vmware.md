@@ -28,19 +28,32 @@ The kernel screen should include:
 
 - a Teddy-OS desktop header
 - a bottom taskbar with a live clock
+- a `Terminal` window
 - a `Welcome` window
 - a `System Monitor` window with boot metadata and live counters
-- a launcher panel when you press `l`
+- a launcher panel when you press `F1`
 
 Press a few keys in VMware after the kernel screen appears:
 
-- `l` opens and closes the launcher
-- `tab` switches focus between visible windows
-- `m` toggles move mode
+- `F1` opens and closes the launcher
+- `F2` switches focus between visible windows
+- `F3` toggles move mode
 - `w`, `a`, `s`, `d` move the focused window while move mode is enabled
-- `x` closes the focused window
-- `r` restores the default layout
-- `1`, `2`, `3` open `Welcome`, `System Monitor`, and `Roadmap`
+- `F4` closes the focused window
+- `F5` restores the default layout
+- launcher keys `1`, `2`, `3`, `4` open `Terminal`, `Welcome`, `System Monitor`, and `Roadmap`
+
+Try these terminal commands in the focused `Terminal` window:
+
+- `help`
+- `ls`
+- `pwd`
+- `cat readme.txt`
+- `cd docs`
+- `ls`
+- `touch demo.txt`
+- `mkdir tmp`
+- `uname`
 
 The `System Monitor` window should update `Ticks`, `Uptime`, `Last key`, and
 `Scancode` while the taskbar clock advances once per second.

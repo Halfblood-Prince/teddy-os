@@ -16,7 +16,7 @@ ISO for VMware.
 - keyboard input and a tiny BIOS shell in stage 2
 - a VGA mode `13h` graphics demo launched from the shell
 - a `kernel` command that loads and jumps to a real Rust x86_64 kernel binary
-- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, boot-info parsing, and a text-mode desktop shell MVP
+- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, boot-info parsing, a text-mode desktop shell, and a real terminal window MVP
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
@@ -93,23 +93,39 @@ When you run `kernel`, the current kernel MVP should show:
 
 - a Teddy-OS desktop header and themed background
 - a bottom taskbar with a live uptime clock
-- a `Welcome` window and a `System Monitor` window
+- a `Terminal` window and a `Welcome` window
 - boot metadata from stage 2 inside the system window
 - live timer ticks plus the last keyboard scancode and ASCII value
 - a launcher panel you can open from the taskbar area
 
 Kernel desktop controls:
 
-- `l` opens or closes the launcher
-- `tab` focuses the next visible window
-- `m` toggles move mode for the focused window
+- `F1` opens or closes the launcher
+- `F2` focuses the next visible window
+- `F3` toggles move mode for the focused window
 - `w`, `a`, `s`, `d` move the focused window while move mode is active
-- `x` closes the focused window
-- `r` restores the default window layout
-- `1`, `2`, `3` open `Welcome`, `System Monitor`, and `Roadmap`
+- `F4` closes the focused window
+- `F5` restores the default window layout
+- launcher keys `1`, `2`, `3`, `4` open `Terminal`, `Welcome`, `System Monitor`, and `Roadmap`
+
+Terminal commands:
+
+- `help`
+- `echo`
+- `clear`
+- `ls`
+- `cd`
+- `pwd`
+- `cat`
+- `mkdir`
+- `rm`
+- `touch`
+- `uname`
+- `reboot`
+- `shutdown`
 
 ## Next Step
 
-Once this desktop-shell milestone is proven stable in VMware, the next phase is
-to replace the shell placeholders with a real terminal application and start
-moving from VGA text mode toward a framebuffer-backed desktop.
+Once this terminal milestone is proven stable in VMware, the next phase is to
+replace the in-memory terminal filesystem with real persistent storage and then
+build the file explorer on top of those filesystem APIs.

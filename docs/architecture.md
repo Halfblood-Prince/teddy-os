@@ -12,6 +12,7 @@ This reset starts from a small but extensible BIOS baseline:
 - a real Rust x86_64 kernel binary loaded by stage 2
 - a minimal kernel-side VGA text console
 - a keyboard-driven text-mode desktop shell layered on top of the kernel
+- a real terminal app with command parsing and an in-memory filesystem stub
 - reproducible ISO output for VMware legacy BIOS boot
 
 ## Why This Reset Exists
@@ -35,6 +36,7 @@ The new baseline restores a known-good target:
 9. The Rust kernel currently includes a stable long-mode VGA console baseline
 10. The kernel now owns a minimal IDT, PIC/PIT timer path, and PS/2 keyboard IRQ path
 11. The kernel desktop shell owns screen rendering while IRQ handlers only update state
+12. The terminal app is an isolated module that can later move behind app/window abstractions
 
 ## Next Phases
 
@@ -43,4 +45,5 @@ The new baseline restores a known-good target:
 - Phase 3 reset: move stage 2 toward graphics and kernel handoff
 - Phase 4 reset: add interrupts, timer ticks, and keyboard input inside the Rust kernel
 - Phase 5 reset: land a desktop-shell MVP in text mode so layout and window state exist before a framebuffer jump
-- Phase 6 reset: replace text-mode shell rendering with a real graphics backend and app surfaces
+- Phase 6 reset: add a real terminal app and an in-memory filesystem model without destabilizing the BIOS baseline
+- Phase 7 reset: replace the terminal filesystem stub with persistent storage and expose those APIs to a file explorer
