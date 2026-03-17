@@ -25,6 +25,12 @@ _start:
     mov rbx, 0xb8000
     mov ax, 0x2f4b
     mov [rbx], ax
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov fs, ax
+    mov gs, ax
     mov rsp, {stack_top}
     and rsp, -16
     call kernel_main

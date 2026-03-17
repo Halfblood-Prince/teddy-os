@@ -32,7 +32,7 @@ impl TerminalApp {
 
     pub fn init(&mut self) {
         self.fs.init();
-        self.history = [HistoryLine::empty(); MAX_HISTORY_LINES];
+        clear_history_lines(&mut self.history);
         self.history_len = 0;
         self.input = [0; INPUT_BUFFER_LEN];
         self.input_len = 0;
@@ -182,7 +182,7 @@ impl TerminalApp {
     }
 
     fn clear_history(&mut self) {
-        self.history = [HistoryLine::empty(); MAX_HISTORY_LINES];
+        clear_history_lines(&mut self.history);
         self.history_len = 0;
     }
 
@@ -367,7 +367,15 @@ impl MiniFs {
     }
 
     fn init(&mut self) {
-        *self = Self::empty();
+        let mut index = 0usize;
+        while index < MAX_FS_NODES {
+            self.nodes[index] = FsNode::empty();
+            index += 1;
+        }
+        self.cwd = 0;
+        self.cwd_path = [b' '; MAX_LINE_LEN];
+        self.cwd_path_len = 1;
+        self.cwd_path[0] = b'/';
         self.nodes[0].init_dir(0, "");
         self.nodes[1].init_dir(0, "docs");
         self.nodes[2].init_file(0, "readme.txt", "Teddy Terminal demo filesystem.");
@@ -672,5 +680,13 @@ fn sanitize(byte: u8) -> u8 {
     match byte {
         0x20..=0x7E => byte,
         _ => b'?',
+    }
+}
+
+fn clear_history_lines(lines: &mut [HistoryLine; MAX_HISTORY_LINES]) {
+    let mut index = 0usize;
+    while index < MAX_HISTORY_LINES {
+        lines[index] = HistoryLine::empty();
+        index += 1;
     }
 }
