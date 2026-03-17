@@ -38,7 +38,7 @@ $kernelElf = Join-Path (Join-Path $targetDir "x86_64-unknown-none\\$Profile") "t
 $kernelRaw = Join-Path $binDir "kernel.bin"
 $bootImg = Join-Path $isoRoot "boot.img"
 $stage2Size = 96 * 512
-$kernelSize = 128 * 512
+$kernelSize = 256 * 512
 
 Require-Command nasm
 Require-Command cargo
@@ -70,7 +70,7 @@ try {
     $previousRustFlags = $env:RUSTFLAGS
     $kernelRustFlags = @(
         "-Ctarget-cpu=x86-64",
-        "-Ctarget-feature=-mmx,-sse,-sse2,-avx,-avx2",
+        "-Ctarget-feature=-sse,-sse2,-avx,-avx2",
         "-Cforce-frame-pointers=yes",
         "-Cno-redzone=yes",
         "-Crelocation-model=static",

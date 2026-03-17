@@ -71,8 +71,6 @@ unsafe extern "C" {
 
 global_asm!(
     r#"
-    .intel_syntax noprefix
-
     .macro PUSH_REGS
         push r15
         push r14
