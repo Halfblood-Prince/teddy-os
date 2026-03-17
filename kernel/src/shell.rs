@@ -21,21 +21,31 @@ pub struct DesktopShell {
 }
 
 impl DesktopShell {
-    pub fn new(boot_info: Option<BootInfo>) -> Self {
+    pub const fn empty() -> Self {
         Self {
-            boot_info,
-            terminal: TerminalApp::new(),
+            boot_info: None,
+            terminal: TerminalApp::empty(),
             windows: [
-                Window::new(WindowKind::Terminal, 2, 2, 60, 12, true),
-                Window::new(WindowKind::Welcome, 47, 2, 30, 9, true),
-                Window::new(WindowKind::System, 45, 11, 32, 12, false),
-                Window::new(WindowKind::Roadmap, 8, 15, 36, 8, false),
+                Window::hidden(WindowKind::Terminal),
+                Window::hidden(WindowKind::Welcome),
+                Window::hidden(WindowKind::System),
+                Window::hidden(WindowKind::Roadmap),
             ],
             focus_index: 0,
             launcher_open: false,
             move_mode: false,
             uptime_seconds: 0,
         }
+    }
+
+    pub fn init(&mut self, boot_info: Option<BootInfo>) {
+        self.boot_info = boot_info;
+        self.terminal.init();
+        self.focus_index = 0;
+        self.launcher_open = false;
+        self.move_mode = false;
+        self.uptime_seconds = 0;
+        self.reset_layout();
     }
 
     pub fn render(&self) {
@@ -383,12 +393,10 @@ impl DesktopShell {
     }
 
     fn reset_layout(&mut self) {
-        self.windows = [
-            Window::new(WindowKind::Terminal, 2, 2, 60, 12, true),
-            Window::new(WindowKind::Welcome, 47, 2, 30, 9, true),
-            Window::new(WindowKind::System, 45, 11, 32, 12, false),
-            Window::new(WindowKind::Roadmap, 8, 15, 36, 8, false),
-        ];
+        self.windows[WindowKind::Terminal as usize] = Window::new(WindowKind::Terminal, 2, 2, 60, 12, true);
+        self.windows[WindowKind::Welcome as usize] = Window::new(WindowKind::Welcome, 47, 2, 30, 9, true);
+        self.windows[WindowKind::System as usize] = Window::new(WindowKind::System, 45, 11, 32, 12, false);
+        self.windows[WindowKind::Roadmap as usize] = Window::new(WindowKind::Roadmap, 8, 15, 36, 8, false);
         self.focus_index = 0;
         self.launcher_open = false;
         self.move_mode = false;
@@ -434,6 +442,10 @@ impl Window {
             height,
             visible,
         }
+    }
+
+    const fn hidden(kind: WindowKind) -> Self {
+        Self::new(kind, 0, 0, 2, 2, false)
     }
 }
 

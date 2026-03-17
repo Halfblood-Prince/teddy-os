@@ -13,6 +13,7 @@ mod terminal;
 mod vga;
 
 const KERNEL_STACK_TOP: usize = 0x80000;
+static mut DESKTOP_SHELL: shell::DesktopShell = shell::DesktopShell::empty();
 
 global_asm!(
     r#"
@@ -39,7 +40,8 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     let mut last_seen_second = 0u64;
     interrupts::init();
     let boot_info = boot_info::BootInfo::parse(boot_info_addr);
-    let mut desktop = shell::DesktopShell::new(boot_info);
+    let desktop = unsafe { &mut *core::ptr::addr_of_mut!(DESKTOP_SHELL) };
+    desktop.init(boot_info);
     desktop.render();
     cpu::enable_interrupts();
 

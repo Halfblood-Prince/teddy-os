@@ -20,18 +20,24 @@ pub struct TerminalApp {
 }
 
 impl TerminalApp {
-    pub fn new() -> Self {
-        let mut app = Self {
-            fs: MiniFs::new(),
+    pub const fn empty() -> Self {
+        Self {
+            fs: MiniFs::empty(),
             history: [HistoryLine::empty(); MAX_HISTORY_LINES],
             history_len: 0,
             input: [0; INPUT_BUFFER_LEN],
             input_len: 0,
-        };
+        }
+    }
 
-        app.push_line("Teddy Terminal ready.");
-        app.push_line("Type 'help' for commands.");
-        app
+    pub fn init(&mut self) {
+        self.fs.init();
+        self.history = [HistoryLine::empty(); MAX_HISTORY_LINES];
+        self.history_len = 0;
+        self.input = [0; INPUT_BUFFER_LEN];
+        self.input_len = 0;
+        self.push_line("Teddy Terminal ready.");
+        self.push_line("Type 'help' for commands.");
     }
 
     pub fn handle_key(&mut self, ascii: u8) -> TerminalAction {
@@ -351,21 +357,23 @@ struct MiniFs {
 }
 
 impl MiniFs {
-    fn new() -> Self {
-        let mut fs = Self {
+    const fn empty() -> Self {
+        Self {
             nodes: [FsNode::empty(); MAX_FS_NODES],
             cwd: 0,
             cwd_path: [b'/'; MAX_LINE_LEN],
             cwd_path_len: 1,
-        };
+        }
+    }
 
-        fs.nodes[0].init_dir(0, "");
-        fs.nodes[1].init_dir(0, "docs");
-        fs.nodes[2].init_file(0, "readme.txt", "Teddy Terminal demo filesystem.");
-        fs.nodes[3].init_file(1, "plan.txt", "Next: persistent filesystem and real apps.");
-        fs.nodes[4].init_file(0, "notes.txt", "Use F1 launcher, F2 focus, F3 move.");
-        fs.refresh_cwd_path();
-        fs
+    fn init(&mut self) {
+        *self = Self::empty();
+        self.nodes[0].init_dir(0, "");
+        self.nodes[1].init_dir(0, "docs");
+        self.nodes[2].init_file(0, "readme.txt", "Teddy Terminal demo filesystem.");
+        self.nodes[3].init_file(1, "plan.txt", "Next: persistent filesystem and real apps.");
+        self.nodes[4].init_file(0, "notes.txt", "Use F1 launcher, F2 focus, F3 move.");
+        self.refresh_cwd_path();
     }
 
     fn cwd_path(&self) -> &str {
