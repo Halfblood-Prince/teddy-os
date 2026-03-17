@@ -18,12 +18,15 @@ pub fn write_line(row: usize, col: usize, text: &str, attribute: u8) {
     if row >= VGA_HEIGHT || col >= VGA_WIDTH {
         return;
     }
-    for (index, byte) in text.bytes().enumerate() {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
         let x = col + index;
         if x >= VGA_WIDTH {
             break;
         }
-        write_cell(row, x, byte, attribute);
+        write_cell(row, x, bytes[index], attribute);
+        index += 1;
     }
 }
 

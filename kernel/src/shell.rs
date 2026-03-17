@@ -276,17 +276,21 @@ impl DesktopShell {
 
         let mut clock = [b' '; 16];
         let len = format_clock(self.uptime_seconds, &mut clock);
-        for (index, byte) in clock.iter().take(len).enumerate() {
-            vga::write_ascii(TASKBAR_ROW, vga::width() - len - 2 + index, *byte, 0x7F);
+        let mut index = 0usize;
+        while index < len {
+            vga::write_ascii(TASKBAR_ROW, vga::width() - len - 2 + index, clock[index], 0x7F);
+            index += 1;
         }
     }
 
     fn write_lines(&self, window: &Window, lines: &[&str]) {
-        for (index, line) in lines.iter().enumerate() {
+        let mut index = 0usize;
+        while index < lines.len() {
             if index + 2 >= window.height - 1 {
                 break;
             }
-            vga::write_line(window.y + 2 + index, window.x + 2, line, 0x1E);
+            vga::write_line(window.y + 2 + index, window.x + 2, lines[index], 0x1E);
+            index += 1;
         }
     }
 
@@ -299,8 +303,10 @@ impl DesktopShell {
         let mut buffer = [b' '; 20];
         let len = format_decimal(value, &mut buffer);
         vga::write_line(row, col, label, 0x1F);
-        for (index, byte) in buffer.iter().take(len).enumerate() {
-            vga::write_ascii(row, col + 11 + index, *byte, 0x1E);
+        let mut index = 0usize;
+        while index < len {
+            vga::write_ascii(row, col + 11 + index, buffer[index], 0x1E);
+            index += 1;
         }
     }
 
@@ -389,7 +395,14 @@ impl DesktopShell {
     }
 
     fn has_visible_window(&self) -> bool {
-        self.windows.iter().any(|window| window.visible)
+        let mut index = 0usize;
+        while index < self.windows.len() {
+            if self.windows[index].visible {
+                return true;
+            }
+            index += 1;
+        }
+        false
     }
 
     fn focused_window_title(&self) -> &str {

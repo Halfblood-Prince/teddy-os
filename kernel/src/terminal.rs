@@ -97,8 +97,8 @@ impl TerminalApp {
             self.clear_history();
             return TerminalAction::None;
         }
-        if let Some(text) = command.strip_prefix("echo ") {
-            self.push_line(text);
+        if starts_with(command, "echo ") {
+            self.push_line(slice_from(command, 5));
             return TerminalAction::None;
         }
         if command == "echo" {
@@ -107,12 +107,15 @@ impl TerminalApp {
         }
         if command == "ls" {
             let (lines, count) = self.fs.listing(self.fs.cwd);
-            for line in lines.iter().take(count) {
-                self.push_history(*line);
+            let mut index = 0;
+            while index < count {
+                self.push_history(lines[index]);
+                index += 1;
             }
             return TerminalAction::None;
         }
-        if let Some(path) = command.strip_prefix("cd ") {
+        if starts_with(command, "cd ") {
+            let path = slice_from(command, 3);
             match self.fs.change_dir(path) {
                 Ok(()) => {}
                 Err(message) => self.push_line(message),
@@ -123,28 +126,32 @@ impl TerminalApp {
             self.push_history(self.fs.cwd_line());
             return TerminalAction::None;
         }
-        if let Some(path) = command.strip_prefix("cat ") {
+        if starts_with(command, "cat ") {
+            let path = slice_from(command, 4);
             match self.fs.read_file(path) {
                 Ok(content) => self.push_history(content),
                 Err(message) => self.push_line(message),
             }
             return TerminalAction::None;
         }
-        if let Some(path) = command.strip_prefix("mkdir ") {
+        if starts_with(command, "mkdir ") {
+            let path = slice_from(command, 6);
             match self.fs.create_dir(path) {
                 Ok(()) => self.push_line("directory created"),
                 Err(message) => self.push_line(message),
             }
             return TerminalAction::None;
         }
-        if let Some(path) = command.strip_prefix("rm ") {
+        if starts_with(command, "rm ") {
+            let path = slice_from(command, 3);
             match self.fs.remove(path) {
                 Ok(()) => self.push_line("removed"),
                 Err(message) => self.push_line(message),
             }
             return TerminalAction::None;
         }
-        if let Some(path) = command.strip_prefix("touch ") {
+        if starts_with(command, "touch ") {
+            let path = slice_from(command, 6);
             match self.fs.touch(path) {
                 Ok(()) => self.push_line("file updated"),
                 Err(message) => self.push_line(message),
@@ -182,20 +189,23 @@ impl TerminalApp {
     }
 
     fn push_line(&mut self, text: &str) {
-        let mut remaining = text.as_bytes();
-        if remaining.is_empty() {
+        let bytes = text.as_bytes();
+        if bytes.is_empty() {
             self.push_history(HistoryLine::empty());
             return;
         }
 
-        while !remaining.is_empty() {
+        let mut start = 0usize;
+        while start < bytes.len() {
             let mut line = HistoryLine::empty();
-            let take = core::cmp::min(remaining.len(), MAX_LINE_LEN);
-            for byte in &remaining[..take] {
-                line.push_byte(*byte);
+            let take = core::cmp::min(bytes.len() - start, MAX_LINE_LEN);
+            let mut index = 0usize;
+            while index < take {
+                line.push_byte(bytes[start + index]);
+                index += 1;
             }
             self.push_history(line);
-            remaining = &remaining[take..];
+            start += take;
         }
     }
 
@@ -228,8 +238,11 @@ impl HistoryLine {
     }
 
     fn push_str(&mut self, text: &str) {
-        for byte in text.bytes() {
-            self.push_byte(byte);
+        let bytes = text.as_bytes();
+        let mut index = 0usize;
+        while index < bytes.len() {
+            self.push_byte(bytes[index]);
+            index += 1;
         }
     }
 
@@ -294,18 +307,26 @@ impl FsNode {
     fn set_name(&mut self, name: &str) {
         self.name = [0; MAX_NAME_LEN];
         self.name_len = 0;
-        for byte in name.bytes().take(MAX_NAME_LEN) {
-            self.name[self.name_len] = sanitize(byte);
+        let bytes = name.as_bytes();
+        let limit = core::cmp::min(bytes.len(), MAX_NAME_LEN);
+        let mut index = 0usize;
+        while index < limit {
+            self.name[self.name_len] = sanitize(bytes[index]);
             self.name_len += 1;
+            index += 1;
         }
     }
 
     fn set_data(&mut self, contents: &str) {
         self.data = [0; MAX_FILE_LEN];
         self.data_len = 0;
-        for byte in contents.bytes().take(MAX_FILE_LEN) {
-            self.data[self.data_len] = sanitize(byte);
+        let bytes = contents.as_bytes();
+        let limit = core::cmp::min(bytes.len(), MAX_FILE_LEN);
+        let mut index = 0usize;
+        while index < limit {
+            self.data[self.data_len] = sanitize(bytes[index]);
             self.data_len += 1;
+            index += 1;
         }
     }
 
@@ -449,19 +470,24 @@ impl MiniFs {
         }
 
         let mut current = if path.starts_with('/') { 0 } else { self.cwd };
-        for component in path.split('/') {
+        let mut start = 0usize;
+        while start <= path.len() {
+            let component_end = find_separator(path, start).unwrap_or(path.len());
+            let component = &path[start..component_end];
             if component.is_empty() || component == "." {
-                continue;
-            }
-            if component == ".." {
+            } else if component == ".." {
                 current = self.nodes[current].parent;
-                continue;
+            } else {
+                match self.find_child(current, component) {
+                    Some(index) => current = index,
+                    None => return Err("path not found"),
+                }
             }
 
-            match self.find_child(current, component) {
-                Some(index) => current = index,
-                None => return Err("path not found"),
+            if component_end == path.len() {
+                break;
             }
+            start = component_end + 1;
         }
         Ok(current)
     }
@@ -472,8 +498,11 @@ impl MiniFs {
             return Err("missing path");
         }
 
-        let mut parts = trimmed.rsplitn(2, '/');
-        let name = parts.next().unwrap_or("");
+        let split_index = find_last_separator(trimmed);
+        let name = match split_index {
+            Some(index) => &trimmed[index + 1..],
+            None => trimmed,
+        };
         if name.is_empty() || name == "." || name == ".." {
             return Err("invalid name");
         }
@@ -481,7 +510,10 @@ impl MiniFs {
             return Err("name too long or invalid");
         }
 
-        let parent_path = parts.next().unwrap_or("");
+        let parent_path = match split_index {
+            Some(index) => &trimmed[..index],
+            None => "",
+        };
         let parent = if trimmed.starts_with('/') && parent_path.is_empty() {
             0
         } else if parent_path.is_empty() {
@@ -544,8 +576,10 @@ impl MiniFs {
 
         while current != 0 && segment_count < segments.len() {
             let node = &self.nodes[current];
-            for (index, byte) in node.name[..node.name_len].iter().enumerate() {
-                segments[segment_count][index] = *byte;
+            let mut index = 0usize;
+            while index < node.name_len {
+                segments[segment_count][index] = node.name[index];
+                index += 1;
             }
             segment_lens[segment_count] = node.name_len;
             segment_count += 1;
@@ -556,12 +590,14 @@ impl MiniFs {
         self.cwd_path[len] = b'/';
         len += 1;
         for segment_index in (0..segment_count).rev() {
-            for byte in segments[segment_index].iter().take(segment_lens[segment_index]) {
+            let mut byte_index = 0usize;
+            while byte_index < segment_lens[segment_index] {
                 if len >= MAX_LINE_LEN {
                     break;
                 }
-                self.cwd_path[len] = *byte;
+                self.cwd_path[len] = segments[segment_index][byte_index];
                 len += 1;
+                byte_index += 1;
             }
             if segment_index != 0 && len < MAX_LINE_LEN {
                 self.cwd_path[len] = b'/';
@@ -576,12 +612,52 @@ fn valid_name(name: &str) -> bool {
     if name.len() > MAX_NAME_LEN {
         return false;
     }
-    for byte in name.bytes() {
+    let bytes = name.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        let byte = bytes[index];
         if !matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b'-') {
             return false;
         }
+        index += 1;
     }
     true
+}
+
+fn starts_with(text: &str, prefix: &str) -> bool {
+    text.as_bytes().starts_with(prefix.as_bytes())
+}
+
+fn slice_from(text: &str, start: usize) -> &str {
+    if start >= text.len() {
+        ""
+    } else {
+        &text[start..]
+    }
+}
+
+fn find_separator(path: &str, start: usize) -> Option<usize> {
+    let bytes = path.as_bytes();
+    let mut index = start;
+    while index < bytes.len() {
+        if bytes[index] == b'/' {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
+}
+
+fn find_last_separator(path: &str) -> Option<usize> {
+    let bytes = path.as_bytes();
+    let mut index = bytes.len();
+    while index > 0 {
+        index -= 1;
+        if bytes[index] == b'/' {
+            return Some(index);
+        }
+    }
+    None
 }
 
 fn sanitize(byte: u8) -> u8 {
