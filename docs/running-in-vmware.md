@@ -35,6 +35,6 @@ The kernel screen should include:
 
 Press a few keys in VMware after the kernel screen appears. The `Timer ticks`,
 `Uptime seconds`, `Last keyboard scancode`, and `Last keyboard ascii` fields
-should update without returning to the BIOS shell. You should also see an
-`Input:` line and a `Result:` line respond to `help`, `clear`, `ticks`, and
-`about`.
+should update without returning to the BIOS shell. You should also see a small
+`Shell:` area keep a few lines of command/output history, with an `Input:` line
+responding to `help`, `clear`, `ticks`, and `about`.
