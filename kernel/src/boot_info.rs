@@ -1,5 +1,3 @@
-use crate::vga;
-
 const BOOT_INFO_SIGNATURE: [u8; 8] = *b"TEDDYOS\0";
 
 #[repr(C, packed)]
@@ -37,19 +35,23 @@ impl BootInfo {
         })
     }
 
-    pub fn render(&self) {
-        vga::write_line(14, 48, "Boot info", 0x1E);
-        vga::write_line(15, 48, "Ver:", 0x1F);
-        vga::write_hex_byte(15, 53, "", self.version, 0x1F);
-        vga::write_line(15, 58, "Drv:", 0x1F);
-        vga::write_hex_byte(15, 63, "", self.boot_drive, 0x1F);
+    pub fn version(&self) -> u8 {
+        self.version
+    }
 
-        vga::write_line(16, 48, "KSeg:", 0x17);
-        vga::write_hex_word(16, 54, "", self.kernel_segment, 0x17);
-        vga::write_line(16, 60, "KSec:", 0x17);
-        vga::write_hex_word(16, 66, "", self.kernel_sectors, 0x17);
+    pub fn boot_drive(&self) -> u8 {
+        self.boot_drive
+    }
 
-        vga::write_line(17, 48, "S2Sec:", 0x1A);
-        vga::write_hex_word(17, 55, "", self.stage2_sectors, 0x1A);
+    pub fn kernel_segment(&self) -> u16 {
+        self.kernel_segment
+    }
+
+    pub fn kernel_sectors(&self) -> u16 {
+        self.kernel_sectors
+    }
+
+    pub fn stage2_sectors(&self) -> u16 {
+        self.stage2_sectors
     }
 }

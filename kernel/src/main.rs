@@ -8,12 +8,10 @@ mod boot_info;
 mod cpu;
 mod interrupts;
 mod port;
+mod shell;
 mod vga;
 
 const KERNEL_STACK_TOP: usize = 0x80000;
-const INPUT_BUFFER_LEN: usize = 32;
-const PREVIOUS_LINE_LEN: usize = 40;
-const OUTPUT_LINE_LEN: usize = 40;
 
 global_asm!(
     r#"
@@ -37,229 +35,29 @@ _start:
 #[no_mangle]
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     let mut last_seen_scancode = 0u8;
-    let mut input_buffer = [0u8; INPUT_BUFFER_LEN];
-    let mut input_len = 0usize;
-    let mut previous_line = [b' '; PREVIOUS_LINE_LEN];
-    let mut previous_len = 0usize;
-    let mut output_line = [b' '; OUTPUT_LINE_LEN];
-    let mut output_len = 0usize;
-    vga::clear_screen(0x1F);
-    vga::write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
-    vga::write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
-    vga::write_line(8, 8, "Checkpoint: VGA console online", 0x17);
-    vga::write_line(10, 8, "Kernel boot-info handoff is now visible", 0x1A);
-    vga::write_line(11, 8, "Boot contract: BIOS handoff stable", 0x1A);
-    vga::write_line(12, 8, "Kernel core is stable again", 0x1F);
-    vga::write_line(22, 8, "Timer + keyboard IRQs armed", 0x70);
-    vga::write_line(23, 8, "Press keys in VMware to test PS/2 input", 0x70);
-
-    match boot_info::BootInfo::parse(boot_info_addr) {
-        Some(info) => info.render(),
-        None => vga::write_line(14, 48, "Boot info parse failed", 0x4F),
-    }
-
+    let mut last_seen_second = 0u64;
     interrupts::init();
-    interrupts::render_status();
-    render_previous_line(&previous_line, previous_len);
-    render_output_line(&output_line, output_len);
-    render_input_line(&input_buffer, input_len);
-    render_result_line("Commands: help, clear, ticks, about");
+    let boot_info = boot_info::BootInfo::parse(boot_info_addr);
+    let mut desktop = shell::DesktopShell::new(boot_info);
+    desktop.render();
     cpu::enable_interrupts();
 
     loop {
+        let uptime_seconds = interrupts::uptime_seconds();
+        if uptime_seconds != last_seen_second {
+            last_seen_second = uptime_seconds;
+            desktop.tick(uptime_seconds);
+        }
+
         let scancode = interrupts::last_scancode();
         if scancode != last_seen_scancode {
             last_seen_scancode = scancode;
             if scancode & 0x80 == 0 {
-                handle_key(
-                    interrupts::last_ascii(),
-                    &mut input_buffer,
-                    &mut input_len,
-                    &mut previous_line,
-                    &mut previous_len,
-                    &mut output_line,
-                    &mut output_len,
-                );
+                desktop.handle_key(scancode, interrupts::last_ascii());
             }
         }
         cpu::halt();
     }
-}
-
-fn handle_key(
-    ascii: u8,
-    input_buffer: &mut [u8; INPUT_BUFFER_LEN],
-    input_len: &mut usize,
-    previous_line: &mut [u8; PREVIOUS_LINE_LEN],
-    previous_len: &mut usize,
-    output_line: &mut [u8; OUTPUT_LINE_LEN],
-    output_len: &mut usize,
-) {
-    match ascii {
-        8 => {
-            if *input_len > 0 {
-                *input_len -= 1;
-            }
-        }
-        b'\n' => {
-            submit_command(
-                input_buffer,
-                input_len,
-                previous_line,
-                previous_len,
-                output_line,
-                output_len,
-            );
-        }
-        0x20..=0x7E => {
-            if *input_len < INPUT_BUFFER_LEN {
-                input_buffer[*input_len] = ascii;
-                *input_len += 1;
-            }
-        }
-        _ => {}
-    }
-    render_input_line(input_buffer, *input_len);
-}
-
-fn submit_command(
-    input_buffer: &mut [u8; INPUT_BUFFER_LEN],
-    input_len: &mut usize,
-    previous_line: &mut [u8; PREVIOUS_LINE_LEN],
-    previous_len: &mut usize,
-    output_line: &mut [u8; OUTPUT_LINE_LEN],
-    output_len: &mut usize,
-) {
-    let command = core::str::from_utf8(&input_buffer[..*input_len]).unwrap_or("");
-    update_previous_line(previous_line, previous_len, input_buffer, *input_len);
-    render_previous_line(previous_line, *previous_len);
-    match command {
-        "" => {
-            update_output_text(output_line, output_len, b"", 0);
-            render_output_line(output_line, *output_len);
-            render_result_line("");
-        }
-        "help" => {
-            update_output_text(output_line, output_len, b"help clear ticks about", 22);
-            render_output_line(output_line, *output_len);
-            render_result_line("help clear ticks about");
-        }
-        "clear" => {
-            update_output_text(output_line, output_len, b"", 0);
-            render_output_line(output_line, *output_len);
-            render_result_line("");
-        }
-        "ticks" => {
-            let mut text = [b' '; 32];
-            let len = format_ticks(&mut text, interrupts::timer_ticks() as u32);
-            update_output_text(output_line, output_len, &text, len);
-            render_output_line(output_line, *output_len);
-            render_result_bytes(&text, len);
-        }
-        "about" => {
-            update_output_text(output_line, output_len, b"Teddy-OS one-line input MVP", 28);
-            render_output_line(output_line, *output_len);
-            render_result_line("Teddy-OS one-line input MVP");
-        }
-        _ => {
-            update_output_text(output_line, output_len, b"Unknown command", 15);
-            render_output_line(output_line, *output_len);
-            render_result_line("Unknown command");
-        }
-    }
-    *input_len = 0;
-    render_input_line(input_buffer, *input_len);
-}
-
-fn update_output_text(
-    output_line: &mut [u8; OUTPUT_LINE_LEN],
-    output_len: &mut usize,
-    bytes: &[u8],
-    len: usize,
-) {
-    *output_line = [b' '; OUTPUT_LINE_LEN];
-    let copy_len = core::cmp::min(len, OUTPUT_LINE_LEN);
-    for (index, byte) in bytes.iter().take(copy_len).enumerate() {
-        output_line[index] = *byte;
-    }
-    *output_len = copy_len;
-}
-
-fn update_previous_line(
-    previous_line: &mut [u8; PREVIOUS_LINE_LEN],
-    previous_len: &mut usize,
-    input_buffer: &[u8; INPUT_BUFFER_LEN],
-    input_len: usize,
-) {
-    *previous_line = [b' '; PREVIOUS_LINE_LEN];
-    previous_line[0] = b'>';
-    previous_line[1] = b' ';
-    let copy_len = core::cmp::min(input_len, PREVIOUS_LINE_LEN.saturating_sub(2));
-    for (index, byte) in input_buffer.iter().take(copy_len).enumerate() {
-        previous_line[index + 2] = *byte;
-    }
-    *previous_len = copy_len + 2;
-}
-
-fn render_previous_line(buffer: &[u8; PREVIOUS_LINE_LEN], len: usize) {
-    vga::clear_row(21, 0x17);
-    vga::write_line(21, 8, "Previous: ", 0x17);
-    for (index, byte) in buffer.iter().take(len).enumerate() {
-        vga::write_ascii(21, 18 + index, *byte, 0x17);
-    }
-}
-
-fn render_output_line(buffer: &[u8; OUTPUT_LINE_LEN], len: usize) {
-    vga::clear_row(22, 0x17);
-    vga::write_line(22, 8, "Output: ", 0x17);
-    for (index, byte) in buffer.iter().take(len).enumerate() {
-        vga::write_ascii(22, 16 + index, *byte, 0x17);
-    }
-}
-
-fn render_input_line(buffer: &[u8; INPUT_BUFFER_LEN], len: usize) {
-    vga::clear_row(20, 0x1F);
-    vga::write_line(20, 8, "Input: ", 0x1F);
-    for (index, byte) in buffer.iter().take(len).enumerate() {
-        vga::write_ascii(20, 15 + index, *byte, 0x1F);
-    }
-    vga::write_line(20, 50, "Enter=submit Backspace=edit", 0x17);
-}
-
-fn render_result_line(text: &str) {
-    vga::clear_row(23, 0x17);
-    vga::write_line(23, 8, "Result: ", 0x17);
-    vga::write_line(23, 16, text, 0x17);
-}
-
-fn render_result_bytes(bytes: &[u8; 32], len: usize) {
-    vga::clear_row(23, 0x17);
-    vga::write_line(23, 8, "Result: ", 0x17);
-    for (index, byte) in bytes.iter().take(len).enumerate() {
-        vga::write_ascii(23, 16 + index, *byte, 0x17);
-    }
-}
-
-fn format_ticks(buffer: &mut [u8; 32], value: u32) -> usize {
-    let prefix = b"ticks=0x";
-    let mut len = 0;
-    for byte in prefix {
-        buffer[len] = *byte;
-        len += 1;
-    }
-    let mut started = false;
-    for shift in (0..8).rev() {
-        let nibble = ((value >> (shift * 4)) & 0x0F) as u8;
-        if nibble != 0 || started || shift == 0 {
-            buffer[len] = match nibble {
-                0..=9 => b'0' + nibble,
-                _ => b'A' + (nibble - 10),
-            };
-            len += 1;
-            started = true;
-        }
-    }
-    len
 }
 
 #[panic_handler]

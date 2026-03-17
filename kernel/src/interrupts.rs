@@ -266,18 +266,8 @@ pub fn last_ascii() -> u8 {
     LAST_ASCII.load(Ordering::Relaxed)
 }
 
-pub fn render_status() {
-    let ticks = TIMER_TICKS.load(Ordering::Relaxed);
-    let seconds = ticks / PIT_TICKS_PER_SECOND as u64;
-    vga::write_line(14, 8, "Interrupts: IDT+PIC+PIT online", 0x1E);
-    vga::write_line(15, 8, "Timer ticks:", 0x1F);
-    vga::write_hex_dword(15, 21, ticks as u32, 0x1F);
-    vga::write_line(16, 8, "Uptime seconds:", 0x17);
-    vga::write_hex_dword(16, 24, seconds as u32, 0x17);
-    vga::write_line(18, 8, "Last keyboard scancode:", 0x1F);
-    vga::write_hex_byte(18, 31, "", LAST_SCANCODE.load(Ordering::Relaxed), 0x1F);
-    vga::write_line(19, 8, "Last keyboard ascii:", 0x1A);
-    vga::write_ascii(19, 28, LAST_ASCII.load(Ordering::Relaxed), 0x1A);
+pub fn uptime_seconds() -> u64 {
+    timer_ticks() / PIT_TICKS_PER_SECOND as u64
 }
 
 #[no_mangle]
@@ -291,10 +281,7 @@ extern "C" fn interrupt_dispatch(vector: u64, error_code: u64, stack_frame: *con
 }
 
 fn handle_timer_irq() {
-    let ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed) + 1;
-    if ticks % 10 == 0 {
-        render_status();
-    }
+    TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
     end_of_interrupt(TIMER_VECTOR);
 }
 
@@ -303,7 +290,6 @@ fn handle_keyboard_irq() {
     LAST_SCANCODE.store(scancode, Ordering::Relaxed);
     if scancode & 0x80 == 0 {
         LAST_ASCII.store(decode_scancode(scancode), Ordering::Relaxed);
-        render_status();
     }
     end_of_interrupt(KEYBOARD_VECTOR);
 }
@@ -343,6 +329,7 @@ fn decode_scancode(scancode: u8) -> u8 {
         0x09 => b'8',
         0x0A => b'9',
         0x0B => b'0',
+        0x0F => b'\t',
         0x0E => 8,
         0x10 => b'q',
         0x11 => b'w',
@@ -372,6 +359,7 @@ fn decode_scancode(scancode: u8) -> u8 {
         0x31 => b'n',
         0x32 => b'm',
         0x39 => b' ',
+        0x01 => 27,
         _ => b'?',
     }
 }

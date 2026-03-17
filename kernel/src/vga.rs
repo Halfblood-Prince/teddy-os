@@ -2,6 +2,10 @@ const VGA_BUFFER: *mut u8 = 0xB8000 as *mut u8;
 const VGA_WIDTH: usize = 80;
 const VGA_HEIGHT: usize = 25;
 
+pub const fn width() -> usize {
+    VGA_WIDTH
+}
+
 pub fn clear_screen(attribute: u8) {
     for row in 0..VGA_HEIGHT {
         for col in 0..VGA_WIDTH {
@@ -20,10 +24,37 @@ pub fn write_line(row: usize, col: usize, text: &str, attribute: u8) {
     }
 }
 
-pub fn clear_row(row: usize, attribute: u8) {
-    for col in 0..VGA_WIDTH {
-        write_cell(row, col, b' ', attribute);
+pub fn fill_rect(row: usize, col: usize, height: usize, width: usize, byte: u8, attribute: u8) {
+    let max_row = core::cmp::min(row.saturating_add(height), VGA_HEIGHT);
+    let max_col = core::cmp::min(col.saturating_add(width), VGA_WIDTH);
+    for y in row..max_row {
+        for x in col..max_col {
+            write_cell(y, x, byte, attribute);
+        }
     }
+}
+
+pub fn draw_box(row: usize, col: usize, height: usize, width: usize, attribute: u8) {
+    if height < 2 || width < 2 {
+        return;
+    }
+
+    let bottom = row + height - 1;
+    let right = col + width - 1;
+
+    for x in col + 1..right {
+        write_cell(row, x, b'-', attribute);
+        write_cell(bottom, x, b'-', attribute);
+    }
+    for y in row + 1..bottom {
+        write_cell(y, col, b'|', attribute);
+        write_cell(y, right, b'|', attribute);
+    }
+
+    write_cell(row, col, b'+', attribute);
+    write_cell(row, right, b'+', attribute);
+    write_cell(bottom, col, b'+', attribute);
+    write_cell(bottom, right, b'+', attribute);
 }
 
 pub fn write_hex_byte(row: usize, col: usize, label: &str, value: u8, attribute: u8) {

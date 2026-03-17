@@ -21,20 +21,26 @@ Try `graphics` at the prompt. You should see a simple Teddy-OS graphics screen
 and return to the shell after pressing a key.
 
 Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
-64-bit Rust kernel screen, arm hardware interrupts, and update live status fields.
+64-bit Rust kernel desktop shell, arm hardware interrupts, and update live
+status fields.
 
 The kernel screen should include:
 
-- `TEDDY-OS KERNEL`
-- `Rust x86_64 kernel loaded successfully`
-- `Checkpoint: VGA console online`
-- `Boot contract: BIOS handoff stable`
-- `Kernel core is stable again`
-- boot metadata from the stage 2 handoff
-- `Interrupts: IDT+PIC+PIT online`
+- a Teddy-OS desktop header
+- a bottom taskbar with a live clock
+- a `Welcome` window
+- a `System Monitor` window with boot metadata and live counters
+- a launcher panel when you press `l`
 
-Press a few keys in VMware after the kernel screen appears. The `Timer ticks`,
-`Uptime seconds`, `Last keyboard scancode`, and `Last keyboard ascii` fields
-should update without returning to the BIOS shell. You should also see an
-`Input:` line, retained `Previous:` and `Output:` lines, and a `Result:` line
-respond to `help`, `clear`, `ticks`, and `about`.
+Press a few keys in VMware after the kernel screen appears:
+
+- `l` opens and closes the launcher
+- `tab` switches focus between visible windows
+- `m` toggles move mode
+- `w`, `a`, `s`, `d` move the focused window while move mode is enabled
+- `x` closes the focused window
+- `r` restores the default layout
+- `1`, `2`, `3` open `Welcome`, `System Monitor`, and `Roadmap`
+
+The `System Monitor` window should update `Ticks`, `Uptime`, `Last key`, and
+`Scancode` while the taskbar clock advances once per second.

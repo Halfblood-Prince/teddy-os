@@ -6,8 +6,9 @@ in VMware in legacy BIOS mode.
 The current repository is a minimal BIOS-first baseline. It builds a tiny
 legacy BIOS boot image with a real second-stage loader, a small interactive
 text-mode shell, a simple graphics-mode demo, and a tiny x86_64 long-mode
-kernel entry demo that can jump into a real Rust x86_64 kernel, then packages it into a
-bootable ISO for VMware.
+kernel entry demo that can jump into a real Rust x86_64 kernel. The kernel now
+hosts a text-mode desktop shell MVP, then packages everything into a bootable
+ISO for VMware.
 
 ## What Exists Now
 
@@ -15,7 +16,7 @@ bootable ISO for VMware.
 - keyboard input and a tiny BIOS shell in stage 2
 - a VGA mode `13h` graphics demo launched from the shell
 - a `kernel` command that loads and jumps to a real Rust x86_64 kernel binary
-- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, and boot-info parsing
+- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, boot-info parsing, and a text-mode desktop shell MVP
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
@@ -90,18 +91,25 @@ Example commands:
 
 When you run `kernel`, the current kernel MVP should show:
 
-- `TEDDY-OS KERNEL`
-- `Rust x86_64 kernel loaded successfully`
-- `Checkpoint: VGA console online`
-- `Boot contract: BIOS handoff stable`
-- `Kernel core is stable again`
-- boot metadata parsed from stage 2
-- `Interrupts: IDT+PIC+PIT online`
-- a ticking timer counter
-- a one-line input buffer plus retained `Previous:` and `Output:` lines
-- the last keyboard scancode and ASCII value as you press keys
+- a Teddy-OS desktop header and themed background
+- a bottom taskbar with a live uptime clock
+- a `Welcome` window and a `System Monitor` window
+- boot metadata from stage 2 inside the system window
+- live timer ticks plus the last keyboard scancode and ASCII value
+- a launcher panel you can open from the taskbar area
+
+Kernel desktop controls:
+
+- `l` opens or closes the launcher
+- `tab` focuses the next visible window
+- `m` toggles move mode for the focused window
+- `w`, `a`, `s`, `d` move the focused window while move mode is active
+- `x` closes the focused window
+- `r` restores the default window layout
+- `1`, `2`, `3` open `Welcome`, `System Monitor`, and `Roadmap`
 
 ## Next Step
 
-Once this BIOS baseline is proven stable in VMware, the next phase is to
-try a tiny two-command history area before attempting a fuller scrollback area.
+Once this desktop-shell milestone is proven stable in VMware, the next phase is
+to replace the shell placeholders with a real terminal application and start
+moving from VGA text mode toward a framebuffer-backed desktop.
