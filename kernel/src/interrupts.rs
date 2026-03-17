@@ -252,14 +252,24 @@ pub fn init() {
     }
 
     remap_pic();
-    set_irq_masks(0b1111_1100, 0b1111_1111);
+    set_irq_masks(0b1111_1110, 0b1111_1111);
     init_pit(PIT_TICKS_PER_SECOND);
+}
+
+pub fn timer_ticks() -> u64 {
+    TIMER_TICKS.load(Ordering::Relaxed)
+}
+
+pub fn record_polled_key(scancode: u8, ascii: u8) {
+    LAST_SCANCODE.store(scancode, Ordering::Relaxed);
+    LAST_ASCII.store(ascii, Ordering::Relaxed);
+    render_status();
 }
 
 pub fn render_status() {
     let ticks = TIMER_TICKS.load(Ordering::Relaxed);
     let seconds = ticks / PIT_TICKS_PER_SECOND as u64;
-    vga::write_line(14, 8, "Interrupts: IDT+PIC+PIT online", 0x1E);
+    vga::write_line(14, 8, "Timer IRQ online, keyboard polled", 0x1E);
     vga::write_line(15, 8, "Timer ticks:", 0x1F);
     vga::write_hex_dword(15, 21, ticks as u32, 0x1F);
     vga::write_line(16, 8, "Uptime seconds:", 0x17);

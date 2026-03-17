@@ -15,7 +15,7 @@ bootable ISO for VMware.
 - keyboard input and a tiny BIOS shell in stage 2
 - a VGA mode `13h` graphics demo launched from the shell
 - a `kernel` command that loads and jumps to a real Rust x86_64 kernel binary
-- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, and boot-info parsing
+- a modular Rust kernel with stable VGA text output, a timer IRQ, keyboard polling, boot-info parsing, and a tiny console
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
@@ -96,12 +96,12 @@ When you run `kernel`, the current kernel MVP should show:
 - `Boot contract: BIOS handoff stable`
 - `Kernel core is stable again`
 - boot metadata parsed from stage 2
-- `Interrupts: IDT+PIC+PIT online`
+- `Timer IRQ online, keyboard polled`
 - a ticking timer counter
-- the last keyboard scancode and ASCII value as you press keys
+- a small polling console that accepts `help`, `clear`, `ticks`, and `about`
 
 ## Next Step
 
 Once this BIOS baseline is proven stable in VMware, the next phase is to
-grow the Rust kernel with a small polling-based console/input layer while
-keeping the current interrupt path stable.
+grow the polling console into a fuller shell, then reintroduce event-queue
+input only after the VMware path is still proven stable.

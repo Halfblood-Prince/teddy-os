@@ -21,7 +21,7 @@ Try `graphics` at the prompt. You should see a simple Teddy-OS graphics screen
 and return to the shell after pressing a key.
 
 Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
-64-bit Rust kernel screen, arm hardware interrupts, and update live status fields.
+64-bit Rust kernel screen, keep the timer IRQ active, and show a small polling console.
 
 The kernel screen should include:
 
@@ -31,8 +31,8 @@ The kernel screen should include:
 - `Boot contract: BIOS handoff stable`
 - `Kernel core is stable again`
 - boot metadata from the stage 2 handoff
-- `Interrupts: IDT+PIC+PIT online`
+- `Timer IRQ online, keyboard polled`
 
 Press a few keys in VMware after the kernel screen appears. The `Timer ticks`,
-`Uptime seconds`, `Last keyboard scancode`, and `Last keyboard ascii` fields
-should update without returning to the BIOS shell.
+`Uptime seconds`, key fields, and the polling console should update without
+returning to the BIOS shell. Try `help`, `ticks`, `about`, and `clear`.
