@@ -260,6 +260,14 @@ pub fn timer_ticks() -> u64 {
     TIMER_TICKS.load(Ordering::Relaxed)
 }
 
+pub fn last_scancode() -> u8 {
+    LAST_SCANCODE.load(Ordering::Relaxed)
+}
+
+pub fn last_ascii() -> u8 {
+    LAST_ASCII.load(Ordering::Relaxed)
+}
+
 pub fn render_status() {
     let ticks = TIMER_TICKS.load(Ordering::Relaxed);
     let seconds = ticks / PIT_TICKS_PER_SECOND as u64;

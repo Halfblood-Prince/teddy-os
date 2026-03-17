@@ -11,6 +11,7 @@ mod port;
 mod vga;
 
 const KERNEL_STACK_TOP: usize = 0x80000;
+const KEY_PREVIEW_LEN: usize = 32;
 
 global_asm!(
     r#"
@@ -33,6 +34,8 @@ _start:
 
 #[no_mangle]
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
+    let mut last_seen_scancode = 0u8;
+    let mut recent_keys = [b' '; KEY_PREVIEW_LEN];
     vga::clear_screen(0x1F);
     vga::write_line(2, 8, "TEDDY-OS KERNEL", 0x1F);
     vga::write_line(5, 8, "Rust x86_64 kernel loaded successfully", 0x1E);
@@ -50,11 +53,42 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
 
     interrupts::init();
     interrupts::render_status();
+    render_recent_keys(&recent_keys);
     cpu::enable_interrupts();
 
     loop {
+        let scancode = interrupts::last_scancode();
+        if scancode != last_seen_scancode {
+            last_seen_scancode = scancode;
+            if scancode & 0x80 == 0 {
+                push_recent_key(&mut recent_keys, interrupts::last_ascii());
+                render_recent_keys(&recent_keys);
+            }
+        }
         cpu::halt();
     }
+}
+
+fn push_recent_key(buffer: &mut [u8; KEY_PREVIEW_LEN], ascii: u8) {
+    let byte = match ascii {
+        8 => b'<',
+        b'\n' => b'#',
+        0x20..=0x7E => ascii,
+        _ => b'.',
+    };
+
+    for index in 1..KEY_PREVIEW_LEN {
+        buffer[index - 1] = buffer[index];
+    }
+    buffer[KEY_PREVIEW_LEN - 1] = byte;
+}
+
+fn render_recent_keys(buffer: &[u8; KEY_PREVIEW_LEN]) {
+    vga::write_line(20, 8, "Recent keys:", 0x1F);
+    for (index, byte) in buffer.iter().enumerate() {
+        vga::write_ascii(20, 21 + index, *byte, 0x1F);
+    }
+    vga::write_line(21, 8, "< = backspace, # = enter", 0x17);
 }
 
 #[panic_handler]
