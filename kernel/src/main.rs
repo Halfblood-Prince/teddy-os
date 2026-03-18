@@ -51,6 +51,7 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     let boot_info = boot_info::BootInfo::parse(boot_info_addr);
     trace::set_boot_stage(3);
     let desktop = unsafe { &mut *core::ptr::addr_of_mut!(DESKTOP_SHELL) };
+    trace::set_boot_stage(0x30);
     desktop.init(boot_info);
     trace::set_boot_stage(4);
     desktop.render();

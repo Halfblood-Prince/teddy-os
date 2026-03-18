@@ -31,13 +31,18 @@ impl TerminalApp {
     }
 
     pub fn init(&mut self) {
+        trace::set_boot_stage(0x40);
         self.fs.init();
+        trace::set_boot_stage(0x41);
         clear_history_lines(&mut self.history);
         self.history_len = 0;
         self.input = [0; INPUT_BUFFER_LEN];
         self.input_len = 0;
+        trace::set_boot_stage(0x42);
         self.push_line("Teddy Terminal ready.");
+        trace::set_boot_stage(0x43);
         self.push_line("Type 'help' for commands.");
+        trace::set_boot_stage(0x44);
     }
 
     pub fn handle_key(&mut self, ascii: u8) -> TerminalAction {
@@ -367,21 +372,26 @@ impl MiniFs {
     }
 
     fn init(&mut self) {
+        trace::set_boot_stage(0x50);
         let mut index = 0usize;
         while index < MAX_FS_NODES {
             self.nodes[index] = FsNode::empty();
             index += 1;
         }
+        trace::set_boot_stage(0x51);
         self.cwd = 0;
         self.cwd_path = [b' '; MAX_LINE_LEN];
         self.cwd_path_len = 1;
         self.cwd_path[0] = b'/';
+        trace::set_boot_stage(0x52);
         self.nodes[0].init_dir(0, "");
         self.nodes[1].init_dir(0, "docs");
         self.nodes[2].init_file(0, "readme.txt", "Teddy Terminal demo filesystem.");
         self.nodes[3].init_file(1, "plan.txt", "Next: persistent filesystem and real apps.");
         self.nodes[4].init_file(0, "notes.txt", "Use F1 launcher, F2 focus, F3 move.");
+        trace::set_boot_stage(0x53);
         self.refresh_cwd_path();
+        trace::set_boot_stage(0x54);
     }
 
     fn cwd_path(&self) -> &str {
@@ -690,3 +700,4 @@ fn clear_history_lines(lines: &mut [HistoryLine; MAX_HISTORY_LINES]) {
         index += 1;
     }
 }
+use crate::trace;

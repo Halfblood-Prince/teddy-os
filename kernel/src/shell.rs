@@ -1,4 +1,4 @@
-use crate::{boot_info::BootInfo, interrupts, terminal::{TerminalAction, TerminalApp}, vga};
+use crate::{boot_info::BootInfo, interrupts, terminal::{TerminalAction, TerminalApp}, trace, vga};
 
 const MAX_WINDOWS: usize = 4;
 const TASKBAR_ROW: usize = 24;
@@ -39,13 +39,18 @@ impl DesktopShell {
     }
 
     pub fn init(&mut self, boot_info: Option<BootInfo>) {
+        trace::set_boot_stage(0x31);
         self.boot_info = boot_info;
+        trace::set_boot_stage(0x32);
         self.terminal.init();
+        trace::set_boot_stage(0x33);
         self.focus_index = 0;
         self.launcher_open = false;
         self.move_mode = false;
         self.uptime_seconds = 0;
+        trace::set_boot_stage(0x34);
         self.reset_layout();
+        trace::set_boot_stage(0x35);
     }
 
     pub fn render(&self) {
