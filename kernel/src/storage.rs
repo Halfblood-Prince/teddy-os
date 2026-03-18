@@ -48,6 +48,11 @@ impl PersistenceState {
 }
 
 pub fn detect_primary_master() -> bool {
+    let mut identify = [0u16; 256];
+    detect_primary_master_into(&mut identify)
+}
+
+fn detect_primary_master_into(identify: &mut [u16; 256]) -> bool {
     select_drive(0);
     port::outb(ATA_SECTOR_COUNT, 0);
     port::outb(ATA_LBA_LOW, 0);
@@ -76,10 +81,10 @@ pub fn detect_primary_master() -> bool {
             if current & STATUS_DRQ != 0 {
                 let mut word_index = 0usize;
                 while word_index < 256 {
-                    let _ = port::inw(ATA_DATA);
+                    identify[word_index] = port::inw(ATA_DATA);
                     word_index += 1;
                 }
-                return true;
+                return identify_is_writable_disk(identify);
             }
         }
         spins += 1;
@@ -166,4 +171,13 @@ fn wait_not_busy() -> bool {
 
 fn is_atapi_signature(mid: u8, high: u8) -> bool {
     (mid == 0x14 && high == 0xEB) || (mid == 0x69 && high == 0x96)
+}
+
+fn identify_is_writable_disk(identify: &[u16; 256]) -> bool {
+    let general_config = identify[0];
+    let is_packet_device = (general_config & 0x8000) != 0;
+    let is_removable = (general_config & 0x0080) != 0;
+    let total_lba28_sectors = ((identify[61] as u32) << 16) | identify[60] as u32;
+
+    !is_packet_device && !is_removable && total_lba28_sectors != 0
 }
