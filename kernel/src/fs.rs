@@ -6,7 +6,6 @@ pub const MAX_FILE_LEN: usize = 96;
 pub const MAX_PATH_LEN: usize = 58;
 const FS_SECTOR_SIZE: usize = 512;
 const FS_DISK_LBA_START: u32 = 1;
-const FS_DISK_SECTORS: usize = 5;
 const FS_SIGNATURE: [u8; 8] = *b"TEDDYFS1";
 const FS_VERSION: u8 = 1;
 
@@ -452,14 +451,18 @@ impl FileSystem {
     }
 
     fn load_or_seed(&mut self) {
+        trace::set_boot_stage(0x55);
         if !storage::detect_primary_master() {
             self.persistence = PersistenceState::NoDisk;
+            trace::set_boot_stage(0x56);
             return;
         }
 
+        trace::set_boot_stage(0x57);
         match self.load_from_disk() {
             Ok(()) => self.persistence = PersistenceState::Ready,
             Err(PersistenceState::InvalidFormat) => {
+                trace::set_boot_stage(0x58);
                 if self.save_to_disk() {
                     self.persistence = PersistenceState::Seeded;
                 } else {
@@ -468,6 +471,7 @@ impl FileSystem {
             }
             Err(error) => self.persistence = error,
         }
+        trace::set_boot_stage(0x59);
     }
 
     fn save_if_possible(&mut self) {
@@ -484,16 +488,11 @@ impl FileSystem {
     }
 
     fn load_from_disk(&mut self) -> Result<(), PersistenceState> {
-        let mut sectors = [[0u8; FS_SECTOR_SIZE]; FS_DISK_SECTORS];
-        let mut sector_index = 0usize;
-        while sector_index < FS_DISK_SECTORS {
-            if !storage::read_sector(FS_DISK_LBA_START + sector_index as u32, &mut sectors[sector_index]) {
-                return Err(PersistenceState::ReadError);
-            }
-            sector_index += 1;
+        trace::set_boot_stage(0x5A);
+        let mut header = [0u8; FS_SECTOR_SIZE];
+        if !storage::read_sector(FS_DISK_LBA_START, &mut header) {
+            return Err(PersistenceState::ReadError);
         }
-
-        let header = &sectors[0];
         let mut signature_index = 0usize;
         while signature_index < FS_SIGNATURE.len() {
             if header[signature_index] != FS_SIGNATURE[signature_index] {
@@ -510,37 +509,32 @@ impl FileSystem {
             self.cwd = 0;
         }
 
-        let mut data = [0u8; (FS_DISK_SECTORS - 1) * FS_SECTOR_SIZE];
-        let mut data_index = 0usize;
-        sector_index = 1;
-        while sector_index < FS_DISK_SECTORS {
-            let mut byte_index = 0usize;
-            while byte_index < FS_SECTOR_SIZE {
-                data[data_index] = sectors[sector_index][byte_index];
-                data_index += 1;
-                byte_index += 1;
-            }
-            sector_index += 1;
-        }
-
+        trace::set_boot_stage(0x5B);
+        let mut sector = [0u8; FS_SECTOR_SIZE];
         let mut node_index = 0usize;
         while node_index < MAX_FS_NODES {
             let base = node_index * 128;
-            self.nodes[node_index].used = data[base] != 0;
-            self.nodes[node_index].kind = if data[base + 1] == 1 { EntryKind::Dir } else { EntryKind::File };
-            self.nodes[node_index].parent = data[base + 2] as usize;
-            self.nodes[node_index].name_len = data[base + 3] as usize;
-            self.nodes[node_index].data_len = u16::from_le_bytes([data[base + 4], data[base + 5]]) as usize;
+            let sector_index = 1 + (base / FS_SECTOR_SIZE);
+            let offset = base % FS_SECTOR_SIZE;
+            if !storage::read_sector(FS_DISK_LBA_START + sector_index as u32, &mut sector) {
+                return Err(PersistenceState::ReadError);
+            }
+
+            self.nodes[node_index].used = sector[offset] != 0;
+            self.nodes[node_index].kind = if sector[offset + 1] == 1 { EntryKind::Dir } else { EntryKind::File };
+            self.nodes[node_index].parent = sector[offset + 2] as usize;
+            self.nodes[node_index].name_len = sector[offset + 3] as usize;
+            self.nodes[node_index].data_len = u16::from_le_bytes([sector[offset + 4], sector[offset + 5]]) as usize;
 
             let mut name_index = 0usize;
             while name_index < MAX_NAME_LEN {
-                self.nodes[node_index].name[name_index] = data[base + 6 + name_index];
+                self.nodes[node_index].name[name_index] = sector[offset + 6 + name_index];
                 name_index += 1;
             }
 
             let mut file_index = 0usize;
             while file_index < MAX_FILE_LEN {
-                self.nodes[node_index].data[file_index] = data[base + 18 + file_index];
+                self.nodes[node_index].data[file_index] = sector[offset + 18 + file_index];
                 file_index += 1;
             }
 
@@ -551,55 +545,59 @@ impl FileSystem {
         }
 
         self.refresh_cwd_path();
+        trace::set_boot_stage(0x5C);
         Ok(())
     }
 
     fn save_to_disk(&self) -> bool {
-        let mut sectors = [[0u8; FS_SECTOR_SIZE]; FS_DISK_SECTORS];
+        trace::set_boot_stage(0x5D);
+        let mut sector = [0u8; FS_SECTOR_SIZE];
         let mut signature_index = 0usize;
         while signature_index < FS_SIGNATURE.len() {
-            sectors[0][signature_index] = FS_SIGNATURE[signature_index];
+            sector[signature_index] = FS_SIGNATURE[signature_index];
             signature_index += 1;
         }
-        sectors[0][8] = FS_VERSION;
-        sectors[0][9] = self.cwd as u8;
+        sector[8] = FS_VERSION;
+        sector[9] = self.cwd as u8;
+        if !storage::write_sector(FS_DISK_LBA_START, &sector) {
+            return false;
+        }
 
         let mut node_index = 0usize;
         while node_index < MAX_FS_NODES {
             let base = node_index * 128;
-            let sector = 1 + (base / FS_SECTOR_SIZE);
+            let sector_index = 1 + (base / FS_SECTOR_SIZE);
             let offset = base % FS_SECTOR_SIZE;
             let entry = &self.nodes[node_index];
+            sector = [0u8; FS_SECTOR_SIZE];
+            if !storage::read_sector(FS_DISK_LBA_START + sector_index as u32, &mut sector) {
+                return false;
+            }
 
-            sectors[sector][offset] = if entry.used { 1 } else { 0 };
-            sectors[sector][offset + 1] = if entry.kind == EntryKind::Dir { 1 } else { 0 };
-            sectors[sector][offset + 2] = entry.parent as u8;
-            sectors[sector][offset + 3] = entry.name_len as u8;
+            sector[offset] = if entry.used { 1 } else { 0 };
+            sector[offset + 1] = if entry.kind == EntryKind::Dir { 1 } else { 0 };
+            sector[offset + 2] = entry.parent as u8;
+            sector[offset + 3] = entry.name_len as u8;
             let data_len = (entry.data_len as u16).to_le_bytes();
-            sectors[sector][offset + 4] = data_len[0];
-            sectors[sector][offset + 5] = data_len[1];
+            sector[offset + 4] = data_len[0];
+            sector[offset + 5] = data_len[1];
 
             let mut name_index = 0usize;
             while name_index < MAX_NAME_LEN {
-                sectors[sector][offset + 6 + name_index] = entry.name[name_index];
+                sector[offset + 6 + name_index] = entry.name[name_index];
                 name_index += 1;
             }
 
             let mut data_index = 0usize;
             while data_index < MAX_FILE_LEN {
-                sectors[sector][offset + 18 + data_index] = entry.data[data_index];
+                sector[offset + 18 + data_index] = entry.data[data_index];
                 data_index += 1;
             }
 
-            node_index += 1;
-        }
-
-        let mut sector_index = 0usize;
-        while sector_index < FS_DISK_SECTORS {
-            if !storage::write_sector(FS_DISK_LBA_START + sector_index as u32, &sectors[sector_index]) {
+            if !storage::write_sector(FS_DISK_LBA_START + sector_index as u32, &sector) {
                 return false;
             }
-            sector_index += 1;
+            node_index += 1;
         }
         true
     }
