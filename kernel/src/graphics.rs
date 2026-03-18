@@ -221,7 +221,11 @@ impl GraphicsShell {
     pub fn handle_key(&mut self, ascii: u8) -> Option<GraphicsAction> {
         if self.terminal_open && self.focused_window == Some(WindowKind::Terminal) {
             let action = self.terminal.handle_key(ascii, &mut self.fs);
-            self.redraw_window(WindowKind::Terminal);
+            if matches!(ascii, 8 | 0x20..=0x7E) {
+                self.redraw_terminal_input();
+            } else {
+                self.redraw_window(WindowKind::Terminal);
+            }
             return match action {
                 TerminalAction::None => None,
                 TerminalAction::Reboot => Some(GraphicsAction::Reboot),
@@ -752,6 +756,19 @@ impl GraphicsShell {
         if self.window_is_open(window) {
             self.redraw_region(window_to_region(self.window_bounds(window)));
         }
+    }
+
+    fn redraw_terminal_input(&mut self) {
+        if !self.terminal_open {
+            return;
+        }
+        let rect = self.terminal_window;
+        self.redraw_region(Rect {
+            x: rect.x + 8,
+            y: rect.y + rect.height - 22,
+            width: rect.width - 16,
+            height: 16,
+        });
     }
 
     fn redraw_icon_strip(&mut self) {
