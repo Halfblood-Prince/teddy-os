@@ -68,6 +68,8 @@ struct IconClickState {
 enum MouseRedraw {
     None,
     Overlay,
+    Panels,
+    Hud,
     Full,
 }
 
@@ -127,18 +129,16 @@ impl GraphicsShell {
 
     pub fn tick(&mut self, uptime_seconds: u64) {
         if self.uptime_seconds != uptime_seconds {
-            self.restore_cursor_backing();
             self.uptime_seconds = uptime_seconds;
             self.accent_phase = self.accent_phase.wrapping_add(1) % 3;
-            self.render();
+            self.redraw_hud();
         }
     }
 
     pub fn handle_key(&mut self, ascii: u8) {
         if ascii != b'?' {
-            self.restore_cursor_backing();
             self.accent_phase = self.accent_phase.wrapping_add(1) % 3;
-            self.render();
+            self.redraw_hud();
         }
     }
 
@@ -167,6 +167,8 @@ impl GraphicsShell {
         match redraw {
             MouseRedraw::None => {}
             MouseRedraw::Overlay => self.refresh_cursor_overlay(previous_mouse),
+            MouseRedraw::Hud => self.redraw_hud(),
+            MouseRedraw::Panels => self.redraw_panels(),
             MouseRedraw::Full => {
                 self.restore_cursor_backing();
                 self.render();
@@ -219,12 +221,16 @@ impl GraphicsShell {
         if let Some(window) = self.hit_window(state.x, state.y) {
             self.focused_window = Some(window);
             self.selected_icon = None;
-            return MouseRedraw::Full;
+            return MouseRedraw::Panels;
         }
 
         if let Some(icon) = self.hit_taskbar_button(state.x, state.y) {
+            let opened = self.icon_is_open(icon);
             self.toggle_or_focus(icon);
-            return MouseRedraw::Full;
+            if opened != self.icon_is_open(icon) {
+                return MouseRedraw::Full;
+            }
+            return MouseRedraw::Panels;
         }
 
         if let Some(icon) = self.hit_icon(state.x, state.y) {
@@ -239,19 +245,24 @@ impl GraphicsShell {
             self.selected_icon = Some(icon);
             if should_open {
                 self.open_window_for_icon(icon);
+                return MouseRedraw::Full;
             }
-            return MouseRedraw::Full;
+            return MouseRedraw::Panels;
         }
 
         self.selected_icon = None;
         self.focused_window = None;
-        MouseRedraw::Full
+        MouseRedraw::Panels
     }
 
     fn handle_mouse_up(&mut self, _state: MouseState, button: u8) -> MouseRedraw {
         if button == input::MOUSE_BUTTON_LEFT {
+            let was_dragging = self.drag_state.active;
             self.drag_state.active = false;
             self.drag_state.window = None;
+            if was_dragging {
+                return MouseRedraw::Panels;
+            }
         }
         MouseRedraw::Overlay
     }
@@ -265,18 +276,30 @@ impl GraphicsShell {
         self.draw_cursor();
     }
 
+    fn redraw_hud(&mut self) {
+        self.restore_cursor_backing();
+        self.draw_status();
+        self.draw_taskbar();
+        self.save_cursor_backing(self.input.mouse_state());
+        self.draw_cursor();
+    }
+
+    fn redraw_panels(&mut self) {
+        self.restore_cursor_backing();
+        self.draw_desktop_icons();
+        self.draw_windows();
+        self.draw_status();
+        self.draw_taskbar();
+        self.save_cursor_backing(self.input.mouse_state());
+        self.draw_cursor();
+    }
+
     fn draw_background(&self) {
         let height = self.fb.height() as usize;
         let width = self.fb.width() as usize;
         let mut y = 0usize;
         while y < height {
-            let color = if y < 52 {
-                1
-            } else if y < 124 {
-                9
-            } else {
-                3
-            };
+            let color = self.background_color_for_y(y as i32);
             self.fill_rect(0, y as i32, width as i32, 1, color);
             y += 1;
         }
@@ -293,6 +316,7 @@ impl GraphicsShell {
     }
 
     fn draw_desktop_icons(&self) {
+        self.fill_background_rect(0, 18, 74, 122);
         self.draw_icon(14, 28, DesktopIcon::Terminal, "TERMINAL");
         self.draw_icon(14, 82, DesktopIcon::Explorer, "EXPLORER");
     }
@@ -441,6 +465,25 @@ impl GraphicsShell {
         self.fill_rect(x, 184, 54, 12, fill);
         self.draw_rect(x, 184, 54, 12, edge);
         self.draw_text(x + 10, 187, 15, label);
+    }
+
+    fn fill_background_rect(&self, x: i32, y: i32, width: i32, height: i32) {
+        let mut row = 0;
+        while row < height {
+            let color = self.background_color_for_y(y + row);
+            self.fill_rect(x, y + row, width, 1, color);
+            row += 1;
+        }
+    }
+
+    fn background_color_for_y(&self, y: i32) -> u8 {
+        if y < 52 {
+            1
+        } else if y < 124 {
+            9
+        } else {
+            3
+        }
     }
 
     fn draw_cursor(&self) {
@@ -623,6 +666,13 @@ impl GraphicsShell {
         }
     }
 
+    fn icon_is_open(&self, icon: DesktopIcon) -> bool {
+        match icon {
+            DesktopIcon::Terminal => self.terminal_open,
+            DesktopIcon::Explorer => self.explorer_open,
+        }
+    }
+
     fn window_bounds(&self, window: WindowKind) -> WindowRect {
         match window {
             WindowKind::Terminal => self.terminal_window,
@@ -790,6 +840,8 @@ fn mouse_changed(previous: MouseState, current: MouseState) -> bool {
 fn combine_redraw(current: MouseRedraw, next: MouseRedraw) -> MouseRedraw {
     match (current, next) {
         (MouseRedraw::Full, _) | (_, MouseRedraw::Full) => MouseRedraw::Full,
+        (MouseRedraw::Panels, _) | (_, MouseRedraw::Panels) => MouseRedraw::Panels,
+        (MouseRedraw::Hud, _) | (_, MouseRedraw::Hud) => MouseRedraw::Hud,
         (MouseRedraw::Overlay, _) | (_, MouseRedraw::Overlay) => MouseRedraw::Overlay,
         _ => MouseRedraw::None,
     }
