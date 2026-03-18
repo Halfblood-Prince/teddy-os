@@ -171,10 +171,10 @@ fn put_pixel(fb: Framebuffer, x: i32, y: i32, color: u32) {
         _ => 1,
     };
     let offset = y * fb.pitch as usize + x * bytes_per_pixel;
-    let ptr = fb.addr as usize as *mut u8;
+        let ptr = fb.addr as usize as *mut u8;
     unsafe {
         match fb.bpp {
-            8 => ptr.add(offset).write_volatile(0x0F),
+            8 => ptr.add(offset).write_volatile(vga_palette_index(color)),
             24 => {
                 ptr.add(offset).write_volatile((color & 0xFF) as u8);
                 ptr.add(offset + 1).write_volatile(((color >> 8) & 0xFF) as u8);
@@ -183,6 +183,17 @@ fn put_pixel(fb: Framebuffer, x: i32, y: i32, color: u32) {
             32 => (ptr.add(offset) as *mut u32).write_volatile(color),
             _ => {}
         }
+    }
+}
+
+fn vga_palette_index(color: u32) -> u8 {
+    match color {
+        0x0000AA => 0x01,
+        0xAA0000 => 0x04,
+        0xFFFFFF => 0x0F,
+        0xFFFF55 => 0x0E,
+        0x55FFFF => 0x0B,
+        _ => 0x07,
     }
 }
 
