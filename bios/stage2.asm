@@ -750,7 +750,7 @@ enable_fpu_sse:
 setup_page_tables:
     mov edi, pml4_table
     xor eax, eax
-    mov ecx, (4096 * 3) / 4
+    mov ecx, (4096 * 4) / 4
     rep stosd
 
     mov eax, pdpt_table
@@ -776,6 +776,31 @@ setup_page_tables:
     add edi, 8
     inc ebx
     loop .map_low_pages
+
+    mov eax, [boot_framebuffer_addr]
+    cmp eax, 0x02000000
+    jb .done
+
+    mov edx, eax
+    shr edx, 30
+    and edx, 0x3
+    mov edi, pdpt_table
+    mov eax, framebuffer_pd_table
+    or eax, 0x003
+    mov [edi + edx * 8], eax
+    mov dword [edi + edx * 8 + 4], 0
+
+    mov eax, [boot_framebuffer_addr]
+    and eax, 0xFFE00000
+    or eax, 0x83
+    mov edx, [boot_framebuffer_addr]
+    shr edx, 21
+    and edx, 0x1FF
+    mov edi, framebuffer_pd_table
+    mov [edi + edx * 8], eax
+    mov dword [edi + edx * 8 + 4], 0
+
+.done:
     ret
 
 BITS 64
@@ -913,6 +938,10 @@ pdpt_table:
 
 align 4096
 pd_table:
+    times 512 dq 0
+
+align 4096
+framebuffer_pd_table:
     times 512 dq 0
 
 times (STAGE2_SECTORS * 512) - ($ - $$) db 0
