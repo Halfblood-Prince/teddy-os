@@ -9,7 +9,7 @@ use crate::{
 };
 
 const TITLE_BAR_HEIGHT: i32 = 14;
-const CURSOR_SIZE: usize = 11;
+const CURSOR_SIZE: usize = 16;
 const TASKBAR_Y: i32 = 182;
 const DOUBLE_CLICK_TICKS: u64 = 40;
 const TERMINAL_VIEW_LINES: usize = 5;
@@ -801,26 +801,29 @@ impl GraphicsShell {
 
     fn draw_cursor(&self) {
         let mouse = self.input.mouse_state();
-        let color = if mouse.buttons & input::MOUSE_BUTTON_LEFT != 0 {
-            12
-        } else if mouse.buttons & input::MOUSE_BUTTON_RIGHT != 0 {
+        let fill = if mouse.buttons & input::MOUSE_BUTTON_LEFT != 0 {
             14
+        } else if mouse.buttons & input::MOUSE_BUTTON_RIGHT != 0 {
+            11
         } else if mouse.buttons & input::MOUSE_BUTTON_MIDDLE != 0 {
             10
         } else {
             15
         };
 
-        let mut step = 0;
-        while step < CURSOR_SIZE as i32 {
-            self.put_pixel(mouse.x, mouse.y + step, color);
-            if step < 6 {
-                self.put_pixel(mouse.x + step, mouse.y + step, color);
+        let mut row = 0usize;
+        while row < CURSOR_BITMAP.len() {
+            let bits = CURSOR_BITMAP[row];
+            let mut col = 0usize;
+            while col < CURSOR_SIZE {
+                let mask = 1u16 << (CURSOR_SIZE - 1 - col);
+                if bits & mask != 0 {
+                    let color = if CURSOR_OUTLINE[row] & mask != 0 { 0 } else { fill };
+                    self.put_pixel(mouse.x + col as i32, mouse.y + row as i32, color);
+                }
+                col += 1;
             }
-            if step < 4 {
-                self.put_pixel(mouse.x + 1, mouse.y + step, color);
-            }
-            step += 1;
+            row += 1;
         }
     }
 
