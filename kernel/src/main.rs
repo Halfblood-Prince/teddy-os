@@ -17,6 +17,7 @@ mod storage;
 mod terminal;
 mod trace;
 mod vga;
+mod writer;
 
 const KERNEL_STACK_TOP: usize = 0x200000;
 static mut DESKTOP_SHELL: shell::DesktopShell = shell::DesktopShell::empty();

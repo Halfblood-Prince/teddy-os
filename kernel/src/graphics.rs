@@ -1,11 +1,12 @@
 use crate::{
     boot_info::{BootInfo, FramebufferInfo},
-    explorer::ExplorerApp,
+    explorer::{ExplorerAction, ExplorerApp},
     fs::FileSystem,
     input::{self, InputEvent, InputManager, MouseState},
     interrupts,
     terminal::{TerminalAction, TerminalApp},
     trace,
+    writer::WriterApp,
 };
 
 mod generated_icons {
@@ -33,14 +34,17 @@ pub struct GraphicsShell {
     fs: FileSystem,
     terminal: TerminalApp,
     explorer: ExplorerApp,
+    writer: WriterApp,
     input: InputManager,
     uptime_seconds: u64,
     accent_phase: u8,
     terminal_window: WindowRect,
     explorer_window: WindowRect,
+    writer_window: WindowRect,
     settings_window: WindowRect,
     terminal_open: bool,
     explorer_open: bool,
+    writer_open: bool,
     settings_open: bool,
     focused_window: Option<WindowKind>,
     selected_icon: Option<DesktopIcon>,
@@ -56,6 +60,7 @@ pub struct GraphicsShell {
 enum DesktopIcon {
     Terminal,
     Explorer,
+    Writer,
     Settings,
 }
 
@@ -63,6 +68,7 @@ enum DesktopIcon {
 enum WindowKind {
     Terminal,
     Explorer,
+    Writer,
     Settings,
 }
 
@@ -116,6 +122,7 @@ impl GraphicsShell {
             fs: FileSystem::empty(),
             terminal: TerminalApp::empty(),
             explorer: ExplorerApp::empty(),
+            writer: WriterApp::empty(),
             input: InputManager::new(0, 0),
             uptime_seconds: 0,
             accent_phase: 0,
@@ -131,6 +138,12 @@ impl GraphicsShell {
                 width: 168,
                 height: 104,
             },
+            writer_window: WindowRect {
+                x: 94,
+                y: 38,
+                width: 176,
+                height: 108,
+            },
             settings_window: WindowRect {
                 x: 92,
                 y: 58,
@@ -139,6 +152,7 @@ impl GraphicsShell {
             },
             terminal_open: false,
             explorer_open: false,
+            writer_open: false,
             settings_open: false,
             focused_window: None,
             selected_icon: None,
@@ -178,6 +192,7 @@ impl GraphicsShell {
         self.accent_phase = 0;
         self.terminal_open = false;
         self.explorer_open = false;
+        self.writer_open = false;
         self.settings_open = false;
         self.focused_window = None;
         self.selected_icon = None;
@@ -197,6 +212,7 @@ impl GraphicsShell {
         self.terminal.init();
         trace::set_boot_stage(0x98);
         self.explorer.init();
+        self.writer.init();
         trace::set_boot_stage(0x99);
         true
     }
@@ -204,7 +220,7 @@ impl GraphicsShell {
     fn reset_layout(&mut self) {
         let s = self.ui_scale();
         let width = self.fb.width() as i32;
-        let height = self.fb.height() as i32;
+        let _height = self.fb.height() as i32;
         let taskbar_y = self.taskbar_y();
 
         self.terminal_window = WindowRect {
@@ -218,6 +234,12 @@ impl GraphicsShell {
             y: clamp(self.sy(46), self.top_bar_height() + 12, taskbar_y - self.sy(104) - 8),
             width: (self.sx(168) + s * 24).max(260),
             height: (self.sy(104) + s * 16).max(170),
+        };
+        self.writer_window = WindowRect {
+            x: clamp(self.sx(90), 10, width - self.sx(184) - 10),
+            y: clamp(self.sy(34), self.top_bar_height() + 10, taskbar_y - self.sy(110) - 8),
+            width: (self.sx(184) + s * 28).max(280),
+            height: (self.sy(110) + s * 18).max(180),
         };
         self.settings_window = WindowRect {
             x: clamp(self.sx(92), 12, width - self.sx(164) - 12),
@@ -261,8 +283,14 @@ impl GraphicsShell {
         }
 
         if self.explorer_open && self.focused_window == Some(WindowKind::Explorer) {
-            if self.explorer.handle_key(ascii, &mut self.fs) {
-                self.redraw_window(WindowKind::Explorer);
+            let action = self.explorer.handle_key(ascii, &mut self.fs);
+            self.handle_explorer_action(action);
+            return None;
+        }
+
+        if self.writer_open && self.focused_window == Some(WindowKind::Writer) {
+            if self.writer.handle_key(ascii) {
+                self.redraw_window(WindowKind::Writer);
             }
             return None;
         }
@@ -436,7 +464,7 @@ impl GraphicsShell {
     }
 
     fn redraw_panels(&mut self) {
-        let mut rects = [Rect { x: 0, y: 0, width: 0, height: 0 }; 5];
+        let mut rects = [Rect { x: 0, y: 0, width: 0, height: 0 }; 6];
         let mut count = 0usize;
         rects[count] = Rect {
             x: 0,
@@ -575,6 +603,12 @@ impl GraphicsShell {
                     self.fill_rect(x + self.sx(7), y + self.sy(13), self.sx(18), self.sy(2), 12);
                     self.draw_rect(x + self.sx(4), y + self.sy(10), self.sx(24), self.sy(16), 6);
                 }
+                DesktopIcon::Writer => {
+                    self.fill_rect(x + self.sx(7), y + self.sy(6), self.sx(18), self.sy(20), 15);
+                    self.draw_rect(x + self.sx(7), y + self.sy(6), self.sx(18), self.sy(20), 8);
+                    self.fill_rect(x + self.sx(18), y + self.sy(18), self.sx(8), self.sy(3), 6);
+                    self.fill_rect(x + self.sx(11), y + self.sy(20), self.sx(12), self.sy(2), 9);
+                }
                 DesktopIcon::Settings => {
                     self.fill_rect(x + self.sx(8), y + self.sy(8), self.sx(16), self.sy(16), 8);
                     self.draw_rect(x + self.sx(8), y + self.sy(8), self.sx(16), self.sy(16), 15);
@@ -603,6 +637,7 @@ impl GraphicsShell {
                 match window {
                     WindowKind::Terminal => self.draw_terminal_window(focused),
                     WindowKind::Explorer => self.draw_explorer_window(focused),
+                    WindowKind::Writer => self.draw_writer_window(focused),
                     WindowKind::Settings => self.draw_settings_window(focused),
                 }
             }
@@ -703,6 +738,32 @@ impl GraphicsShell {
         self.draw_text(rect.x + self.sx(48), rect.y + self.sy(98), 15, "kfg1024");
     }
 
+    fn draw_writer_window(&self, focused: bool) {
+        let rect = self.writer_window;
+        let title = if focused { 3 } else { 8 };
+        self.draw_window_frame(rect, 1, title, "TEDDY WRITE");
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), rect.height - self.sy(28), 0);
+
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), self.sy(12), 1);
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(24), 15, self.writer.path());
+        self.draw_text(
+            rect.x + rect.width - self.sx(70),
+            rect.y + self.sy(24),
+            if self.writer.is_dirty() { 14 } else { 10 },
+            if self.writer.is_dirty() { "DIRTY" } else { "SAVED" },
+        );
+
+        self.draw_toolbar_button(rect.x + self.sx(8), rect.y + self.sy(36), self.sx(26), "SAVE");
+        self.draw_toolbar_button(rect.x + self.sx(38), rect.y + self.sy(36), self.sx(34), "REVERT");
+
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(52), rect.width - self.sx(16), rect.height - self.sy(72), 15);
+        self.draw_rect(rect.x + self.sx(8), rect.y + self.sy(52), rect.width - self.sx(16), rect.height - self.sy(72), 8);
+        self.draw_writer_text(rect);
+
+        self.fill_rect(rect.x + self.sx(8), rect.y + rect.height - self.sy(16), rect.width - self.sx(16), self.sy(10), 1);
+        self.draw_text(rect.x + self.sx(12), rect.y + rect.height - self.sy(12), 15, self.writer.status());
+    }
+
     fn draw_explorer_toolbar(&self, rect: WindowRect) {
         self.draw_toolbar_button(rect.x + self.sx(56), rect.y + self.sy(20), self.sx(18), "UP");
         self.draw_toolbar_button(rect.x + self.sx(78), rect.y + self.sy(20), self.sx(26), "DIR");
@@ -783,6 +844,7 @@ impl GraphicsShell {
                 match window {
                     WindowKind::Terminal => self.draw_terminal_window(focused),
                     WindowKind::Explorer => self.draw_explorer_window(focused),
+                    WindowKind::Writer => self.draw_writer_window(focused),
                     WindowKind::Settings => self.draw_settings_window(focused),
                 }
             }
@@ -943,6 +1005,7 @@ impl GraphicsShell {
         let window = self.hit_window(x, y)?;
         match window {
             WindowKind::Explorer => self.handle_explorer_click(x, y),
+            WindowKind::Writer => self.handle_writer_click(x, y),
             WindowKind::Terminal => {
                 self.focus_window(WindowKind::Terminal);
                 self.selected_icon = None;
@@ -954,6 +1017,24 @@ impl GraphicsShell {
                 Some(MouseRedraw::Panels)
             }
         }
+    }
+
+    fn handle_writer_click(&mut self, x: i32, y: i32) -> Option<MouseRedraw> {
+        if !self.writer_open || !point_in_window(self.writer_window, x, y) {
+            return None;
+        }
+
+        self.focus_window(WindowKind::Writer);
+        self.selected_icon = None;
+
+        let rect = self.writer_window;
+        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(36), self.sx(26), self.sy(12)) {
+            self.writer.save(&mut self.fs);
+        } else if point_in_rect(x, y, rect.x + self.sx(38), rect.y + self.sy(36), self.sx(34), self.sy(12)) {
+            self.writer.revert(&self.fs);
+        }
+
+        Some(MouseRedraw::Panels)
     }
 
     fn handle_explorer_click(&mut self, x: i32, y: i32) -> Option<MouseRedraw> {
@@ -1048,7 +1129,8 @@ impl GraphicsShell {
                 }
                 self.last_explorer_click_tick = Some(now);
                 if should_open {
-                    self.explorer.open_selected(&mut self.fs);
+                    let action = self.explorer.open_selected(&mut self.fs);
+                    self.handle_explorer_action(action);
                 }
                 return true;
             }
@@ -1067,13 +1149,14 @@ impl GraphicsShell {
         self.draw_text(self.sx(14), y + self.sy(3), 15, "TEDDY");
 
         self.draw_taskbar_button(self.sx(64), DesktopIcon::Terminal, self.terminal_open);
-        self.draw_taskbar_button(self.sx(126), DesktopIcon::Explorer, self.explorer_open);
-        self.draw_taskbar_button(self.sx(188), DesktopIcon::Settings, self.settings_open);
+        self.draw_taskbar_button(self.sx(112), DesktopIcon::Explorer, self.explorer_open);
+        self.draw_taskbar_button(self.sx(160), DesktopIcon::Writer, self.writer_open);
+        self.draw_taskbar_button(self.sx(208), DesktopIcon::Settings, self.settings_open);
 
-        self.fill_rect(self.fb.width() as i32 - self.sx(76), y, self.sx(68), button_h, 1);
-        self.draw_rect(self.fb.width() as i32 - self.sx(76), y, self.sx(68), button_h, 8);
-        self.draw_text(self.fb.width() as i32 - self.sx(68), y + self.sy(3), 15, "UP");
-        self.draw_number(self.fb.width() as i32 - self.sx(50), y + self.sy(3), self.uptime_seconds as u32, 14);
+        self.fill_rect(self.fb.width() as i32 - self.sx(60), y, self.sx(54), button_h, 1);
+        self.draw_rect(self.fb.width() as i32 - self.sx(60), y, self.sx(54), button_h, 8);
+        self.draw_text(self.fb.width() as i32 - self.sx(54), y + self.sy(3), 15, "UP");
+        self.draw_number(self.fb.width() as i32 - self.sx(36), y + self.sy(3), self.uptime_seconds as u32, 14);
     }
 
     fn draw_taskbar_button(&self, x: i32, icon: DesktopIcon, active: bool) {
@@ -1082,12 +1165,13 @@ impl GraphicsShell {
         let label = match icon {
             DesktopIcon::Terminal => "TERM",
             DesktopIcon::Explorer => "FILES",
+            DesktopIcon::Writer => "WRITE",
             DesktopIcon::Settings => "SET",
         };
         let y = self.taskbar_y() + self.sy(2);
-        self.fill_rect(x, y, self.sx(54), self.sy(12), fill);
-        self.draw_rect(x, y, self.sx(54), self.sy(12), edge);
-        self.draw_text(x + self.sx(10), y + self.sy(3), 15, label);
+        self.fill_rect(x, y, self.sx(42), self.sy(12), fill);
+        self.draw_rect(x, y, self.sx(42), self.sy(12), edge);
+        self.draw_text(x + self.sx(5), y + self.sy(3), 15, label);
     }
 
     fn fill_background_rect(&self, x: i32, y: i32, width: i32, height: i32) {
@@ -1186,13 +1270,16 @@ impl GraphicsShell {
 
     fn hit_taskbar_button(&self, x: i32, y: i32) -> Option<DesktopIcon> {
         let ty = self.taskbar_y() + self.sy(2);
-        if point_in_rect(x, y, self.sx(64), ty, self.sx(54), self.sy(12)) {
+        if point_in_rect(x, y, self.sx(64), ty, self.sx(42), self.sy(12)) {
             return Some(DesktopIcon::Terminal);
         }
-        if point_in_rect(x, y, self.sx(126), ty, self.sx(54), self.sy(12)) {
+        if point_in_rect(x, y, self.sx(112), ty, self.sx(42), self.sy(12)) {
             return Some(DesktopIcon::Explorer);
         }
-        if point_in_rect(x, y, self.sx(188), ty, self.sx(54), self.sy(12)) {
+        if point_in_rect(x, y, self.sx(160), ty, self.sx(42), self.sy(12)) {
+            return Some(DesktopIcon::Writer);
+        }
+        if point_in_rect(x, y, self.sx(208), ty, self.sx(42), self.sy(12)) {
             return Some(DesktopIcon::Settings);
         }
         None
@@ -1242,6 +1329,10 @@ impl GraphicsShell {
                 self.explorer_open = true;
                 self.focus_window(WindowKind::Explorer);
             }
+            DesktopIcon::Writer => {
+                self.writer_open = true;
+                self.focus_window(WindowKind::Writer);
+            }
             DesktopIcon::Settings => {
                 self.settings_open = true;
                 self.focus_window(WindowKind::Settings);
@@ -1269,6 +1360,15 @@ impl GraphicsShell {
                     self.focus_window(WindowKind::Explorer);
                 }
             }
+            DesktopIcon::Writer => {
+                if self.writer_open && self.focused_window == Some(WindowKind::Writer) {
+                    self.writer_open = false;
+                    self.focused_window = self.next_visible_window(WindowKind::Writer);
+                } else {
+                    self.writer_open = true;
+                    self.focus_window(WindowKind::Writer);
+                }
+            }
             DesktopIcon::Settings => {
                 if self.settings_open && self.focused_window == Some(WindowKind::Settings) {
                     self.settings_open = false;
@@ -1285,6 +1385,7 @@ impl GraphicsShell {
         match window {
             WindowKind::Terminal => self.terminal_open = false,
             WindowKind::Explorer => self.explorer_open = false,
+            WindowKind::Writer => self.writer_open = false,
             WindowKind::Settings => self.settings_open = false,
         }
         if self.focused_window == Some(window) {
@@ -1296,6 +1397,7 @@ impl GraphicsShell {
         match icon {
             DesktopIcon::Terminal => self.terminal_open,
             DesktopIcon::Explorer => self.explorer_open,
+            DesktopIcon::Writer => self.writer_open,
             DesktopIcon::Settings => self.settings_open,
         }
     }
@@ -1304,6 +1406,7 @@ impl GraphicsShell {
         match window {
             WindowKind::Terminal => self.terminal_window,
             WindowKind::Explorer => self.explorer_window,
+            WindowKind::Writer => self.writer_window,
             WindowKind::Settings => self.settings_window,
         }
     }
@@ -1312,6 +1415,7 @@ impl GraphicsShell {
         match window {
             WindowKind::Terminal => &mut self.terminal_window,
             WindowKind::Explorer => &mut self.explorer_window,
+            WindowKind::Writer => &mut self.writer_window,
             WindowKind::Settings => &mut self.settings_window,
         }
     }
@@ -1338,29 +1442,40 @@ impl GraphicsShell {
         match window {
             WindowKind::Terminal => self.terminal_open,
             WindowKind::Explorer => self.explorer_open,
+            WindowKind::Writer => self.writer_open,
             WindowKind::Settings => self.settings_open,
         }
     }
 
-    fn window_order(&self) -> [Option<WindowKind>; 3] {
+    fn window_order(&self) -> [Option<WindowKind>; 4] {
         match self.focused_window {
             Some(WindowKind::Terminal) => [
                 Some(WindowKind::Terminal),
                 Some(WindowKind::Explorer),
+                Some(WindowKind::Writer),
                 Some(WindowKind::Settings),
             ],
             Some(WindowKind::Explorer) => [
+                Some(WindowKind::Explorer),
+                Some(WindowKind::Writer),
+                Some(WindowKind::Settings),
+                Some(WindowKind::Terminal),
+            ],
+            Some(WindowKind::Writer) => [
+                Some(WindowKind::Writer),
                 Some(WindowKind::Explorer),
                 Some(WindowKind::Settings),
                 Some(WindowKind::Terminal),
             ],
             Some(WindowKind::Settings) => [
                 Some(WindowKind::Settings),
+                Some(WindowKind::Writer),
                 Some(WindowKind::Explorer),
                 Some(WindowKind::Terminal),
             ],
             None => [
                 Some(WindowKind::Settings),
+                Some(WindowKind::Writer),
                 Some(WindowKind::Explorer),
                 Some(WindowKind::Terminal),
             ],
@@ -1376,6 +1491,87 @@ impl GraphicsShell {
         self.draw_text(rect.x + self.sx(6), rect.y + self.sy(4), 15, label);
         self.fill_rect(rect.x + rect.width - self.sx(18), rect.y + self.sy(4), self.sx(5), self.sy(5), 4);
         self.fill_rect(rect.x + rect.width - self.sx(10), rect.y + self.sy(4), self.sx(5), self.sy(5), 8);
+    }
+
+    fn handle_explorer_action(&mut self, action: ExplorerAction) {
+        match action {
+            ExplorerAction::None => {}
+            ExplorerAction::Changed => self.redraw_window(WindowKind::Explorer),
+            ExplorerAction::OpenTextFile(name) => {
+                self.open_writer_for_name(name.as_str());
+                self.redraw_panels();
+            }
+        }
+    }
+
+    fn open_writer_for_name(&mut self, name: &str) {
+        let mut path = [0u8; 72];
+        let cwd = self.fs.cwd_path().as_bytes();
+        let file = name.as_bytes();
+        let mut len = 0usize;
+
+        if cwd == b"/" {
+            path[len] = b'/';
+            len += 1;
+        } else {
+            let mut index = 0usize;
+            while index < cwd.len() && len < path.len() {
+                path[len] = cwd[index];
+                len += 1;
+                index += 1;
+            }
+            if len < path.len() && path[len - 1] != b'/' {
+                path[len] = b'/';
+                len += 1;
+            }
+        }
+
+        let mut index = 0usize;
+        while index < file.len() && len < path.len() {
+            path[len] = file[index];
+            len += 1;
+            index += 1;
+        }
+
+        let full_path = core::str::from_utf8(&path[..len]).unwrap_or("");
+        if self.writer.open(full_path, &self.fs) {
+            self.writer_open = true;
+            self.focus_window(WindowKind::Writer);
+        }
+    }
+
+    fn draw_writer_text(&self, rect: WindowRect) {
+        let start_x = rect.x + self.sx(12);
+        let start_y = rect.y + self.sy(58);
+        let step_x = self.text_step();
+        let step_y = self.sy(10);
+        let max_cols = ((rect.width - self.sx(28)) / step_x).max(1) as usize;
+        let max_rows = ((rect.height - self.sy(82)) / step_y).max(1) as usize;
+
+        let mut row = 0usize;
+        let mut col = 0usize;
+        let mut index = 0usize;
+        while index < self.writer.text_len() && row < max_rows {
+            let byte = self.writer.text_byte(index);
+            if byte == b'\n' {
+                row += 1;
+                col = 0;
+                index += 1;
+                continue;
+            }
+
+            self.draw_char(start_x + (col as i32 * step_x), start_y + (row as i32 * step_y), byte, 0);
+            col += 1;
+            if col >= max_cols {
+                row += 1;
+                col = 0;
+            }
+            index += 1;
+        }
+
+        if row < max_rows {
+            self.draw_text(start_x + (col as i32 * step_x), start_y + (row as i32 * step_y), 10, "_");
+        }
     }
 
     fn accent_color(&self) -> u8 {
@@ -1670,21 +1866,26 @@ fn combine_redraw(current: MouseRedraw, next: MouseRedraw) -> MouseRedraw {
 }
 
 fn icon_asset(icon: DesktopIcon) -> IconAsset {
-    match icon {
-        DesktopIcon::Terminal => IconAsset {
-            width: generated_icons::TERMINAL_ICON_WIDTH,
-            height: generated_icons::TERMINAL_ICON_HEIGHT,
-            pixels: &generated_icons::TERMINAL_ICON_PIXELS,
-        },
-        DesktopIcon::Explorer => IconAsset {
-            width: generated_icons::EXPLORER_ICON_WIDTH,
-            height: generated_icons::EXPLORER_ICON_HEIGHT,
-            pixels: &generated_icons::EXPLORER_ICON_PIXELS,
-        },
-        DesktopIcon::Settings => IconAsset {
-            width: generated_icons::SETTINGS_ICON_WIDTH,
-            height: generated_icons::SETTINGS_ICON_HEIGHT,
-            pixels: &generated_icons::SETTINGS_ICON_PIXELS,
+        match icon {
+            DesktopIcon::Terminal => IconAsset {
+                width: generated_icons::TERMINAL_ICON_WIDTH,
+                height: generated_icons::TERMINAL_ICON_HEIGHT,
+                pixels: &generated_icons::TERMINAL_ICON_PIXELS,
+            },
+            DesktopIcon::Explorer => IconAsset {
+                width: generated_icons::EXPLORER_ICON_WIDTH,
+                height: generated_icons::EXPLORER_ICON_HEIGHT,
+                pixels: &generated_icons::EXPLORER_ICON_PIXELS,
+            },
+            DesktopIcon::Writer => IconAsset {
+                width: generated_icons::WRITER_ICON_WIDTH,
+                height: generated_icons::WRITER_ICON_HEIGHT,
+                pixels: &generated_icons::WRITER_ICON_PIXELS,
+            },
+            DesktopIcon::Settings => IconAsset {
+                width: generated_icons::SETTINGS_ICON_WIDTH,
+                height: generated_icons::SETTINGS_ICON_HEIGHT,
+                pixels: &generated_icons::SETTINGS_ICON_PIXELS,
         },
     }
 }

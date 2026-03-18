@@ -34,6 +34,7 @@ fn main() {
     let terminal = load_icon(&assets_dir.join("terminal.bmp"));
     let explorer = load_icon(&assets_dir.join("explorer.bmp"));
     let settings = load_icon(&assets_dir.join("settings.bmp"));
+    let writer = load_icon(&assets_dir.join("writer.bmp"));
 
     let source = format!(
         "pub const TERMINAL_ICON_WIDTH: usize = {tw};\n\
@@ -44,7 +45,10 @@ fn main() {
          pub static EXPLORER_ICON_PIXELS: [u8; {elen}] = {ep};\n\
          pub const SETTINGS_ICON_WIDTH: usize = {sw};\n\
          pub const SETTINGS_ICON_HEIGHT: usize = {sh};\n\
-         pub static SETTINGS_ICON_PIXELS: [u8; {slen}] = {sp};\n",
+         pub static SETTINGS_ICON_PIXELS: [u8; {slen}] = {sp};\n\
+         pub const WRITER_ICON_WIDTH: usize = {ww};\n\
+         pub const WRITER_ICON_HEIGHT: usize = {wh};\n\
+         pub static WRITER_ICON_PIXELS: [u8; {wlen}] = {wp};\n",
         tw = terminal.width,
         th = terminal.height,
         tlen = terminal.pixels.len(),
@@ -57,6 +61,10 @@ fn main() {
         sh = settings.height,
         slen = settings.pixels.len(),
         sp = format_u8_array(&settings.pixels),
+        ww = writer.width,
+        wh = writer.height,
+        wlen = writer.pixels.len(),
+        wp = format_u8_array(&writer.pixels),
     );
 
     fs::write(output, source).expect("write generated_icons.rs");

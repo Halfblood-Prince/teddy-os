@@ -2,6 +2,12 @@ use crate::fs::{EntryKind, FileSystem, NameText, MAX_FILE_LEN, MAX_FS_NODES};
 
 const STATUS_LEN: usize = 58;
 
+pub enum ExplorerAction {
+    None,
+    Changed,
+    OpenTextFile(NameText),
+}
+
 pub struct ExplorerApp {
     selection: usize,
     status: [u8; STATUS_LEN],
@@ -30,42 +36,51 @@ impl ExplorerApp {
         self.set_status("J/K select  Enter open  B back  N dir  T file  X delete");
     }
 
-    pub fn handle_key(&mut self, ascii: u8, fs: &mut FileSystem) -> bool {
+    pub fn handle_key(&mut self, ascii: u8, fs: &mut FileSystem) -> ExplorerAction {
         match ascii {
             b'j' => {
                 let count = self.entry_count(fs);
                 if count > 0 && self.selection + 1 < count {
                     self.selection += 1;
                 }
-                true
+                ExplorerAction::Changed
             }
             b'k' => {
                 if self.selection > 0 {
                     self.selection -= 1;
                 }
-                true
+                ExplorerAction::Changed
             }
             b'b' => {
-                self.go_parent(fs);
-                true
+                if self.go_parent(fs) {
+                    ExplorerAction::Changed
+                } else {
+                    ExplorerAction::None
+                }
             }
             b'n' => {
-                self.create_folder(fs);
-                true
+                if self.create_folder(fs) {
+                    ExplorerAction::Changed
+                } else {
+                    ExplorerAction::None
+                }
             }
             b't' => {
-                self.create_file(fs);
-                true
+                if self.create_file(fs) {
+                    ExplorerAction::Changed
+                } else {
+                    ExplorerAction::None
+                }
             }
             b'x' => {
-                self.delete_selected(fs);
-                true
+                if self.delete_selected(fs) {
+                    ExplorerAction::Changed
+                } else {
+                    ExplorerAction::None
+                }
             }
-            b'\n' => {
-                self.open_selected(fs);
-                true
-            }
-            _ => false,
+            b'\n' => self.open_selected(fs),
+            _ => ExplorerAction::None,
         }
     }
 
@@ -79,14 +94,14 @@ impl ExplorerApp {
         true
     }
 
-    pub fn open_selected(&mut self, fs: &mut FileSystem) -> bool {
+    pub fn open_selected(&mut self, fs: &mut FileSystem) -> ExplorerAction {
         let mut kinds = [EntryKind::File; MAX_FS_NODES];
         let mut names = [NameText::empty(); MAX_FS_NODES];
         let mut sizes = [0usize; MAX_FS_NODES];
         let len = fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
         if self.selection >= len {
             self.set_status("No entry selected");
-            return false;
+            return ExplorerAction::None;
         }
 
         match kinds[self.selection] {
@@ -94,23 +109,29 @@ impl ExplorerApp {
                 Ok(()) => {
                     self.selection = 0;
                     self.set_status("Opened folder");
-                    true
+                    ExplorerAction::Changed
                 }
                 Err(message) => {
                     self.set_status(message);
-                    false
+                    ExplorerAction::None
                 }
             },
             EntryKind::File => {
-                let mut buffer = [0u8; MAX_FILE_LEN];
-                match fs.read_file_into(names[self.selection].as_str(), &mut buffer) {
-                    Ok(read_len) => {
-                        self.set_preview(&buffer, read_len);
-                        true
-                    }
-                    Err(message) => {
-                        self.set_status(message);
-                        false
+                let name = names[self.selection];
+                if ends_with_txt(name.as_str()) {
+                    self.set_status("Opening Teddy Write");
+                    ExplorerAction::OpenTextFile(name)
+                } else {
+                    let mut buffer = [0u8; MAX_FILE_LEN];
+                    match fs.read_file_into(name.as_str(), &mut buffer) {
+                        Ok(read_len) => {
+                            self.set_preview(&buffer, read_len);
+                            ExplorerAction::Changed
+                        }
+                        Err(message) => {
+                            self.set_status(message);
+                            ExplorerAction::None
+                        }
                     }
                 }
             }
@@ -284,4 +305,8 @@ fn sanitize(byte: u8) -> u8 {
         0x20..=0x7E => byte,
         _ => b'?',
     }
+}
+
+fn ends_with_txt(name: &str) -> bool {
+    name.as_bytes().ends_with(b".txt")
 }

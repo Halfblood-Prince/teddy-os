@@ -7,6 +7,7 @@ Current supported files:
 - `terminal.bmp`
 - `explorer.bmp`
 - `settings.bmp`
+- `writer.bmp`
 
 Format requirements:
 

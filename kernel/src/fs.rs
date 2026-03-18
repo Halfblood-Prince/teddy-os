@@ -224,6 +224,31 @@ impl FileSystem {
         Ok(entry.data_len)
     }
 
+    pub fn write_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), &'static str> {
+        let node = self.resolve_path(path)?;
+        let entry = &mut self.nodes[node];
+        if entry.kind != EntryKind::File {
+            return Err("write: not a file");
+        }
+
+        let mut clear_index = 0usize;
+        while clear_index < MAX_FILE_LEN {
+            entry.data[clear_index] = 0;
+            clear_index += 1;
+        }
+
+        entry.data_len = 0;
+        let limit = core::cmp::min(bytes.len(), MAX_FILE_LEN);
+        let mut index = 0usize;
+        while index < limit {
+            entry.data[index] = sanitize(bytes[index]);
+            entry.data_len += 1;
+            index += 1;
+        }
+        self.save_if_possible();
+        Ok(())
+    }
+
     pub fn create_dir(&mut self, path: &str) -> Result<(), &'static str> {
         let (parent, name) = self.resolve_parent_and_name(path)?;
         let result = self.create_node(parent, name, EntryKind::Dir);
@@ -655,7 +680,7 @@ fn find_last_separator(path: &str) -> Option<usize> {
 
 fn sanitize(byte: u8) -> u8 {
     match byte {
-        0x20..=0x7E => byte,
+        0x20..=0x7E | b'\n' => byte,
         _ => b'?',
     }
 }
