@@ -5,6 +5,8 @@ ORG 0x8000
 %define STAGE2_SECTORS 96
 %define BOOT_INFO_ADDR   0x18000
 %define BOOT_INFO_SEG    0x1800
+%define MODE_INFO_ADDR   0x19000
+%define MODE_INFO_SEG    0x1900
 %define KERNEL_LOAD_ADDR 0x20000
 %define KERNEL_LOAD_SEG  0x2000
 %define KERNEL_SECTORS   512
@@ -14,6 +16,9 @@ ORG 0x8000
 %define MODE13_HEIGHT 200
 %define MODE13_PITCH 320
 %define MODE13_BPP 8
+%define VBE_MODE_640X480X24  0x112
+%define VBE_MODE_800X600X24  0x115
+%define VBE_MODE_1024X768X24 0x118
 
 stage2_start:
     cli
@@ -163,6 +168,18 @@ execute_command:
     je .kernelgfx
 
     mov si, input_buffer
+    mov di, cmd_kernelgfx800
+    call strings_equal
+    cmp al, 1
+    je .kernelgfx800
+
+    mov si, input_buffer
+    mov di, cmd_kernelgfx1024
+    call strings_equal
+    cmp al, 1
+    je .kernelgfx1024
+
+    mov si, input_buffer
     mov di, cmd_echo_prefix
     call starts_with
     cmp al, 1
@@ -215,6 +232,11 @@ execute_command:
 
 .kernel:
     mov byte [boot_video_mode], 0
+    mov dword [boot_framebuffer_addr], 0
+    mov word [boot_framebuffer_width], 0
+    mov word [boot_framebuffer_height], 0
+    mov word [boot_framebuffer_pitch], 0
+    mov byte [boot_framebuffer_bpp], 0
     call load_kernel_image
     jc .kernel_failed
     call write_boot_info
@@ -222,8 +244,32 @@ execute_command:
     jmp $
 
 .kernelgfx:
-    call set_kernel_graphics_mode
-    mov byte [boot_video_mode], 1
+    mov bx, VBE_MODE_640X480X24
+    mov byte [boot_video_mode], 2
+    call set_kernel_vbe_mode
+    jc .kernel_failed
+    call load_kernel_image
+    jc .kernel_failed
+    call write_boot_info
+    call enter_long_mode
+    jmp $
+
+.kernelgfx800:
+    mov bx, VBE_MODE_800X600X24
+    mov byte [boot_video_mode], 3
+    call set_kernel_vbe_mode
+    jc .kernel_failed
+    call load_kernel_image
+    jc .kernel_failed
+    call write_boot_info
+    call enter_long_mode
+    jmp $
+
+.kernelgfx1024:
+    mov bx, VBE_MODE_1024X768X24
+    mov byte [boot_video_mode], 4
+    call set_kernel_vbe_mode
+    jc .kernel_failed
     call load_kernel_image
     jc .kernel_failed
     call write_boot_info
@@ -519,19 +565,20 @@ write_boot_info:
     mov al, [boot_video_mode]
     mov [es:di], al
     inc di
-    mov byte [es:di], MODE13_BPP
+    mov al, [boot_framebuffer_bpp]
+    mov [es:di], al
     inc di
 
-    mov eax, MODE13_FRAMEBUFFER
+    mov eax, [boot_framebuffer_addr]
     mov [es:di], eax
     add di, 4
-    mov ax, MODE13_WIDTH
+    mov ax, [boot_framebuffer_width]
     mov [es:di], ax
     add di, 2
-    mov ax, MODE13_HEIGHT
+    mov ax, [boot_framebuffer_height]
     mov [es:di], ax
     add di, 2
-    mov ax, MODE13_PITCH
+    mov ax, [boot_framebuffer_pitch]
     mov [es:di], ax
 
     pop es
@@ -581,6 +628,64 @@ enter_long_mode:
 set_kernel_graphics_mode:
     mov ax, 0x0013
     int 0x10
+    mov dword [boot_framebuffer_addr], MODE13_FRAMEBUFFER
+    mov word [boot_framebuffer_width], MODE13_WIDTH
+    mov word [boot_framebuffer_height], MODE13_HEIGHT
+    mov word [boot_framebuffer_pitch], MODE13_PITCH
+    mov byte [boot_framebuffer_bpp], MODE13_BPP
+    clc
+    ret
+
+set_kernel_vbe_mode:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+
+    mov cx, bx
+    mov ax, MODE_INFO_SEG
+    mov es, ax
+    xor di, di
+    mov ax, 0x4F01
+    int 0x10
+    cmp ax, 0x004F
+    jne .error
+
+    test byte [es:0], 0x80
+    jz .error
+
+    mov ax, 0x4F02
+    mov bx, cx
+    or bx, 0x4000
+    int 0x10
+    cmp ax, 0x004F
+    jne .error
+
+    mov eax, [es:40]
+    mov [boot_framebuffer_addr], eax
+    mov ax, [es:18]
+    mov [boot_framebuffer_width], ax
+    mov ax, [es:20]
+    mov [boot_framebuffer_height], ax
+    mov ax, [es:16]
+    mov [boot_framebuffer_pitch], ax
+    mov al, [es:25]
+    mov [boot_framebuffer_bpp], al
+    clc
+    jmp .out
+
+.error:
+    stc
+
+.out:
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 enable_a20_fast:
@@ -639,7 +744,7 @@ enable_fpu_sse:
 setup_page_tables:
     mov edi, pml4_table
     xor eax, eax
-    mov ecx, (4096 * 3) / 4
+    mov ecx, (4096 * 4) / 4
     rep stosd
 
     mov eax, pdpt_table
@@ -654,6 +759,59 @@ setup_page_tables:
 
     mov dword [pd_table], 0x00000083
     mov dword [pd_table + 4], 0
+
+    mov eax, [boot_framebuffer_addr]
+    test eax, eax
+    jz .done
+    cmp eax, 0x00200000
+    jb .done
+
+    mov ebx, eax
+    shr ebx, 30
+    cmp ebx, 0
+    jne .map_high
+
+    mov esi, pd_table
+    jmp .map_pages
+
+.map_high:
+    mov esi, fb_pd_table
+    mov edx, esi
+    or edx, 0x003
+    mov [pdpt_table + ebx * 8], edx
+    mov dword [pdpt_table + ebx * 8 + 4], 0
+
+.map_pages:
+    mov edx, eax
+    shr edx, 21
+    and edx, 0x1FF
+
+    mov ecx, eax
+    and ecx, 0x001FFFFF
+    movzx ebx, word [boot_framebuffer_pitch]
+    movzx edi, word [boot_framebuffer_height]
+    imul ebx, edi
+    add ebx, ecx
+    add ebx, 0x001FFFFF
+    shr ebx, 21
+    cmp ebx, 0
+    jne .have_count
+    mov ebx, 1
+
+.have_count:
+    and eax, 0xFFE00000
+
+.page_loop:
+    mov ecx, eax
+    or ecx, 0x83
+    mov [esi + edx * 8], ecx
+    mov dword [esi + edx * 8 + 4], 0
+    add eax, 0x00200000
+    inc edx
+    dec ebx
+    jnz .page_loop
+
+.done:
     ret
 
 BITS 64
@@ -731,13 +889,13 @@ title_text db "TEDDY-OS", 0
 status_text db "Legacy BIOS stage 2 online", 0
 detail_text db "Stage 1 loaded this program from disk sectors", 0
 next_text db "Next: graphics mode and x86_64 kernel handoff", 0
-shell_text db "Shell ready. Commands: help, clear, info, echo, graphics, kernel, kernelgfx, reboot", 0
+shell_text db "Shell ready. Commands: help, clear, info, echo, graphics, kernel, kernelgfx, kernelgfx800, kernelgfx1024, reboot", 0
 footer_text db "Boot OK - Stage 2 running", 0
 prompt_text db "> ", 0
 unknown_text db "Unknown command. Type help.", 0
 help_text_1 db "help  - list commands", 0
 help_text_2 db "info  - show stage information", 0
-help_text_3 db "clear - clear, echo X, graphics, kernel, kernelgfx, reboot", 0
+help_text_3 db "clear - clear, echo X, graphics, kernel, kernelgfx, kernelgfx800, kernelgfx1024, reboot", 0
 info_text_1 db "Teddy-OS BIOS Stage 2 is using INT 16h for keyboard input.", 0
 info_text_2 db "Kernelgfx boots the kernel in VGA mode 13h for graphics work.", 0
 gfx_title db "TEDDY-OS GRAPHICS", 0
@@ -753,12 +911,19 @@ cmd_info db "info", 0
 cmd_graphics db "graphics", 0
 cmd_kernel db "kernel", 0
 cmd_kernelgfx db "kernelgfx", 0
+cmd_kernelgfx800 db "kernelgfx800", 0
+cmd_kernelgfx1024 db "kernelgfx1024", 0
 cmd_reboot db "reboot", 0
 cmd_echo_prefix db "echo ", 0
 
 rect_color db 0
 boot_drive db 0
 boot_video_mode db 0
+boot_framebuffer_bpp db 0
+boot_framebuffer_addr dd 0
+boot_framebuffer_width dw 0
+boot_framebuffer_height dw 0
+boot_framebuffer_pitch dw 0
 input_len db 0
 input_buffer times INPUT_BUFFER_SIZE db 0
 
@@ -784,6 +949,10 @@ pdpt_table:
 
 align 4096
 pd_table:
+    times 512 dq 0
+
+align 4096
+fb_pd_table:
     times 512 dq 0
 
 times (STAGE2_SECTORS * 512) - ($ - $$) db 0

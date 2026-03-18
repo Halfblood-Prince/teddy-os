@@ -88,6 +88,8 @@ Example commands:
 - `graphics`
 - `kernel`
 - `kernelgfx`
+- `kernelgfx800`
+- `kernelgfx1024`
 - `reboot`
 
 When you run `kernel`, the current kernel MVP should show:
@@ -101,7 +103,7 @@ When you run `kernel`, the current kernel MVP should show:
 
 When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
 
-- VGA mode `13h` pixel framebuffer
+- a VBE linear framebuffer graphics desktop
 - a graphical top bar and taskbar
 - desktop icons for `Terminal`, `Explorer`, and `Settings`
 - window-like GUI apps rendered by the kernel
@@ -109,6 +111,12 @@ When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
 - a status panel with uptime, keyboard state, mouse coordinates, and button state
 - a software mouse cursor driven by PS/2 IRQ12 input
 - draggable `Terminal`, `File Explorer`, and `Settings` windows
+
+Graphics boot modes:
+
+- `kernelgfx` boots a `640x480x24` desktop
+- `kernelgfx800` boots an `800x600x24` desktop
+- `kernelgfx1024` boots a `1024x768x24` desktop
 
 Kernel desktop controls:
 

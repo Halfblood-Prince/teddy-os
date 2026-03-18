@@ -57,4 +57,4 @@ The new baseline restores a known-good target:
 - Phase 8 reset: add a file explorer window on top of the shared filesystem APIs
 - Phase 9 reset: add ATA-backed persistence behind that filesystem module so app-visible changes survive reboot
 - Phase 10 reset: add a graphics framebuffer scaffold as the first prerequisite for clickable GUI work
-- Phase 11 reset: add PS/2 mouse input, a software cursor, a small input event layer, desktop icons, and window hit-testing on that graphics path
+- Phase 11 reset: add PS/2 mouse input, a software cursor, a small input event layer, desktop icons, window hit-testing, and VBE framebuffer boot modes on that graphics path

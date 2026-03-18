@@ -26,8 +26,14 @@ Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
 status fields.
 
 Try `kernelgfx` at the prompt for the new graphics prerequisite path. You
-should see Teddy-OS switch into VGA mode `13h` and render a graphical desktop
-scaffold driven by the kernel framebuffer code.
+should see Teddy-OS switch into a higher-resolution VBE framebuffer mode and
+render a graphical desktop scaffold driven by the kernel framebuffer code.
+
+Additional graphics boot commands:
+
+- `kernelgfx` for `640x480x24`
+- `kernelgfx800` for `800x600x24`
+- `kernelgfx1024` for `1024x768x24`
 
 The kernel screen should include:
 
@@ -92,13 +98,14 @@ Expected persistence result:
 - boot to the BIOS shell
 - run `kernelgfx`
 - verify that the screen changes from text mode to a pixel UI
+- optionally retry with `kernelgfx800` or `kernelgfx1024`
 - wait a few seconds and confirm the uptime changes
 - press a few keys and confirm the status area updates
 - move the mouse and confirm the cursor and `X` / `Y` values update
 - double-click the `TERMINAL`, `EXPLORER`, and `SETTINGS` desktop icons to open their windows
 - use the taskbar buttons to focus or hide those windows
 - hold the left mouse button on a window title bar and drag it
-- open `SETTINGS` and confirm it reports the current `320x200x8` graphics mode
+- confirm the Settings window reflects the active resolution and color depth
 - click the other mouse buttons and confirm the `B` value changes
 
 Current limitation:

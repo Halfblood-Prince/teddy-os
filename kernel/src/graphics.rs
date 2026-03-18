@@ -28,7 +28,7 @@ pub struct GraphicsShell {
     selected_icon: Option<DesktopIcon>,
     drag_state: DragState,
     last_icon_click: Option<IconClickState>,
-    cursor_backing: [u8; CURSOR_SIZE * CURSOR_SIZE],
+    cursor_backing: [u32; CURSOR_SIZE * CURSOR_SIZE],
     cursor_saved_x: i32,
     cursor_saved_y: i32,
 }
@@ -80,7 +80,7 @@ enum MouseRedraw {
 impl GraphicsShell {
     pub fn new(boot_info: BootInfo) -> Option<Self> {
         let fb = boot_info.framebuffer()?;
-        if fb.bpp() != 8 {
+        if fb.bpp() != 8 && fb.bpp() != 24 && fb.bpp() != 32 {
             return None;
         }
 
@@ -475,9 +475,10 @@ impl GraphicsShell {
         self.draw_text(rect.x + 92, rect.y + 51, 15, "320 X 200");
 
         self.draw_text(rect.x + 12, rect.y + 68, 7, "Status");
-        self.draw_text(rect.x + 68, rect.y + 68, 14, "LOCKED TO VGA MODE 13H");
-        self.draw_text(rect.x + 12, rect.y + 82, 7, "Next");
-        self.draw_text(rect.x + 44, rect.y + 82, 15, "Add VBE or UEFI framebuffer modes");
+        self.draw_text(rect.x + 68, rect.y + 68, 14, "APPLY AT BOOT");
+        self.draw_text(rect.x + 12, rect.y + 82, 7, "Modes");
+        self.draw_text(rect.x + 48, rect.y + 82, 15, "kernelgfx 640x480");
+        self.draw_text(rect.x + 48, rect.y + 90, 15, "kfg800   800x600");
     }
 
     fn draw_explorer_entry(&self, x: i32, y: i32, folder: bool, name: &str) {
@@ -590,7 +591,7 @@ impl GraphicsShell {
             let mut col = 0usize;
             while col < CURSOR_SIZE {
                 self.cursor_backing[row * CURSOR_SIZE + col] =
-                    self.read_pixel(mouse.x + col as i32, mouse.y + row as i32);
+                    self.read_native_pixel(mouse.x + col as i32, mouse.y + row as i32);
                 col += 1;
             }
             row += 1;
@@ -602,7 +603,7 @@ impl GraphicsShell {
         while row < CURSOR_SIZE {
             let mut col = 0usize;
             while col < CURSOR_SIZE {
-                self.put_pixel(
+                self.write_native_pixel(
                     self.cursor_saved_x + col as i32,
                     self.cursor_saved_y + row as i32,
                     self.cursor_backing[row * CURSOR_SIZE + col],
@@ -923,7 +924,7 @@ impl GraphicsShell {
         }
     }
 
-    fn read_pixel(&self, x: i32, y: i32) -> u8 {
+    fn read_native_pixel(&self, x: i32, y: i32) -> u32 {
         if x < 0 || y < 0 {
             return 0;
         }
@@ -933,12 +934,28 @@ impl GraphicsShell {
             return 0;
         }
 
-        let offset = y * self.fb.pitch() as usize + x;
+        let offset = y * self.fb.pitch() as usize + x * self.bytes_per_pixel();
         let ptr = self.fb.addr() as usize as *const u8;
-        unsafe { ptr.add(offset).read_volatile() }
+        unsafe {
+            match self.fb.bpp() {
+                8 => ptr.add(offset).read_volatile() as u32,
+                24 => {
+                    let b = ptr.add(offset).read_volatile() as u32;
+                    let g = ptr.add(offset + 1).read_volatile() as u32;
+                    let r = ptr.add(offset + 2).read_volatile() as u32;
+                    b | (g << 8) | (r << 16)
+                }
+                32 => (ptr.add(offset) as *const u32).read_volatile(),
+                _ => 0,
+            }
+        }
     }
 
     fn put_pixel(&self, x: i32, y: i32, color: u8) {
+        self.write_native_pixel(x, y, self.theme_color(color));
+    }
+
+    fn write_native_pixel(&self, x: i32, y: i32, color: u32) {
         if x < 0 || y < 0 {
             return;
         }
@@ -948,10 +965,55 @@ impl GraphicsShell {
             return;
         }
 
-        let offset = y * self.fb.pitch() as usize + x;
+        let offset = y * self.fb.pitch() as usize + x * self.bytes_per_pixel();
         let ptr = self.fb.addr() as usize as *mut u8;
         unsafe {
-            ptr.add(offset).write_volatile(color);
+            match self.fb.bpp() {
+                8 => ptr.add(offset).write_volatile(color as u8),
+                24 => {
+                    ptr.add(offset).write_volatile((color & 0xFF) as u8);
+                    ptr.add(offset + 1).write_volatile(((color >> 8) & 0xFF) as u8);
+                    ptr.add(offset + 2).write_volatile(((color >> 16) & 0xFF) as u8);
+                }
+                32 => (ptr.add(offset) as *mut u32).write_volatile(color),
+                _ => {}
+            }
+        }
+    }
+
+    fn bytes_per_pixel(&self) -> usize {
+        match self.fb.bpp() {
+            24 => 3,
+            32 => 4,
+            _ => 1,
+        }
+    }
+
+    fn theme_color(&self, color: u8) -> u32 {
+        let rgb = match color & 0x0F {
+            0 => 0x000000,
+            1 => 0x0000AA,
+            2 => 0x00AA00,
+            3 => 0x00AAAA,
+            4 => 0xAA0000,
+            5 => 0xAA00AA,
+            6 => 0xAA5500,
+            7 => 0xAAAAAA,
+            8 => 0x555555,
+            9 => 0x5555FF,
+            10 => 0x55FF55,
+            11 => 0xFFFF55,
+            12 => 0xFF5555,
+            13 => 0xFF55FF,
+            14 => 0x55FFFF,
+            _ => 0xFFFFFF,
+        };
+
+        match self.fb.bpp() {
+            8 => (color & 0x0F) as u32,
+            24 => rgb_to_bgr(rgb),
+            32 => rgb_to_bgr(rgb),
+            _ => 0,
         }
     }
 }
@@ -993,6 +1055,13 @@ fn nybble_to_hex(value: u8) -> u8 {
         0..=9 => b'0' + value,
         _ => b'A' + (value - 10),
     }
+}
+
+fn rgb_to_bgr(rgb: u32) -> u32 {
+    let r = (rgb >> 16) & 0xFF;
+    let g = (rgb >> 8) & 0xFF;
+    let b = rgb & 0xFF;
+    b | (g << 8) | (r << 16)
 }
 
 fn glyph_for(byte: u8) -> [u8; 7] {
