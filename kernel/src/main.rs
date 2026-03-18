@@ -97,6 +97,9 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
     let mut last_seen_scancode = 0u8;
     let mut last_seen_second = 0u64;
     trace::set_boot_stage(0x70);
+    if let Some(fb) = boot_info.framebuffer() {
+        trace::set_framebuffer(fb.addr(), fb.width(), fb.height(), fb.pitch(), fb.bpp());
+    }
     let shell = unsafe { &mut *core::ptr::addr_of_mut!(GRAPHICS_SHELL) };
     if !shell.init(boot_info) {
         loop {
@@ -150,6 +153,7 @@ fn shutdown_system() -> ! {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo<'_>) -> ! {
+    trace::render_graphics_panic("TEDDY-OS KERNEL PANIC", "GRAPHICS MODE ACTIVE", "CHECK BOOT STAGE");
     vga::clear_screen(0x4F);
     vga::write_line(10, 8, "TEDDY-OS KERNEL PANIC", 0x4F);
     loop {

@@ -351,6 +351,8 @@ fn handle_mouse_irq() {
 }
 
 fn handle_exception(vector: u8, error_code: u64, stack_frame: *const InterruptStackFrame) {
+    let frame = unsafe { &*stack_frame };
+    trace::render_graphics_exception(vector, error_code, frame.instruction_pointer);
     vga::clear_screen(0x4F);
     vga::write_line(4, 8, "TEDDY-OS EXCEPTION", 0x4F);
     vga::write_line(6, 8, "Vector:", 0x4F);
