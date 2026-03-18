@@ -31,9 +31,9 @@ impl ExplorerApp {
     }
 
     pub fn handle_key(&mut self, ascii: u8, fs: &mut FileSystem) -> bool {
-        let count = self.entry_count(fs);
         match ascii {
             b'j' => {
+                let count = self.entry_count(fs);
                 if count > 0 && self.selection + 1 < count {
                     self.selection += 1;
                 }
@@ -46,77 +46,165 @@ impl ExplorerApp {
                 true
             }
             b'b' => {
-                match fs.change_dir("..") {
-                    Ok(()) => {
-                        self.selection = 0;
-                        self.set_status("Moved to parent directory");
-                    }
-                    Err(message) => self.set_status(message),
-                }
+                self.go_parent(fs);
                 true
             }
             b'n' => {
-                let name = next_name("dir", &mut self.created_dirs);
-                match fs.create_dir(name) {
-                    Ok(()) => self.set_status("Folder created"),
-                    Err(message) => self.set_status(message),
-                }
+                self.create_folder(fs);
                 true
             }
             b't' => {
-                let name = next_name("file", &mut self.created_files);
-                match fs.touch(name) {
-                    Ok(()) => self.set_status("File created"),
-                    Err(message) => self.set_status(message),
-                }
+                self.create_file(fs);
                 true
             }
             b'x' => {
-                let mut name = [0u8; 12];
-                if let Some(name_len) = self.selected_name_into(fs, &mut name) {
-                    let entry_name = core::str::from_utf8(&name[..name_len]).unwrap_or("");
-                    match fs.remove(entry_name) {
-                        Ok(()) => {
-                            self.selection = self.selection.saturating_sub(1);
-                            self.set_status("Entry removed");
-                        }
-                        Err(message) => self.set_status(message),
-                    }
-                } else {
-                    self.set_status("No entry selected");
-                }
+                self.delete_selected(fs);
                 true
             }
             b'\n' => {
-                let mut kinds = [EntryKind::File; MAX_FS_NODES];
-                let mut names = [NameText::empty(); MAX_FS_NODES];
-                let mut sizes = [0usize; MAX_FS_NODES];
-                let len = fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
-                if self.selection < len {
-                    match kinds[self.selection] {
-                        EntryKind::Dir => {
-                            match fs.change_dir(names[self.selection].as_str()) {
-                                Ok(()) => {
-                                    self.selection = 0;
-                                    self.set_status("Opened folder");
-                                }
-                                Err(message) => self.set_status(message),
-                            }
-                        }
-                        EntryKind::File => {
-                            let mut buffer = [0u8; MAX_FILE_LEN];
-                            match fs.read_file_into(names[self.selection].as_str(), &mut buffer) {
-                                Ok(read_len) => self.set_preview(&buffer, read_len),
-                                Err(message) => self.set_status(message),
-                            }
-                        }
-                    }
-                } else {
-                    self.set_status("No entry selected");
-                }
+                self.open_selected(fs);
                 true
             }
             _ => false,
+        }
+    }
+
+    pub fn select_index(&mut self, index: usize, fs: &FileSystem) -> bool {
+        let count = self.entry_count(fs);
+        if index >= count {
+            return false;
+        }
+        self.selection = index;
+        self.set_status("Entry selected");
+        true
+    }
+
+    pub fn open_selected(&mut self, fs: &mut FileSystem) -> bool {
+        let mut kinds = [EntryKind::File; MAX_FS_NODES];
+        let mut names = [NameText::empty(); MAX_FS_NODES];
+        let mut sizes = [0usize; MAX_FS_NODES];
+        let len = fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
+        if self.selection >= len {
+            self.set_status("No entry selected");
+            return false;
+        }
+
+        match kinds[self.selection] {
+            EntryKind::Dir => match fs.change_dir(names[self.selection].as_str()) {
+                Ok(()) => {
+                    self.selection = 0;
+                    self.set_status("Opened folder");
+                    true
+                }
+                Err(message) => {
+                    self.set_status(message);
+                    false
+                }
+            },
+            EntryKind::File => {
+                let mut buffer = [0u8; MAX_FILE_LEN];
+                match fs.read_file_into(names[self.selection].as_str(), &mut buffer) {
+                    Ok(read_len) => {
+                        self.set_preview(&buffer, read_len);
+                        true
+                    }
+                    Err(message) => {
+                        self.set_status(message);
+                        false
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn go_parent(&mut self, fs: &mut FileSystem) -> bool {
+        match fs.change_dir("..") {
+            Ok(()) => {
+                self.selection = 0;
+                self.set_status("Moved to parent directory");
+                true
+            }
+            Err(message) => {
+                self.set_status(message);
+                false
+            }
+        }
+    }
+
+    pub fn go_home(&mut self, fs: &mut FileSystem) -> bool {
+        match fs.change_dir("/") {
+            Ok(()) => {
+                self.selection = 0;
+                self.set_status("Opened home");
+                true
+            }
+            Err(message) => {
+                self.set_status(message);
+                false
+            }
+        }
+    }
+
+    pub fn go_docs(&mut self, fs: &mut FileSystem) -> bool {
+        match fs.change_dir("/docs") {
+            Ok(()) => {
+                self.selection = 0;
+                self.set_status("Opened docs");
+                true
+            }
+            Err(message) => {
+                self.set_status(message);
+                false
+            }
+        }
+    }
+
+    pub fn create_folder(&mut self, fs: &mut FileSystem) -> bool {
+        let name = next_name("dir", &mut self.created_dirs);
+        match fs.create_dir(name) {
+            Ok(()) => {
+                self.set_status("Folder created");
+                true
+            }
+            Err(message) => {
+                self.set_status(message);
+                false
+            }
+        }
+    }
+
+    pub fn create_file(&mut self, fs: &mut FileSystem) -> bool {
+        let name = next_name("file", &mut self.created_files);
+        match fs.touch(name) {
+            Ok(()) => {
+                self.set_status("File created");
+                true
+            }
+            Err(message) => {
+                self.set_status(message);
+                false
+            }
+        }
+    }
+
+    pub fn delete_selected(&mut self, fs: &mut FileSystem) -> bool {
+        let mut name = [0u8; 12];
+        if let Some(name_len) = self.selected_name_into(fs, &mut name) {
+            let entry_name = core::str::from_utf8(&name[..name_len]).unwrap_or("");
+            match fs.remove(entry_name) {
+                Ok(()) => {
+                    self.selection = self.selection.saturating_sub(1);
+                    self.set_status("Entry removed");
+                    true
+                }
+                Err(message) => {
+                    self.set_status(message);
+                    false
+                }
+            }
+        } else {
+            self.set_status("No entry selected");
+            false
         }
     }
 

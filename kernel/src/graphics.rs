@@ -17,6 +17,7 @@ const STATUS_HEIGHT: i32 = 22;
 const TASKBAR_Y: i32 = 182;
 const DOUBLE_CLICK_TICKS: u64 = 40;
 const TERMINAL_VIEW_LINES: usize = 5;
+const EXPLORER_ROWS_VISIBLE: usize = 4;
 
 pub struct GraphicsShell {
     fb: FramebufferInfo,
@@ -290,7 +291,7 @@ impl GraphicsShell {
         }
 
         if let Some(window) = self.hit_title_bar(state.x, state.y) {
-            self.focused_window = Some(window);
+            self.focus_window(window);
             let rect = self.window_bounds(window);
             self.drag_state.active = true;
             self.drag_state.window = Some(window);
@@ -299,8 +300,12 @@ impl GraphicsShell {
             return MouseRedraw::Full;
         }
 
+        if let Some(redraw) = self.handle_window_client_click(state.x, state.y) {
+            return redraw;
+        }
+
         if let Some(window) = self.hit_window(state.x, state.y) {
-            self.focused_window = Some(window);
+            self.focus_window(window);
             self.selected_icon = None;
             return MouseRedraw::Panels;
         }
@@ -445,49 +450,19 @@ impl GraphicsShell {
     }
 
     fn draw_windows(&self) {
-        match self.focused_window {
-            Some(WindowKind::Terminal) => {
-                if self.settings_open {
-                    self.draw_settings_window(false);
+        let order = self.window_order();
+        let mut index = order.len();
+        while index > 0 {
+            index -= 1;
+            if let Some(window) = order[index] {
+                if !self.window_is_open(window) {
+                    continue;
                 }
-                if self.explorer_open {
-                    self.draw_explorer_window(false);
-                }
-                if self.terminal_open {
-                    self.draw_terminal_window(true);
-                }
-            }
-            Some(WindowKind::Explorer) => {
-                if self.terminal_open {
-                    self.draw_terminal_window(false);
-                }
-                if self.settings_open {
-                    self.draw_settings_window(false);
-                }
-                if self.explorer_open {
-                    self.draw_explorer_window(true);
-                }
-            }
-            Some(WindowKind::Settings) => {
-                if self.terminal_open {
-                    self.draw_terminal_window(false);
-                }
-                if self.explorer_open {
-                    self.draw_explorer_window(false);
-                }
-                if self.settings_open {
-                    self.draw_settings_window(true);
-                }
-            }
-            None => {
-                if self.terminal_open {
-                    self.draw_terminal_window(false);
-                }
-                if self.explorer_open {
-                    self.draw_explorer_window(false);
-                }
-                if self.settings_open {
-                    self.draw_settings_window(false);
+                let focused = self.focused_window == Some(window);
+                match window {
+                    WindowKind::Terminal => self.draw_terminal_window(focused),
+                    WindowKind::Explorer => self.draw_explorer_window(focused),
+                    WindowKind::Settings => self.draw_settings_window(focused),
                 }
             }
         }
@@ -539,6 +514,8 @@ impl GraphicsShell {
         self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, 12, 8);
         self.draw_text(rect.x + 12, rect.y + 24, 15, self.fs.cwd_path());
 
+        self.draw_explorer_toolbar(rect);
+
         self.fill_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 1);
         self.draw_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 8);
         self.draw_text(rect.x + 12, rect.y + 42, 15, "HOME");
@@ -574,6 +551,19 @@ impl GraphicsShell {
         self.draw_text(rect.x + 12, rect.y + 82, 7, "Modes");
         self.draw_text(rect.x + 48, rect.y + 82, 15, "kernelgfx 640x480");
         self.draw_text(rect.x + 48, rect.y + 90, 15, "kfg800   800x600");
+    }
+
+    fn draw_explorer_toolbar(&self, rect: WindowRect) {
+        self.draw_toolbar_button(rect.x + 56, rect.y + 20, 18, "UP");
+        self.draw_toolbar_button(rect.x + 78, rect.y + 20, 26, "DIR");
+        self.draw_toolbar_button(rect.x + 108, rect.y + 20, 30, "FILE");
+        self.draw_toolbar_button(rect.x + 142, rect.y + 20, 24, "DEL");
+    }
+
+    fn draw_toolbar_button(&self, x: i32, y: i32, width: i32, label: &str) {
+        self.fill_rect(x, y, width, 12, 1);
+        self.draw_rect(x, y, width, 12, 15);
+        self.draw_text(x + 4, y + 3, 15, label);
     }
 
     fn draw_explorer_entry(&self, x: i32, y: i32, folder: bool, name: &str) {
@@ -628,6 +618,128 @@ impl GraphicsShell {
             }
             row += 1;
         }
+    }
+
+    fn handle_window_client_click(&mut self, x: i32, y: i32) -> Option<MouseRedraw> {
+        let window = self.hit_window(x, y)?;
+        match window {
+            WindowKind::Explorer => self.handle_explorer_click(x, y),
+            WindowKind::Terminal => {
+                self.focus_window(WindowKind::Terminal);
+                self.selected_icon = None;
+                Some(MouseRedraw::Panels)
+            }
+            WindowKind::Settings => {
+                self.focus_window(WindowKind::Settings);
+                self.selected_icon = None;
+                Some(MouseRedraw::Panels)
+            }
+        }
+    }
+
+    fn handle_explorer_click(&mut self, x: i32, y: i32) -> Option<MouseRedraw> {
+        if !self.explorer_open || !point_in_window(self.explorer_window, x, y) {
+            return None;
+        }
+
+        self.focus_window(WindowKind::Explorer);
+        self.selected_icon = None;
+
+        if self.handle_explorer_toolbar_click(x, y) {
+            return Some(MouseRedraw::Panels);
+        }
+
+        if self.handle_explorer_sidebar_click(x, y) {
+            return Some(MouseRedraw::Panels);
+        }
+
+        if self.handle_explorer_entry_click(x, y) {
+            return Some(MouseRedraw::Panels);
+        }
+
+        Some(MouseRedraw::Panels)
+    }
+
+    fn handle_explorer_toolbar_click(&mut self, x: i32, y: i32) -> bool {
+        let rect = self.explorer_window;
+        if point_in_rect(x, y, rect.x + 56, rect.y + 20, 18, 12) {
+            return self.explorer.go_parent(&mut self.fs);
+        }
+        if point_in_rect(x, y, rect.x + 78, rect.y + 20, 26, 12) {
+            return self.explorer.create_folder(&mut self.fs);
+        }
+        if point_in_rect(x, y, rect.x + 108, rect.y + 20, 30, 12) {
+            return self.explorer.create_file(&mut self.fs);
+        }
+        if point_in_rect(x, y, rect.x + 142, rect.y + 20, 24, 12) {
+            return self.explorer.delete_selected(&mut self.fs);
+        }
+        false
+    }
+
+    fn handle_explorer_sidebar_click(&mut self, x: i32, y: i32) -> bool {
+        let rect = self.explorer_window;
+        if point_in_rect(x, y, rect.x + 8, rect.y + 36, 42, 12) {
+            return self.explorer.go_home(&mut self.fs);
+        }
+        if point_in_rect(x, y, rect.x + 8, rect.y + 48, 42, 12) {
+            return self.explorer.go_docs(&mut self.fs);
+        }
+        if point_in_rect(x, y, rect.x + 8, rect.y + 60, 42, 12) {
+            return self.explorer.go_home(&mut self.fs);
+        }
+        false
+    }
+
+    fn handle_explorer_entry_click(&mut self, x: i32, y: i32) -> bool {
+        let rect = self.explorer_window;
+        if !point_in_rect(x, y, rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46) {
+            return false;
+        }
+
+        let mut kinds = [crate::fs::EntryKind::File; crate::fs::MAX_FS_NODES];
+        let mut names = [crate::fs::NameText::empty(); crate::fs::MAX_FS_NODES];
+        let mut sizes = [0usize; crate::fs::MAX_FS_NODES];
+        let len = self.fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
+        if len == 0 {
+            return false;
+        }
+
+        let visible = core::cmp::min(len, EXPLORER_ROWS_VISIBLE);
+        let start = if self.explorer.selected_index() >= visible {
+            self.explorer.selected_index() + 1 - visible
+        } else {
+            0
+        };
+
+        let mut row = 0usize;
+        while row < visible {
+            let index = start + row;
+            let row_y = rect.y + 42 + (row as i32 * 14);
+            if point_in_rect(x, y, rect.x + 58, row_y - 2, rect.width - 68, 12) {
+                let was_selected = index == self.explorer.selected_index();
+                self.explorer.select_index(index, &self.fs);
+
+                let now = interrupts::timer_ticks();
+                let mut should_open = false;
+                if let Some(last_click) = self.last_icon_click {
+                    if last_click.icon == DesktopIcon::Explorer && now.saturating_sub(last_click.tick) <= DOUBLE_CLICK_TICKS && was_selected {
+                        should_open = true;
+                    }
+                }
+                self.last_icon_click = Some(IconClickState {
+                    icon: DesktopIcon::Explorer,
+                    tick: now,
+                });
+                if should_open {
+                    self.explorer.open_selected(&mut self.fs);
+                }
+                return true;
+            }
+            row += 1;
+        }
+
+        false
     }
 
     fn draw_status(&self) {
@@ -777,40 +889,15 @@ impl GraphicsShell {
     }
 
     fn hit_window(&self, x: i32, y: i32) -> Option<WindowKind> {
-        match self.focused_window {
-            Some(WindowKind::Settings) => {
-                if self.settings_open && point_in_window(self.settings_window, x, y) {
-                    return Some(WindowKind::Settings);
-                }
-                if self.explorer_open && point_in_window(self.explorer_window, x, y) {
-                    return Some(WindowKind::Explorer);
-                }
-                if self.terminal_open && point_in_window(self.terminal_window, x, y) {
-                    return Some(WindowKind::Terminal);
+        let order = self.window_order();
+        let mut index = 0usize;
+        while index < order.len() {
+            if let Some(window) = order[index] {
+                if self.window_is_open(window) && point_in_window(self.window_bounds(window), x, y) {
+                    return Some(window);
                 }
             }
-            Some(WindowKind::Explorer) => {
-                if self.explorer_open && point_in_window(self.explorer_window, x, y) {
-                    return Some(WindowKind::Explorer);
-                }
-                if self.settings_open && point_in_window(self.settings_window, x, y) {
-                    return Some(WindowKind::Settings);
-                }
-                if self.terminal_open && point_in_window(self.terminal_window, x, y) {
-                    return Some(WindowKind::Terminal);
-                }
-            }
-            _ => {
-                if self.terminal_open && point_in_window(self.terminal_window, x, y) {
-                    return Some(WindowKind::Terminal);
-                }
-                if self.explorer_open && point_in_window(self.explorer_window, x, y) {
-                    return Some(WindowKind::Explorer);
-                }
-                if self.settings_open && point_in_window(self.settings_window, x, y) {
-                    return Some(WindowKind::Settings);
-                }
-            }
+            index += 1;
         }
         None
     }
@@ -839,15 +926,15 @@ impl GraphicsShell {
         match icon {
             DesktopIcon::Terminal => {
                 self.terminal_open = true;
-                self.focused_window = Some(WindowKind::Terminal);
+                self.focus_window(WindowKind::Terminal);
             }
             DesktopIcon::Explorer => {
                 self.explorer_open = true;
-                self.focused_window = Some(WindowKind::Explorer);
+                self.focus_window(WindowKind::Explorer);
             }
             DesktopIcon::Settings => {
                 self.settings_open = true;
-                self.focused_window = Some(WindowKind::Settings);
+                self.focus_window(WindowKind::Settings);
             }
         }
     }
@@ -857,50 +944,28 @@ impl GraphicsShell {
             DesktopIcon::Terminal => {
                 if self.terminal_open && self.focused_window == Some(WindowKind::Terminal) {
                     self.terminal_open = false;
-                    if self.focused_window == Some(WindowKind::Terminal) {
-                        self.focused_window = if self.explorer_open {
-                            Some(WindowKind::Explorer)
-                        } else {
-                            None
-                        };
-                    }
+                    self.focused_window = self.next_visible_window(WindowKind::Terminal);
                 } else {
                     self.terminal_open = true;
-                    self.focused_window = Some(WindowKind::Terminal);
+                    self.focus_window(WindowKind::Terminal);
                 }
             }
             DesktopIcon::Explorer => {
                 if self.explorer_open && self.focused_window == Some(WindowKind::Explorer) {
                     self.explorer_open = false;
-                    if self.focused_window == Some(WindowKind::Explorer) {
-                        self.focused_window = if self.terminal_open {
-                            Some(WindowKind::Terminal)
-                        } else if self.settings_open {
-                            Some(WindowKind::Settings)
-                        } else {
-                            None
-                        };
-                    }
+                    self.focused_window = self.next_visible_window(WindowKind::Explorer);
                 } else {
                     self.explorer_open = true;
-                    self.focused_window = Some(WindowKind::Explorer);
+                    self.focus_window(WindowKind::Explorer);
                 }
             }
             DesktopIcon::Settings => {
                 if self.settings_open && self.focused_window == Some(WindowKind::Settings) {
                     self.settings_open = false;
-                    if self.focused_window == Some(WindowKind::Settings) {
-                        self.focused_window = if self.explorer_open {
-                            Some(WindowKind::Explorer)
-                        } else if self.terminal_open {
-                            Some(WindowKind::Terminal)
-                        } else {
-                            None
-                        };
-                    }
+                    self.focused_window = self.next_visible_window(WindowKind::Settings);
                 } else {
                     self.settings_open = true;
-                    self.focused_window = Some(WindowKind::Settings);
+                    self.focus_window(WindowKind::Settings);
                 }
             }
         }
@@ -913,21 +978,7 @@ impl GraphicsShell {
             WindowKind::Settings => self.settings_open = false,
         }
         if self.focused_window == Some(window) {
-            self.focused_window = if window == WindowKind::Terminal && self.explorer_open {
-                Some(WindowKind::Explorer)
-            } else if window == WindowKind::Terminal && self.settings_open {
-                Some(WindowKind::Settings)
-            } else if window == WindowKind::Explorer && self.terminal_open {
-                Some(WindowKind::Terminal)
-            } else if window == WindowKind::Explorer && self.settings_open {
-                Some(WindowKind::Settings)
-            } else if window == WindowKind::Settings && self.explorer_open {
-                Some(WindowKind::Explorer)
-            } else if window == WindowKind::Settings && self.terminal_open {
-                Some(WindowKind::Terminal)
-            } else {
-                None
-            };
+            self.focused_window = self.next_visible_window(window);
         }
     }
 
@@ -952,6 +1003,57 @@ impl GraphicsShell {
             WindowKind::Terminal => &mut self.terminal_window,
             WindowKind::Explorer => &mut self.explorer_window,
             WindowKind::Settings => &mut self.settings_window,
+        }
+    }
+
+    fn focus_window(&mut self, window: WindowKind) {
+        self.focused_window = Some(window);
+    }
+
+    fn next_visible_window(&self, closed: WindowKind) -> Option<WindowKind> {
+        let order = self.window_order();
+        let mut index = 0usize;
+        while index < order.len() {
+            if let Some(window) = order[index] {
+                if window != closed && self.window_is_open(window) {
+                    return Some(window);
+                }
+            }
+            index += 1;
+        }
+        None
+    }
+
+    fn window_is_open(&self, window: WindowKind) -> bool {
+        match window {
+            WindowKind::Terminal => self.terminal_open,
+            WindowKind::Explorer => self.explorer_open,
+            WindowKind::Settings => self.settings_open,
+        }
+    }
+
+    fn window_order(&self) -> [Option<WindowKind>; 3] {
+        match self.focused_window {
+            Some(WindowKind::Terminal) => [
+                Some(WindowKind::Terminal),
+                Some(WindowKind::Explorer),
+                Some(WindowKind::Settings),
+            ],
+            Some(WindowKind::Explorer) => [
+                Some(WindowKind::Explorer),
+                Some(WindowKind::Settings),
+                Some(WindowKind::Terminal),
+            ],
+            Some(WindowKind::Settings) => [
+                Some(WindowKind::Settings),
+                Some(WindowKind::Explorer),
+                Some(WindowKind::Terminal),
+            ],
+            None => [
+                Some(WindowKind::Settings),
+                Some(WindowKind::Explorer),
+                Some(WindowKind::Terminal),
+            ],
         }
     }
 
