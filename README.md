@@ -16,7 +16,7 @@ ISO for VMware.
 - keyboard input and a tiny BIOS shell in stage 2
 - a VGA mode `13h` graphics demo launched from the shell
 - a `kernel` command that loads and jumps to a real Rust x86_64 kernel binary
-- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, boot-info parsing, a text-mode desktop shell, and a real terminal window MVP
+- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, boot-info parsing, a text-mode desktop shell, a real terminal window MVP, and a dedicated kernel filesystem module
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
@@ -124,8 +124,13 @@ Terminal commands:
 - `reboot`
 - `shutdown`
 
+Filesystem note:
+
+- the terminal now talks to a dedicated kernel filesystem layer instead of owning storage logic directly
+- the filesystem is still memory-backed in this phase, but the API is now separated for later persistence and file explorer work
+
 ## Next Step
 
-Once this terminal milestone is proven stable in VMware, the next phase is to
-replace the in-memory terminal filesystem with real persistent storage and then
-build the file explorer on top of those filesystem APIs.
+Once this filesystem-layer milestone is proven stable in VMware, the next phase
+is to add persistent storage behind the kernel filesystem module and then build
+the file explorer on top of those APIs.
