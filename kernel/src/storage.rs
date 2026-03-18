@@ -12,7 +12,6 @@ const ATA_COMMAND: u16 = 0x1F7;
 const STATUS_ERR: u8 = 0x01;
 const STATUS_DRQ: u8 = 0x08;
 const STATUS_DF: u8 = 0x20;
-const STATUS_DRDY: u8 = 0x40;
 const STATUS_BSY: u8 = 0x80;
 
 const COMMAND_READ_SECTORS: u8 = 0x20;
@@ -61,6 +60,12 @@ pub fn detect_primary_master() -> bool {
         return false;
     }
 
+    let signature_mid = port::inb(ATA_LBA_MID);
+    let signature_high = port::inb(ATA_LBA_HIGH);
+    if is_atapi_signature(signature_mid, signature_high) {
+        return false;
+    }
+
     let mut spins = 0usize;
     while spins < POLL_LIMIT {
         let current = port::inb(ATA_STATUS);
@@ -68,7 +73,7 @@ pub fn detect_primary_master() -> bool {
             if current & STATUS_ERR != 0 {
                 return false;
             }
-            if current & STATUS_DRQ != 0 || current & STATUS_DRDY != 0 {
+            if current & STATUS_DRQ != 0 {
                 let mut word_index = 0usize;
                 while word_index < 256 {
                     let _ = port::inw(ATA_DATA);
@@ -157,4 +162,8 @@ fn wait_not_busy() -> bool {
         spins += 1;
     }
     false
+}
+
+fn is_atapi_signature(mid: u8, high: u8) -> bool {
+    (mid == 0x14 && high == 0xEB) || (mid == 0x69 && high == 0x96)
 }
