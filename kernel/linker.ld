@@ -27,8 +27,10 @@ SECTIONS
 
     .bss (NOLOAD) : ALIGN(16)
     {
+        __bss_start = .;
         *(COMMON)
         *(.bss .bss.*)
+        __bss_end = .;
     }
 
     /DISCARD/ :
