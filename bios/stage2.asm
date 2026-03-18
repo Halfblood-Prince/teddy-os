@@ -244,7 +244,11 @@ execute_command:
     jmp $
 
 .kernelgfx:
+    mov bx, VBE_MODE_640X480X8
+    call set_kernel_vbe_mode
+    jnc .kernelgfx_ready
     call set_kernel_graphics_mode
+.kernelgfx_ready:
     mov byte [boot_video_mode], 1
     call load_kernel_image
     jc .kernel_failed
@@ -253,7 +257,11 @@ execute_command:
     jmp $
 
 .kernelgfx800:
+    mov bx, VBE_MODE_800X600X8
+    call set_kernel_vbe_mode
+    jnc .kernelgfx800_ready
     call set_kernel_graphics_mode
+.kernelgfx800_ready:
     mov byte [boot_video_mode], 1
     call load_kernel_image
     jc .kernel_failed
@@ -262,7 +270,11 @@ execute_command:
     jmp $
 
 .kernelgfx1024:
+    mov bx, VBE_MODE_1024X768X8
+    call set_kernel_vbe_mode
+    jnc .kernelgfx1024_ready
     call set_kernel_graphics_mode
+.kernelgfx1024_ready:
     mov byte [boot_video_mode], 1
     call load_kernel_image
     jc .kernel_failed

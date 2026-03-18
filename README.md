@@ -104,7 +104,7 @@ When you run `kernel`, the current kernel MVP should show:
 
 When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
 
-- a VBE linear framebuffer graphics desktop
+- a framebuffer graphics desktop
 - a graphical top bar and taskbar
 - desktop icons for `Terminal`, `Explorer`, and `Settings`
 - window-like GUI apps rendered by the kernel
@@ -115,9 +115,10 @@ When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
 
 Graphics boot modes:
 
-- `kernelgfx` boots a `640x480x8` desktop
-- `kernelgfx800` boots an `800x600x8` desktop
-- `kernelgfx1024` boots a `1024x768x8` desktop
+- `kernelgfx` requests `640x480x8`
+- `kernelgfx800` requests `800x600x8`
+- `kernelgfx1024` requests `1024x768x8`
+- if VMware BIOS rejects a VBE mode, Teddy-OS falls back to the stable `320x200x8` graphics path
 
 Kernel desktop controls:
 
