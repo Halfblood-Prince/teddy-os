@@ -109,10 +109,10 @@ impl GraphicsShell {
                 width: 164,
                 height: 96,
             },
-            terminal_open: true,
-            explorer_open: true,
+            terminal_open: false,
+            explorer_open: false,
             settings_open: false,
-            focused_window: Some(WindowKind::Explorer),
+            focused_window: None,
             selected_icon: None,
             drag_state: DragState {
                 active: false,
