@@ -1,5 +1,5 @@
 use core::arch::global_asm;
-use core::sync::atomic::{AtomicI32, AtomicU8, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 
 use crate::{cpu, input::MousePacket, port, trace, vga};
 
@@ -24,6 +24,8 @@ const PS2_COMMAND: u16 = 0x64;
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 static LAST_SCANCODE: AtomicU8 = AtomicU8::new(0);
 static LAST_ASCII: AtomicU8 = AtomicU8::new(b'-');
+static KEYBOARD_WRITE_INDEX: AtomicUsize = AtomicUsize::new(0);
+static KEYBOARD_READ_INDEX: AtomicUsize = AtomicUsize::new(0);
 static MOUSE_SEQ: AtomicU64 = AtomicU64::new(0);
 static MOUSE_DELTA_X: AtomicI32 = AtomicI32::new(0);
 static MOUSE_DELTA_Y: AtomicI32 = AtomicI32::new(0);
@@ -33,6 +35,22 @@ static MOUSE_RELEASED: AtomicU8 = AtomicU8::new(0);
 
 static mut MOUSE_PACKET_INDEX: u8 = 0;
 static mut MOUSE_PACKET_BYTES: [u8; 3] = [0; 3];
+static mut KEYBOARD_QUEUE: [KeyboardEvent; 32] = [KeyboardEvent::empty(); 32];
+
+#[derive(Clone, Copy)]
+pub struct KeyboardEvent {
+    pub scancode: u8,
+    pub ascii: u8,
+}
+
+impl KeyboardEvent {
+    const fn empty() -> Self {
+        Self {
+            scancode: 0,
+            ascii: 0,
+        }
+    }
+}
 
 #[repr(C)]
 struct InterruptStackFrame {
@@ -288,6 +306,18 @@ pub fn uptime_seconds() -> u64 {
     timer_ticks() / PIT_TICKS_PER_SECOND as u64
 }
 
+pub fn consume_keyboard_event() -> Option<KeyboardEvent> {
+    let read = KEYBOARD_READ_INDEX.load(Ordering::Acquire);
+    let write = KEYBOARD_WRITE_INDEX.load(Ordering::Acquire);
+    if read == write {
+        return None;
+    }
+
+    let event = unsafe { KEYBOARD_QUEUE[read % 32] };
+    KEYBOARD_READ_INDEX.store(read.wrapping_add(1), Ordering::Release);
+    Some(event)
+}
+
 pub fn consume_mouse_packet(last_seq: u64) -> Option<MousePacket> {
     let seq = MOUSE_SEQ.load(Ordering::Acquire);
     if seq == last_seq {
@@ -324,7 +354,9 @@ fn handle_keyboard_irq() {
     let scancode = port::inb(PS2_DATA);
     LAST_SCANCODE.store(scancode, Ordering::Relaxed);
     if scancode & 0x80 == 0 {
-        LAST_ASCII.store(decode_scancode(scancode), Ordering::Relaxed);
+        let ascii = decode_scancode(scancode);
+        LAST_ASCII.store(ascii, Ordering::Relaxed);
+        push_keyboard_event(scancode, ascii);
     }
     end_of_interrupt(KEYBOARD_VECTOR);
 }
@@ -426,6 +458,20 @@ fn decode_scancode(scancode: u8) -> u8 {
         0x01 => 27,
         _ => b'?',
     }
+}
+
+fn push_keyboard_event(scancode: u8, ascii: u8) {
+    let write = KEYBOARD_WRITE_INDEX.load(Ordering::Relaxed);
+    let read = KEYBOARD_READ_INDEX.load(Ordering::Acquire);
+    let next = write.wrapping_add(1);
+    if next.wrapping_sub(read) > 32 {
+        KEYBOARD_READ_INDEX.store(read.wrapping_add(1), Ordering::Release);
+    }
+
+    unsafe {
+        KEYBOARD_QUEUE[write % 32] = KeyboardEvent { scancode, ascii };
+    }
+    KEYBOARD_WRITE_INDEX.store(next, Ordering::Release);
 }
 
 fn remap_pic() {

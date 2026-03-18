@@ -49,7 +49,6 @@ _start:
 
 #[no_mangle]
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
-    let mut last_seen_scancode = 0u8;
     let mut last_seen_second = 0u64;
     trace::set_boot_stage(1);
     interrupts::init();
@@ -77,15 +76,11 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
             desktop.tick(uptime_seconds);
         }
 
-        let scancode = interrupts::last_scancode();
-        if scancode != last_seen_scancode {
-            last_seen_scancode = scancode;
-            if scancode & 0x80 == 0 {
-                if let Some(action) = desktop.handle_key(scancode, interrupts::last_ascii()) {
-                    match action {
-                        shell::ShellAction::Reboot => reboot_system(),
-                        shell::ShellAction::Shutdown => shutdown_system(),
-                    }
+        while let Some(event) = interrupts::consume_keyboard_event() {
+            if let Some(action) = desktop.handle_key(event.scancode, event.ascii) {
+                match action {
+                    shell::ShellAction::Reboot => reboot_system(),
+                    shell::ShellAction::Shutdown => shutdown_system(),
                 }
             }
         }
@@ -94,7 +89,6 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
 }
 
 fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
-    let mut last_seen_scancode = 0u8;
     let mut last_seen_second = 0u64;
     trace::set_boot_stage(0x70);
     trace::set_boot_stage(0x71);
@@ -126,17 +120,13 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
             shell.tick(uptime_seconds);
         }
 
-        let scancode = interrupts::last_scancode();
         trace::set_boot_stage(0x83);
-        if scancode != last_seen_scancode {
-            last_seen_scancode = scancode;
-            if scancode & 0x80 == 0 {
-                trace::set_boot_stage(0x84);
-                if let Some(action) = shell.handle_key(interrupts::last_ascii()) {
-                    match action {
-                        graphics::GraphicsAction::Reboot => reboot_system(),
-                        graphics::GraphicsAction::Shutdown => shutdown_system(),
-                    }
+        while let Some(event) = interrupts::consume_keyboard_event() {
+            trace::set_boot_stage(0x84);
+            if let Some(action) = shell.handle_key(event.ascii) {
+                match action {
+                    graphics::GraphicsAction::Reboot => reboot_system(),
+                    graphics::GraphicsAction::Shutdown => shutdown_system(),
                 }
             }
         }
