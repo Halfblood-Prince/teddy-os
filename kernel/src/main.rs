@@ -113,16 +113,21 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
     trace::set_boot_stage(0x73);
 
     loop {
+        trace::set_boot_stage(0x74);
         let uptime_seconds = interrupts::uptime_seconds();
+        trace::set_boot_stage(0x75);
         if uptime_seconds != last_seen_second {
             last_seen_second = uptime_seconds;
+            trace::set_boot_stage(0x76);
             shell.tick(uptime_seconds);
         }
 
         let scancode = interrupts::last_scancode();
+        trace::set_boot_stage(0x77);
         if scancode != last_seen_scancode {
             last_seen_scancode = scancode;
             if scancode & 0x80 == 0 {
+                trace::set_boot_stage(0x78);
                 if let Some(action) = shell.handle_key(interrupts::last_ascii()) {
                     match action {
                         graphics::GraphicsAction::Reboot => reboot_system(),
@@ -132,8 +137,10 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
             }
         }
 
+        trace::set_boot_stage(0x79);
         shell.poll_input();
 
+        trace::set_boot_stage(0x7A);
         cpu::halt();
     }
 }
