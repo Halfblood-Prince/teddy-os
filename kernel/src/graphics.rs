@@ -5,6 +5,11 @@ use crate::{
 };
 
 const TITLE_BAR_HEIGHT: i32 = 14;
+const CURSOR_SIZE: usize = 11;
+const STATUS_X: i32 = 18;
+const STATUS_Y: i32 = 140;
+const STATUS_WIDTH: i32 = 284;
+const STATUS_HEIGHT: i32 = 30;
 
 pub struct GraphicsShell {
     fb: FramebufferInfo,
@@ -14,6 +19,9 @@ pub struct GraphicsShell {
     demo_window: WindowRect,
     notes_window: WindowRect,
     drag_state: DragState,
+    cursor_backing: [u8; CURSOR_SIZE * CURSOR_SIZE],
+    cursor_saved_x: i32,
+    cursor_saved_y: i32,
 }
 
 #[derive(Clone, Copy)]
@@ -29,6 +37,12 @@ struct DragState {
     active: bool,
     offset_x: i32,
     offset_y: i32,
+}
+
+enum MouseRedraw {
+    None,
+    Overlay,
+    Full,
 }
 
 impl GraphicsShell {
@@ -62,21 +76,26 @@ impl GraphicsShell {
                 offset_x: 0,
                 offset_y: 0,
             },
+            cursor_backing: [0; CURSOR_SIZE * CURSOR_SIZE],
+            cursor_saved_x: 0,
+            cursor_saved_y: 0,
         })
     }
 
-    pub fn render(&self) {
+    pub fn render(&mut self) {
         self.draw_background();
         self.draw_top_bar();
         self.draw_taskbar();
         self.draw_demo_window();
         self.draw_notes_window();
         self.draw_status();
+        self.save_cursor_backing(self.input.mouse_state());
         self.draw_cursor();
     }
 
     pub fn tick(&mut self, uptime_seconds: u64) {
         if self.uptime_seconds != uptime_seconds {
+            self.restore_cursor_backing();
             self.uptime_seconds = uptime_seconds;
             self.accent_phase = self.accent_phase.wrapping_add(1) % 3;
             self.render();
@@ -85,53 +104,87 @@ impl GraphicsShell {
 
     pub fn handle_key(&mut self, ascii: u8) {
         if ascii != b'?' {
+            self.restore_cursor_backing();
             self.accent_phase = self.accent_phase.wrapping_add(1) % 3;
             self.render();
         }
     }
 
     pub fn poll_input(&mut self) {
-        let mut changed = self.input.pump_hardware();
+        let previous_mouse = self.input.mouse_state();
+        if !self.input.pump_hardware() {
+            return;
+        }
+
+        let current_mouse = self.input.mouse_state();
+        let mut redraw = if mouse_changed(previous_mouse, current_mouse) {
+            MouseRedraw::Overlay
+        } else {
+            MouseRedraw::None
+        };
 
         while let Some(event) = self.input.next_event() {
-            changed = true;
-            match event {
+            let event_redraw = match event {
                 InputEvent::MouseMove(state) => self.handle_mouse_move(state),
                 InputEvent::MouseDown(state, button) => self.handle_mouse_down(state, button),
                 InputEvent::MouseUp(state, button) => self.handle_mouse_up(state, button),
-            }
+            };
+            redraw = combine_redraw(redraw, event_redraw);
         }
 
-        if changed {
-            self.render();
+        match redraw {
+            MouseRedraw::None => {}
+            MouseRedraw::Overlay => self.refresh_cursor_overlay(previous_mouse),
+            MouseRedraw::Full => {
+                self.restore_cursor_backing();
+                self.render();
+            }
         }
     }
 
-    fn handle_mouse_move(&mut self, state: MouseState) {
+    fn handle_mouse_move(&mut self, state: MouseState) -> MouseRedraw {
         if self.drag_state.active && state.buttons & input::MOUSE_BUTTON_LEFT != 0 {
             let max_x = self.fb.width() as i32 - self.demo_window.width - 1;
             let max_y = self.fb.height() as i32 - 20 - self.demo_window.height;
             self.demo_window.x = clamp(state.x - self.drag_state.offset_x, 0, max_x);
             self.demo_window.y = clamp(state.y - self.drag_state.offset_y, 20, max_y);
+            MouseRedraw::Full
+        } else {
+            MouseRedraw::Overlay
         }
     }
 
-    fn handle_mouse_down(&mut self, state: MouseState, button: u8) {
+    fn handle_mouse_down(&mut self, state: MouseState, button: u8) -> MouseRedraw {
         if button != input::MOUSE_BUTTON_LEFT {
-            return;
+            return MouseRedraw::Overlay;
         }
 
         if self.point_in_title_bar(&self.demo_window, state.x, state.y) {
             self.drag_state.active = true;
             self.drag_state.offset_x = state.x - self.demo_window.x;
             self.drag_state.offset_y = state.y - self.demo_window.y;
+            return MouseRedraw::Full;
         }
+
+        MouseRedraw::Overlay
     }
 
-    fn handle_mouse_up(&mut self, _state: MouseState, button: u8) {
-        if button == input::MOUSE_BUTTON_LEFT {
+    fn handle_mouse_up(&mut self, _state: MouseState, button: u8) -> MouseRedraw {
+        if button == input::MOUSE_BUTTON_LEFT && self.drag_state.active {
             self.drag_state.active = false;
+            return MouseRedraw::Full;
         }
+
+        MouseRedraw::Overlay
+    }
+
+    fn refresh_cursor_overlay(&mut self, previous_mouse: MouseState) {
+        self.restore_cursor_backing();
+        if mouse_changed(previous_mouse, self.input.mouse_state()) {
+            self.draw_status();
+        }
+        self.save_cursor_backing(self.input.mouse_state());
+        self.draw_cursor();
     }
 
     fn draw_background(&self) {
@@ -204,8 +257,8 @@ impl GraphicsShell {
 
     fn draw_status(&self) {
         let mouse = self.input.mouse_state();
-        self.fill_rect(18, 140, 284, 30, 1);
-        self.draw_rect(18, 140, 284, 30, 15);
+        self.fill_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, STATUS_HEIGHT, 1);
+        self.draw_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, STATUS_HEIGHT, 15);
         self.draw_text(28, 148, 15, "UP");
         self.draw_number(48, 148, self.uptime_seconds as u32, 14);
         self.draw_text(80, 148, 15, "KEY");
@@ -232,10 +285,8 @@ impl GraphicsShell {
             15
         };
 
-        self.put_pixel(mouse.x, mouse.y, 0);
-
         let mut step = 0;
-        while step < 11 {
+        while step < CURSOR_SIZE as i32 {
             self.put_pixel(mouse.x, mouse.y + step, color);
             if step < 6 {
                 self.put_pixel(mouse.x + step, mouse.y + step, color);
@@ -244,6 +295,38 @@ impl GraphicsShell {
                 self.put_pixel(mouse.x + 1, mouse.y + step, color);
             }
             step += 1;
+        }
+    }
+
+    fn save_cursor_backing(&mut self, mouse: MouseState) {
+        self.cursor_saved_x = mouse.x;
+        self.cursor_saved_y = mouse.y;
+
+        let mut row = 0usize;
+        while row < CURSOR_SIZE {
+            let mut col = 0usize;
+            while col < CURSOR_SIZE {
+                self.cursor_backing[row * CURSOR_SIZE + col] =
+                    self.read_pixel(mouse.x + col as i32, mouse.y + row as i32);
+                col += 1;
+            }
+            row += 1;
+        }
+    }
+
+    fn restore_cursor_backing(&self) {
+        let mut row = 0usize;
+        while row < CURSOR_SIZE {
+            let mut col = 0usize;
+            while col < CURSOR_SIZE {
+                self.put_pixel(
+                    self.cursor_saved_x + col as i32,
+                    self.cursor_saved_y + row as i32,
+                    self.cursor_backing[row * CURSOR_SIZE + col],
+                );
+                col += 1;
+            }
+            row += 1;
         }
     }
 
@@ -359,6 +442,21 @@ impl GraphicsShell {
         }
     }
 
+    fn read_pixel(&self, x: i32, y: i32) -> u8 {
+        if x < 0 || y < 0 {
+            return 0;
+        }
+        let x = x as usize;
+        let y = y as usize;
+        if x >= self.fb.width() as usize || y >= self.fb.height() as usize {
+            return 0;
+        }
+
+        let offset = y * self.fb.pitch() as usize + x;
+        let ptr = self.fb.addr() as usize as *const u8;
+        unsafe { ptr.add(offset).read_volatile() }
+    }
+
     fn put_pixel(&self, x: i32, y: i32, color: u8) {
         if x < 0 || y < 0 {
             return;
@@ -374,6 +472,18 @@ impl GraphicsShell {
         unsafe {
             ptr.add(offset).write_volatile(color);
         }
+    }
+}
+
+fn mouse_changed(previous: MouseState, current: MouseState) -> bool {
+    previous.x != current.x || previous.y != current.y || previous.buttons != current.buttons
+}
+
+fn combine_redraw(current: MouseRedraw, next: MouseRedraw) -> MouseRedraw {
+    match (current, next) {
+        (MouseRedraw::Full, _) | (_, MouseRedraw::Full) => MouseRedraw::Full,
+        (MouseRedraw::Overlay, _) | (_, MouseRedraw::Overlay) => MouseRedraw::Overlay,
+        _ => MouseRedraw::None,
     }
 }
 
