@@ -6,22 +6,41 @@ use crate::{
 
 const TITLE_BAR_HEIGHT: i32 = 14;
 const CURSOR_SIZE: usize = 11;
-const STATUS_X: i32 = 18;
-const STATUS_Y: i32 = 140;
-const STATUS_WIDTH: i32 = 284;
-const STATUS_HEIGHT: i32 = 30;
+const STATUS_X: i32 = 12;
+const STATUS_Y: i32 = 142;
+const STATUS_WIDTH: i32 = 296;
+const STATUS_HEIGHT: i32 = 22;
+const TASKBAR_Y: i32 = 182;
+const DOUBLE_CLICK_TICKS: u64 = 40;
 
 pub struct GraphicsShell {
     fb: FramebufferInfo,
     input: InputManager,
     uptime_seconds: u64,
     accent_phase: u8,
-    demo_window: WindowRect,
-    notes_window: WindowRect,
+    terminal_window: WindowRect,
+    explorer_window: WindowRect,
+    terminal_open: bool,
+    explorer_open: bool,
+    focused_window: Option<WindowKind>,
+    selected_icon: Option<DesktopIcon>,
     drag_state: DragState,
+    last_icon_click: Option<IconClickState>,
     cursor_backing: [u8; CURSOR_SIZE * CURSOR_SIZE],
     cursor_saved_x: i32,
     cursor_saved_y: i32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DesktopIcon {
+    Terminal,
+    Explorer,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WindowKind {
+    Terminal,
+    Explorer,
 }
 
 #[derive(Clone, Copy)]
@@ -35,8 +54,15 @@ struct WindowRect {
 #[derive(Clone, Copy)]
 struct DragState {
     active: bool,
+    window: Option<WindowKind>,
     offset_x: i32,
     offset_y: i32,
+}
+
+#[derive(Clone, Copy)]
+struct IconClickState {
+    icon: DesktopIcon,
+    tick: u64,
 }
 
 enum MouseRedraw {
@@ -59,23 +85,29 @@ impl GraphicsShell {
             input: InputManager::new(max_x, max_y),
             uptime_seconds: 0,
             accent_phase: 0,
-            demo_window: WindowRect {
-                x: 18,
-                y: 24,
-                width: 172,
+            terminal_window: WindowRect {
+                x: 70,
+                y: 32,
+                width: 168,
+                height: 96,
+            },
+            explorer_window: WindowRect {
+                x: 126,
+                y: 46,
+                width: 168,
                 height: 104,
             },
-            notes_window: WindowRect {
-                x: 202,
-                y: 36,
-                width: 102,
-                height: 98,
-            },
+            terminal_open: true,
+            explorer_open: true,
+            focused_window: Some(WindowKind::Explorer),
+            selected_icon: None,
             drag_state: DragState {
                 active: false,
+                window: None,
                 offset_x: 0,
                 offset_y: 0,
             },
+            last_icon_click: None,
             cursor_backing: [0; CURSOR_SIZE * CURSOR_SIZE],
             cursor_saved_x: 0,
             cursor_saved_y: 0,
@@ -85,10 +117,10 @@ impl GraphicsShell {
     pub fn render(&mut self) {
         self.draw_background();
         self.draw_top_bar();
-        self.draw_taskbar();
-        self.draw_demo_window();
-        self.draw_notes_window();
+        self.draw_desktop_icons();
+        self.draw_windows();
         self.draw_status();
+        self.draw_taskbar();
         self.save_cursor_backing(self.input.mouse_state());
         self.draw_cursor();
     }
@@ -143,15 +175,25 @@ impl GraphicsShell {
     }
 
     fn handle_mouse_move(&mut self, state: MouseState) -> MouseRedraw {
-        if self.drag_state.active && state.buttons & input::MOUSE_BUTTON_LEFT != 0 {
-            let max_x = self.fb.width() as i32 - self.demo_window.width - 1;
-            let max_y = self.fb.height() as i32 - 20 - self.demo_window.height;
-            self.demo_window.x = clamp(state.x - self.drag_state.offset_x, 0, max_x);
-            self.demo_window.y = clamp(state.y - self.drag_state.offset_y, 20, max_y);
-            MouseRedraw::Full
-        } else {
-            MouseRedraw::Overlay
+        if !self.drag_state.active || state.buttons & input::MOUSE_BUTTON_LEFT == 0 {
+            return MouseRedraw::Overlay;
         }
+
+        let window = match self.drag_state.window {
+            Some(window) => window,
+            None => return MouseRedraw::Overlay,
+        };
+
+        let bounds = self.window_bounds(window);
+        let max_x = self.fb.width() as i32 - bounds.width - 1;
+        let max_y = TASKBAR_Y - bounds.height - 2;
+        let next_x = clamp(state.x - self.drag_state.offset_x, 0, max_x);
+        let next_y = clamp(state.y - self.drag_state.offset_y, 20, max_y);
+
+        let rect = self.window_rect_mut(window);
+        rect.x = next_x;
+        rect.y = next_y;
+        MouseRedraw::Full
     }
 
     fn handle_mouse_down(&mut self, state: MouseState, button: u8) -> MouseRedraw {
@@ -159,22 +201,58 @@ impl GraphicsShell {
             return MouseRedraw::Overlay;
         }
 
-        if self.point_in_title_bar(&self.demo_window, state.x, state.y) {
-            self.drag_state.active = true;
-            self.drag_state.offset_x = state.x - self.demo_window.x;
-            self.drag_state.offset_y = state.y - self.demo_window.y;
+        if let Some(window) = self.hit_close_button(state.x, state.y) {
+            self.close_window(window);
             return MouseRedraw::Full;
         }
 
-        MouseRedraw::Overlay
+        if let Some(window) = self.hit_title_bar(state.x, state.y) {
+            self.focused_window = Some(window);
+            let rect = self.window_bounds(window);
+            self.drag_state.active = true;
+            self.drag_state.window = Some(window);
+            self.drag_state.offset_x = state.x - rect.x;
+            self.drag_state.offset_y = state.y - rect.y;
+            return MouseRedraw::Full;
+        }
+
+        if let Some(window) = self.hit_window(state.x, state.y) {
+            self.focused_window = Some(window);
+            self.selected_icon = None;
+            return MouseRedraw::Full;
+        }
+
+        if let Some(icon) = self.hit_taskbar_button(state.x, state.y) {
+            self.toggle_or_focus(icon);
+            return MouseRedraw::Full;
+        }
+
+        if let Some(icon) = self.hit_icon(state.x, state.y) {
+            let now = interrupts::timer_ticks();
+            let mut should_open = false;
+            if let Some(last_click) = self.last_icon_click {
+                if last_click.icon == icon && now.saturating_sub(last_click.tick) <= DOUBLE_CLICK_TICKS {
+                    should_open = true;
+                }
+            }
+            self.last_icon_click = Some(IconClickState { icon, tick: now });
+            self.selected_icon = Some(icon);
+            if should_open {
+                self.open_window_for_icon(icon);
+            }
+            return MouseRedraw::Full;
+        }
+
+        self.selected_icon = None;
+        self.focused_window = None;
+        MouseRedraw::Full
     }
 
     fn handle_mouse_up(&mut self, _state: MouseState, button: u8) -> MouseRedraw {
-        if button == input::MOUSE_BUTTON_LEFT && self.drag_state.active {
+        if button == input::MOUSE_BUTTON_LEFT {
             self.drag_state.active = false;
-            return MouseRedraw::Full;
+            self.drag_state.window = None;
         }
-
         MouseRedraw::Overlay
     }
 
@@ -192,9 +270,9 @@ impl GraphicsShell {
         let width = self.fb.width() as usize;
         let mut y = 0usize;
         while y < height {
-            let color = if y < 64 {
+            let color = if y < 52 {
                 1
-            } else if y < 132 {
+            } else if y < 124 {
                 9
             } else {
                 3
@@ -203,74 +281,166 @@ impl GraphicsShell {
             y += 1;
         }
 
-        self.fill_rect(0, 0, width as i32, 20, 8);
-        self.fill_rect(0, height as i32 - 18, width as i32, 18, 8);
+        self.fill_rect(0, 0, width as i32, 18, 8);
+        self.fill_rect(0, TASKBAR_Y, width as i32, 18, 8);
+        self.fill_rect(0, TASKBAR_Y - 1, width as i32, 1, 7);
     }
 
     fn draw_top_bar(&self) {
-        self.draw_text(10, 6, 15, "TEDDY-OS GRAPHICS DESKTOP");
-        self.draw_text(208, 6, 14, "GUI PHASE 2");
+        self.draw_text(10, 5, 15, "TEDDY-OS DESKTOP");
+        self.draw_text(160, 5, 14, "GRAPHICS SHELL");
+        self.draw_text(252, 5, 15, "VMWARE");
     }
 
-    fn draw_taskbar(&self) {
-        let accent = self.accent_color();
-        self.fill_rect(0, 182, self.fb.width() as i32, 18, 8);
-        self.fill_rect(6, 185, 58, 10, accent);
-        self.draw_text(14, 187, 15, "TEDDY");
-        self.draw_text(78, 187, 15, "MOUSE");
-        self.draw_text(126, 187, 15, "DRAG TITLE BAR");
+    fn draw_desktop_icons(&self) {
+        self.draw_icon(14, 28, DesktopIcon::Terminal, "TERMINAL");
+        self.draw_icon(14, 82, DesktopIcon::Explorer, "EXPLORER");
     }
 
-    fn draw_demo_window(&self) {
-        let title_color = if self.drag_state.active { 12 } else { 8 };
-        self.draw_window_frame(self.demo_window, 1, title_color, "DESKTOP DEMO");
+    fn draw_icon(&self, x: i32, y: i32, icon: DesktopIcon, label: &str) {
+        let selected = self.selected_icon == Some(icon);
+        let frame = if selected { 15 } else { 8 };
+        let fill = if selected { 12 } else { 1 };
+        self.fill_rect(x - 4, y - 4, 44, 44, fill);
+        self.draw_rect(x - 4, y - 4, 44, 44, frame);
 
-        self.draw_text(self.demo_window.x + 12, self.demo_window.y + 24, 15, "PS/2 MOUSE ONLINE");
-        self.draw_text(self.demo_window.x + 12, self.demo_window.y + 36, 15, "MOVE THE CURSOR");
-        self.draw_text(self.demo_window.x + 12, self.demo_window.y + 48, 15, "CLICK THIS TITLE BAR");
-        self.draw_text(self.demo_window.x + 12, self.demo_window.y + 60, 15, "DRAG THE WINDOW");
-        self.draw_text(self.demo_window.x + 12, self.demo_window.y + 78, 14, "LEFT");
-        self.draw_text(self.demo_window.x + 50, self.demo_window.y + 78, 15, "DRAG");
-        self.draw_text(self.demo_window.x + 92, self.demo_window.y + 78, 14, "RIGHT");
-        self.draw_text(self.demo_window.x + 136, self.demo_window.y + 78, 15, "TRACK");
+        match icon {
+            DesktopIcon::Terminal => {
+                self.fill_rect(x + 2, y + 6, 28, 18, 0);
+                self.draw_rect(x + 2, y + 6, 28, 18, 15);
+                self.draw_text(x + 6, y + 11, 10, "C>");
+                self.draw_text(x + 6, y + 19, 15, "_");
+            }
+            DesktopIcon::Explorer => {
+                self.fill_rect(x + 4, y + 10, 24, 16, 14);
+                self.fill_rect(x + 6, y + 6, 10, 6, 12);
+                self.draw_rect(x + 4, y + 10, 24, 16, 6);
+            }
+        }
 
-        self.fill_rect(self.demo_window.x + 12, self.demo_window.y + 90, 144, 4, 0);
-        self.fill_rect(
-            self.demo_window.x + 12,
-            self.demo_window.y + 90,
-            36 + (self.accent_phase as i32 * 26),
-            4,
-            self.accent_color(),
-        );
+        if selected {
+            self.fill_rect(x - 2, y + 42, 60, 12, 1);
+            self.draw_rect(x - 2, y + 42, 60, 12, 15);
+        }
+        self.draw_text(x, y + 45, 15, label);
     }
 
-    fn draw_notes_window(&self) {
-        self.draw_window_frame(self.notes_window, 3, 8, "EVENTS");
-        self.draw_text(self.notes_window.x + 10, self.notes_window.y + 24, 15, "IRQ12");
-        self.draw_text(self.notes_window.x + 10, self.notes_window.y + 36, 15, "PACKETS");
-        self.draw_text(self.notes_window.x + 10, self.notes_window.y + 52, 15, "MOVE");
-        self.draw_text(self.notes_window.x + 10, self.notes_window.y + 64, 15, "DOWN");
-        self.draw_text(self.notes_window.x + 10, self.notes_window.y + 76, 15, "UP");
-        self.draw_text(self.notes_window.x + 10, self.notes_window.y + 92, 15, "NEXT");
-        self.draw_text(self.notes_window.x + 10, self.notes_window.y + 104, 15, "CLICKABLE APPS");
+    fn draw_windows(&self) {
+        match self.focused_window {
+            Some(WindowKind::Terminal) => {
+                if self.explorer_open {
+                    self.draw_explorer_window(false);
+                }
+                if self.terminal_open {
+                    self.draw_terminal_window(true);
+                }
+            }
+            Some(WindowKind::Explorer) => {
+                if self.terminal_open {
+                    self.draw_terminal_window(false);
+                }
+                if self.explorer_open {
+                    self.draw_explorer_window(true);
+                }
+            }
+            None => {
+                if self.terminal_open {
+                    self.draw_terminal_window(false);
+                }
+                if self.explorer_open {
+                    self.draw_explorer_window(false);
+                }
+            }
+        }
+    }
+
+    fn draw_terminal_window(&self, focused: bool) {
+        let rect = self.terminal_window;
+        let title = if focused { 12 } else { 8 };
+        self.draw_window_frame(rect, 1, title, "TERMINAL");
+        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, rect.height - 28, 0);
+        self.draw_text(rect.x + 14, rect.y + 26, 10, "TEDDY GRAPHICS TERMINAL");
+        self.draw_text(rect.x + 14, rect.y + 38, 15, "guest@teddy:/ $ help");
+        self.draw_text(rect.x + 14, rect.y + 50, 7, "Use 'kernel' for full CLI app.");
+        self.draw_text(rect.x + 14, rect.y + 62, 15, "guest@teddy:/ $ uname");
+        self.draw_text(rect.x + 14, rect.y + 74, 7, "Teddy-OS graphics desktop");
+        self.draw_text(rect.x + 14, rect.y + 86, 15, "guest@teddy:/ $ _");
+    }
+
+    fn draw_explorer_window(&self, focused: bool) {
+        let rect = self.explorer_window;
+        let title = if focused { 12 } else { 8 };
+        self.draw_window_frame(rect, 3, title, "FILE EXPLORER");
+        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, 12, 8);
+        self.draw_text(rect.x + 12, rect.y + 24, 15, "HOME > TEDDY DISK > /");
+
+        self.fill_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 1);
+        self.draw_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 8);
+        self.draw_text(rect.x + 12, rect.y + 42, 15, "HOME");
+        self.draw_text(rect.x + 12, rect.y + 54, 15, "DOCS");
+        self.draw_text(rect.x + 12, rect.y + 66, 15, "APPS");
+
+        self.fill_rect(rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46, 1);
+        self.draw_rect(rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46, 8);
+        self.draw_explorer_entry(rect.x + 62, rect.y + 42, true, "docs");
+        self.draw_explorer_entry(rect.x + 62, rect.y + 56, false, "readme.txt");
+        self.draw_explorer_entry(rect.x + 62, rect.y + 70, false, "notes.txt");
+        self.draw_explorer_entry(rect.x + 62, rect.y + 84, true, "apps");
+    }
+
+    fn draw_explorer_entry(&self, x: i32, y: i32, folder: bool, name: &str) {
+        if folder {
+            self.fill_rect(x, y + 1, 10, 7, 14);
+            self.fill_rect(x + 1, y - 1, 4, 3, 12);
+            self.draw_rect(x, y + 1, 10, 7, 6);
+        } else {
+            self.fill_rect(x, y, 9, 10, 15);
+            self.draw_rect(x, y, 9, 10, 8);
+            self.fill_rect(x + 5, y, 4, 3, 7);
+        }
+        self.draw_text(x + 14, y + 1, 15, name);
     }
 
     fn draw_status(&self) {
         let mouse = self.input.mouse_state();
         self.fill_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, STATUS_HEIGHT, 1);
         self.draw_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, STATUS_HEIGHT, 15);
-        self.draw_text(28, 148, 15, "UP");
-        self.draw_number(48, 148, self.uptime_seconds as u32, 14);
-        self.draw_text(80, 148, 15, "KEY");
-        self.draw_ascii(106, 148, interrupts::last_ascii(), 14);
-        self.draw_text(122, 148, 15, "SC");
-        self.draw_hex_byte(140, 148, interrupts::last_scancode(), 14);
-        self.draw_text(164, 148, 15, "X");
-        self.draw_number(176, 148, mouse.x as u32, 14);
-        self.draw_text(210, 148, 15, "Y");
-        self.draw_number(222, 148, mouse.y as u32, 14);
-        self.draw_text(256, 148, 15, "B");
-        self.draw_hex_byte(268, 148, mouse.buttons, 14);
+        self.draw_text(18, 148, 15, "UP");
+        self.draw_number(36, 148, self.uptime_seconds as u32, 14);
+        self.draw_text(64, 148, 15, "KEY");
+        self.draw_ascii(88, 148, interrupts::last_ascii(), 14);
+        self.draw_text(102, 148, 15, "X");
+        self.draw_number(114, 148, mouse.x as u32, 14);
+        self.draw_text(146, 148, 15, "Y");
+        self.draw_number(158, 148, mouse.y as u32, 14);
+        self.draw_text(190, 148, 15, "B");
+        self.draw_hex_byte(202, 148, mouse.buttons, 14);
+        self.draw_text(220, 148, 15, "TIP");
+        self.draw_text(242, 148, 14, "DOUBLE-CLICK ICONS");
+    }
+
+    fn draw_taskbar(&self) {
+        let accent = self.accent_color();
+        self.fill_rect(6, 185, 48, 10, accent);
+        self.draw_text(13, 187, 15, "TEDDY");
+
+        self.draw_taskbar_button(64, DesktopIcon::Terminal, self.terminal_open);
+        self.draw_taskbar_button(126, DesktopIcon::Explorer, self.explorer_open);
+
+        self.draw_text(226, 187, 15, "UP");
+        self.draw_number(244, 187, self.uptime_seconds as u32, 14);
+    }
+
+    fn draw_taskbar_button(&self, x: i32, icon: DesktopIcon, active: bool) {
+        let fill = if active { 12 } else { 1 };
+        let edge = if active { 15 } else { 8 };
+        let label = match icon {
+            DesktopIcon::Terminal => "TERM",
+            DesktopIcon::Explorer => "FILES",
+        };
+        self.fill_rect(x, 184, 54, 12, fill);
+        self.draw_rect(x, 184, 54, 12, edge);
+        self.draw_text(x + 10, 187, 15, label);
     }
 
     fn draw_cursor(&self) {
@@ -330,6 +500,143 @@ impl GraphicsShell {
         }
     }
 
+    fn hit_icon(&self, x: i32, y: i32) -> Option<DesktopIcon> {
+        if point_in_rect(x, y, 10, 24, 44, 54) {
+            return Some(DesktopIcon::Terminal);
+        }
+        if point_in_rect(x, y, 10, 78, 44, 54) {
+            return Some(DesktopIcon::Explorer);
+        }
+        None
+    }
+
+    fn hit_taskbar_button(&self, x: i32, y: i32) -> Option<DesktopIcon> {
+        if point_in_rect(x, y, 64, 184, 54, 12) {
+            return Some(DesktopIcon::Terminal);
+        }
+        if point_in_rect(x, y, 126, 184, 54, 12) {
+            return Some(DesktopIcon::Explorer);
+        }
+        None
+    }
+
+    fn hit_window(&self, x: i32, y: i32) -> Option<WindowKind> {
+        if self.focused_window == Some(WindowKind::Explorer) {
+            if self.explorer_open && point_in_window(self.explorer_window, x, y) {
+                return Some(WindowKind::Explorer);
+            }
+            if self.terminal_open && point_in_window(self.terminal_window, x, y) {
+                return Some(WindowKind::Terminal);
+            }
+        } else {
+            if self.terminal_open && point_in_window(self.terminal_window, x, y) {
+                return Some(WindowKind::Terminal);
+            }
+            if self.explorer_open && point_in_window(self.explorer_window, x, y) {
+                return Some(WindowKind::Explorer);
+            }
+        }
+        None
+    }
+
+    fn hit_title_bar(&self, x: i32, y: i32) -> Option<WindowKind> {
+        let window = self.hit_window(x, y)?;
+        let rect = self.window_bounds(window);
+        if point_in_rect(x, y, rect.x, rect.y, rect.width, TITLE_BAR_HEIGHT + 2) {
+            Some(window)
+        } else {
+            None
+        }
+    }
+
+    fn hit_close_button(&self, x: i32, y: i32) -> Option<WindowKind> {
+        let window = self.hit_window(x, y)?;
+        let rect = self.window_bounds(window);
+        if point_in_rect(x, y, rect.x + rect.width - 18, rect.y + 4, 5, 5) {
+            Some(window)
+        } else {
+            None
+        }
+    }
+
+    fn open_window_for_icon(&mut self, icon: DesktopIcon) {
+        match icon {
+            DesktopIcon::Terminal => {
+                self.terminal_open = true;
+                self.focused_window = Some(WindowKind::Terminal);
+            }
+            DesktopIcon::Explorer => {
+                self.explorer_open = true;
+                self.focused_window = Some(WindowKind::Explorer);
+            }
+        }
+    }
+
+    fn toggle_or_focus(&mut self, icon: DesktopIcon) {
+        match icon {
+            DesktopIcon::Terminal => {
+                if self.terminal_open && self.focused_window == Some(WindowKind::Terminal) {
+                    self.terminal_open = false;
+                    if self.focused_window == Some(WindowKind::Terminal) {
+                        self.focused_window = if self.explorer_open {
+                            Some(WindowKind::Explorer)
+                        } else {
+                            None
+                        };
+                    }
+                } else {
+                    self.terminal_open = true;
+                    self.focused_window = Some(WindowKind::Terminal);
+                }
+            }
+            DesktopIcon::Explorer => {
+                if self.explorer_open && self.focused_window == Some(WindowKind::Explorer) {
+                    self.explorer_open = false;
+                    if self.focused_window == Some(WindowKind::Explorer) {
+                        self.focused_window = if self.terminal_open {
+                            Some(WindowKind::Terminal)
+                        } else {
+                            None
+                        };
+                    }
+                } else {
+                    self.explorer_open = true;
+                    self.focused_window = Some(WindowKind::Explorer);
+                }
+            }
+        }
+    }
+
+    fn close_window(&mut self, window: WindowKind) {
+        match window {
+            WindowKind::Terminal => self.terminal_open = false,
+            WindowKind::Explorer => self.explorer_open = false,
+        }
+        if self.focused_window == Some(window) {
+            self.focused_window = if window == WindowKind::Terminal && self.explorer_open {
+                Some(WindowKind::Explorer)
+            } else if window == WindowKind::Explorer && self.terminal_open {
+                Some(WindowKind::Terminal)
+            } else {
+                None
+            };
+        }
+    }
+
+    fn window_bounds(&self, window: WindowKind) -> WindowRect {
+        match window {
+            WindowKind::Terminal => self.terminal_window,
+            WindowKind::Explorer => self.explorer_window,
+        }
+    }
+
+    fn window_rect_mut(&mut self, window: WindowKind) -> &mut WindowRect {
+        match window {
+            WindowKind::Terminal => &mut self.terminal_window,
+            WindowKind::Explorer => &mut self.explorer_window,
+        }
+    }
+
     fn draw_window_frame(&self, rect: WindowRect, body: u8, title: u8, label: &str) {
         self.fill_rect(rect.x, rect.y, rect.width, rect.height, body);
         self.draw_rect(rect.x, rect.y, rect.width, rect.height, 15);
@@ -337,13 +644,6 @@ impl GraphicsShell {
         self.draw_text(rect.x + 6, rect.y + 4, 15, label);
         self.fill_rect(rect.x + rect.width - 18, rect.y + 4, 5, 5, 4);
         self.fill_rect(rect.x + rect.width - 10, rect.y + 4, 5, 5, 14);
-    }
-
-    fn point_in_title_bar(&self, rect: &WindowRect, x: i32, y: i32) -> bool {
-        x >= rect.x
-            && x < rect.x + rect.width
-            && y >= rect.y
-            && y < rect.y + TITLE_BAR_HEIGHT + 1
     }
 
     fn accent_color(&self) -> u8 {
@@ -475,6 +775,14 @@ impl GraphicsShell {
     }
 }
 
+fn point_in_rect(x: i32, y: i32, left: i32, top: i32, width: i32, height: i32) -> bool {
+    x >= left && x < left + width && y >= top && y < top + height
+}
+
+fn point_in_window(rect: WindowRect, x: i32, y: i32) -> bool {
+    point_in_rect(x, y, rect.x, rect.y, rect.width, rect.height)
+}
+
 fn mouse_changed(previous: MouseState, current: MouseState) -> bool {
     previous.x != current.x || previous.y != current.y || previous.buttons != current.buttons
 }
@@ -546,7 +854,9 @@ fn glyph_for(byte: u8) -> [u8; 7] {
         b':' => [0x00, 0x04, 0x00, 0x00, 0x04, 0x00, 0x00],
         b'.' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C],
         b'/' => [0x01, 0x02, 0x04, 0x04, 0x08, 0x10, 0x00],
+        b'>' => [0x10, 0x08, 0x04, 0x02, 0x04, 0x08, 0x10],
         b'?' => [0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04],
+        b'_' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F],
         b' ' => [0, 0, 0, 0, 0, 0, 0],
         _ => [0x1F, 0x11, 0x02, 0x04, 0x00, 0x04, 0x00],
     }

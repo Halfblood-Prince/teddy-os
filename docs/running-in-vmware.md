@@ -42,10 +42,11 @@ The `kernelgfx` graphics screen should include:
 
 - a graphical Teddy-OS header
 - a bottom taskbar
-- window-like panels with bitmap-rendered labels
+- desktop icons for `Terminal` and `Explorer`
+- window-like app panels with bitmap-rendered labels
 - a status strip showing uptime, last key, scancode, mouse coordinates, and button state
 - a software cursor that follows VMware mouse movement
-- a draggable window when you hold the left mouse button on its title bar
+- draggable `Terminal` and `File Explorer` windows when you hold the left mouse button on their title bars
 
 Press a few keys in VMware after the kernel screen appears:
 
@@ -94,7 +95,9 @@ Expected persistence result:
 - wait a few seconds and confirm the uptime changes
 - press a few keys and confirm the status area updates
 - move the mouse and confirm the cursor and `X` / `Y` values update
-- hold the left mouse button on the `DESKTOP DEMO` title bar and drag it
+- double-click the `TERMINAL` and `EXPLORER` desktop icons to open their windows
+- use the taskbar buttons to focus or hide those windows
+- hold the left mouse button on a window title bar and drag it
 - click the other mouse buttons and confirm the `B` value changes
 
 Current limitation:
