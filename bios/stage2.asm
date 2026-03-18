@@ -751,8 +751,19 @@ setup_page_tables:
     mov [pdpt_table], eax
     mov dword [pdpt_table + 4], 0
 
-    mov dword [pd_table], 0x00000083
-    mov dword [pd_table + 4], 0
+    mov edi, pd_table
+    xor ebx, ebx
+    mov ecx, 16
+
+.map_low_pages:
+    mov eax, ebx
+    shl eax, 21
+    or eax, 0x83
+    mov [edi], eax
+    mov dword [edi + 4], 0
+    add edi, 8
+    inc ebx
+    loop .map_low_pages
     ret
 
 BITS 64
