@@ -744,7 +744,7 @@ enable_fpu_sse:
 setup_page_tables:
     mov edi, pml4_table
     xor eax, eax
-    mov ecx, (4096 * 4) / 4
+    mov ecx, (4096 * 6) / 4
     rep stosd
 
     mov eax, pdpt_table
@@ -752,66 +752,40 @@ setup_page_tables:
     mov [pml4_table], eax
     mov dword [pml4_table + 4], 0
 
-    mov eax, pd_table
+    mov eax, pd_table_0
     or eax, 0x003
     mov [pdpt_table], eax
     mov dword [pdpt_table + 4], 0
 
-    mov dword [pd_table], 0x00000083
-    mov dword [pd_table + 4], 0
+    mov eax, pd_table_1
+    or eax, 0x003
+    mov [pdpt_table + 8], eax
+    mov dword [pdpt_table + 12], 0
 
-    mov eax, [boot_framebuffer_addr]
-    test eax, eax
-    jz .done
-    cmp eax, 0x00200000
-    jb .done
+    mov eax, pd_table_2
+    or eax, 0x003
+    mov [pdpt_table + 16], eax
+    mov dword [pdpt_table + 20], 0
 
-    mov ebx, eax
-    shr ebx, 30
-    cmp ebx, 0
-    jne .map_high
+    mov eax, pd_table_3
+    or eax, 0x003
+    mov [pdpt_table + 24], eax
+    mov dword [pdpt_table + 28], 0
 
-    mov esi, pd_table
-    jmp .map_pages
-
-.map_high:
-    mov esi, fb_pd_table
-    mov edx, esi
-    or edx, 0x003
-    mov [pdpt_table + ebx * 8], edx
-    mov dword [pdpt_table + ebx * 8 + 4], 0
-
-.map_pages:
-    mov edx, eax
-    shr edx, 21
-    and edx, 0x1FF
-
-    mov ecx, eax
-    and ecx, 0x001FFFFF
-    movzx ebx, word [boot_framebuffer_pitch]
-    movzx edi, word [boot_framebuffer_height]
-    imul ebx, edi
-    add ebx, ecx
-    add ebx, 0x001FFFFF
-    shr ebx, 21
-    cmp ebx, 0
-    jne .have_count
-    mov ebx, 1
-
-.have_count:
-    and eax, 0xFFE00000
+    mov edi, pd_table_0
+    xor ebx, ebx
+    mov ecx, 2048
 
 .page_loop:
-    mov ecx, eax
-    or ecx, 0x83
-    mov [esi + edx * 8], ecx
-    mov dword [esi + edx * 8 + 4], 0
-    add eax, 0x00200000
-    inc edx
-    dec ebx
-    jnz .page_loop
+    mov eax, ebx
+    shl eax, 21
+    or eax, 0x83
+    mov [edi], eax
+    mov dword [edi + 4], 0
+    add edi, 8
+    inc ebx
+    loop .page_loop
 
-.done:
     ret
 
 BITS 64
@@ -948,11 +922,19 @@ pdpt_table:
     times 512 dq 0
 
 align 4096
-pd_table:
+pd_table_0:
     times 512 dq 0
 
 align 4096
-fb_pd_table:
+pd_table_1:
+    times 512 dq 0
+
+align 4096
+pd_table_2:
+    times 512 dq 0
+
+align 4096
+pd_table_3:
     times 512 dq 0
 
 times (STAGE2_SECTORS * 512) - ($ - $$) db 0
