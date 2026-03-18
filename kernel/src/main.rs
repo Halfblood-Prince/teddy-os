@@ -22,11 +22,6 @@ const KERNEL_STACK_TOP: usize = 0x200000;
 static mut DESKTOP_SHELL: shell::DesktopShell = shell::DesktopShell::empty();
 static mut GRAPHICS_SHELL: graphics::GraphicsShell = graphics::GraphicsShell::empty();
 
-unsafe extern "C" {
-    static mut __bss_start: u8;
-    static mut __bss_end: u8;
-}
-
 global_asm!(
     r#"
     .section .text.boot,"ax"
@@ -54,7 +49,6 @@ _start:
 
 #[no_mangle]
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
-    clear_bss();
     let mut last_seen_scancode = 0u8;
     let mut last_seen_second = 0u64;
     trace::set_boot_stage(1);
@@ -96,15 +90,6 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
             }
         }
         cpu::halt();
-    }
-}
-
-fn clear_bss() {
-    unsafe {
-        let start = core::ptr::addr_of_mut!(__bss_start);
-        let end = core::ptr::addr_of_mut!(__bss_end);
-        let len = end.offset_from(start) as usize;
-        core::ptr::write_bytes(start, 0, len);
     }
 }
 
