@@ -45,7 +45,8 @@ pub struct GraphicsShell {
     focused_window: Option<WindowKind>,
     selected_icon: Option<DesktopIcon>,
     drag_state: DragState,
-    last_icon_click: Option<IconClickState>,
+    last_desktop_icon_click: Option<IconClickState>,
+    last_explorer_click_tick: Option<u64>,
     cursor_backing: [u32; CURSOR_SIZE * CURSOR_SIZE],
     cursor_saved_x: i32,
     cursor_saved_y: i32,
@@ -147,7 +148,8 @@ impl GraphicsShell {
                 offset_x: 0,
                 offset_y: 0,
             },
-            last_icon_click: None,
+            last_desktop_icon_click: None,
+            last_explorer_click_tick: None,
             cursor_backing: [0; CURSOR_SIZE * CURSOR_SIZE],
             cursor_saved_x: 0,
             cursor_saved_y: 0,
@@ -185,7 +187,8 @@ impl GraphicsShell {
             offset_x: 0,
             offset_y: 0,
         };
-        self.last_icon_click = None;
+        self.last_desktop_icon_click = None;
+        self.last_explorer_click_tick = None;
         trace::set_boot_stage(0x95);
         trace::set_boot_stage(0x96);
         self.fs.init_ram_only();
@@ -351,12 +354,12 @@ impl GraphicsShell {
         if let Some(icon) = self.hit_icon(state.x, state.y) {
             let now = interrupts::timer_ticks();
             let mut should_open = false;
-            if let Some(last_click) = self.last_icon_click {
+            if let Some(last_click) = self.last_desktop_icon_click {
                 if last_click.icon == icon && now.saturating_sub(last_click.tick) <= DOUBLE_CLICK_TICKS {
                     should_open = true;
                 }
             }
-            self.last_icon_click = Some(IconClickState { icon, tick: now });
+            self.last_desktop_icon_click = Some(IconClickState { icon, tick: now });
             self.selected_icon = Some(icon);
             if should_open {
                 self.open_window_for_icon(icon);
@@ -402,18 +405,34 @@ impl GraphicsShell {
     }
 
     fn redraw_panels(&mut self) {
-        self.redraw_icon_strip();
+        let mut rects = [Rect { x: 0, y: 0, width: 0, height: 0 }; 5];
+        let mut count = 0usize;
+        rects[count] = Rect {
+            x: 0,
+            y: 18,
+            width: SIDEBAR_WIDTH,
+            height: TASKBAR_Y - 18,
+        };
+        count += 1;
         let order = self.window_order();
         let mut index = 0usize;
-        while index < order.len() {
+        while index < order.len() && count < rects.len() - 1 {
             if let Some(window) = order[index] {
                 if self.window_is_open(window) {
-                    self.redraw_window(window);
+                    rects[count] = window_to_region(self.window_bounds(window));
+                    count += 1;
                 }
             }
             index += 1;
         }
-        self.redraw_hud();
+        rects[count] = Rect {
+            x: 0,
+            y: TASKBAR_Y - 6,
+            width: self.fb.width() as i32,
+            height: TASKBAR_HEIGHT + 6,
+        };
+        count += 1;
+        self.redraw_regions(&rects[..count]);
     }
 
     fn draw_background(&self) {
@@ -651,29 +670,66 @@ impl GraphicsShell {
     }
 
     fn redraw_region(&mut self, rect: Rect) {
-        let clipped = self.clip_rect(rect);
-        if clipped.width <= 0 || clipped.height <= 0 {
+        let rects = [rect];
+        self.redraw_regions(&rects);
+    }
+
+    fn redraw_regions(&mut self, rects: &[Rect]) {
+        let mut clipped_rects = [Rect { x: 0, y: 0, width: 0, height: 0 }; 6];
+        let mut clipped_len = 0usize;
+        let mut has_top = false;
+        let mut has_icons = false;
+        let mut has_taskbar = false;
+
+        let mut index = 0usize;
+        while index < rects.len() && index < clipped_rects.len() {
+            let clipped = self.clip_rect(rects[index]);
+            if clipped.width > 0 && clipped.height > 0 {
+                clipped_rects[clipped_len] = clipped;
+                clipped_len += 1;
+                has_top |= rects_intersect(clipped, Rect { x: 0, y: 0, width: self.fb.width() as i32, height: TOP_BAR_HEIGHT });
+                has_icons |= rects_intersect(clipped, Rect { x: 0, y: 18, width: SIDEBAR_WIDTH, height: TASKBAR_Y - 18 });
+                has_taskbar |= rects_intersect(clipped, Rect { x: 0, y: TASKBAR_Y - 6, width: self.fb.width() as i32, height: TASKBAR_HEIGHT + 6 });
+            }
+            index += 1;
+        }
+
+        if clipped_len == 0 {
             return;
         }
 
         self.restore_cursor_backing();
-        self.draw_background_region(clipped);
-        if rects_intersect(clipped, Rect { x: 0, y: 0, width: self.fb.width() as i32, height: TOP_BAR_HEIGHT }) {
+        let mut redraw_index = 0usize;
+        while redraw_index < clipped_len {
+            self.draw_background_region(clipped_rects[redraw_index]);
+            redraw_index += 1;
+        }
+        if has_top {
             self.draw_top_bar();
         }
-        if rects_intersect(clipped, Rect { x: 0, y: 18, width: SIDEBAR_WIDTH, height: TASKBAR_Y - 18 }) {
+        if has_icons {
             self.draw_desktop_icons();
         }
 
         let order = self.window_order();
-        let mut index = order.len();
-        while index > 0 {
-            index -= 1;
-            if let Some(window) = order[index] {
+        let mut order_index = order.len();
+        while order_index > 0 {
+            order_index -= 1;
+            if let Some(window) = order[order_index] {
                 if !self.window_is_open(window) {
                     continue;
                 }
-                if !rects_intersect(clipped, window_to_region(self.window_bounds(window))) {
+                let window_region = window_to_region(self.window_bounds(window));
+                let mut intersects = false;
+                let mut region_index = 0usize;
+                while region_index < clipped_len {
+                    if rects_intersect(clipped_rects[region_index], window_region) {
+                        intersects = true;
+                        break;
+                    }
+                    region_index += 1;
+                }
+                if !intersects {
                     continue;
                 }
                 let focused = self.focused_window == Some(window);
@@ -685,7 +741,7 @@ impl GraphicsShell {
             }
         }
 
-        if rects_intersect(clipped, Rect { x: 0, y: TASKBAR_Y - 6, width: self.fb.width() as i32, height: TASKBAR_HEIGHT + 6 }) {
+        if has_taskbar {
             self.draw_taskbar();
         }
         self.save_cursor_backing(self.input.mouse_state());
@@ -708,17 +764,24 @@ impl GraphicsShell {
     }
 
     fn redraw_focus_change(&mut self, old_focus: Option<WindowKind>, new_focus: Option<WindowKind>) {
+        let mut rects = [Rect { x: 0, y: 0, width: 0, height: 0 }; 2];
+        let mut count = 0usize;
         if let Some(window) = old_focus {
-            self.redraw_window(window);
+            rects[count] = window_to_region(self.window_bounds(window));
+            count += 1;
         }
         if let Some(window) = new_focus {
-            self.redraw_window(window);
+            rects[count] = window_to_region(self.window_bounds(window));
+            count += 1;
+        }
+        if count > 0 {
+            self.redraw_regions(&rects[..count]);
         }
     }
 
     fn redraw_window_move(&mut self, old_rect: WindowRect, new_rect: WindowRect) {
-        self.redraw_region(window_to_region(old_rect));
-        self.redraw_region(window_to_region(new_rect));
+        let rects = [window_to_region(old_rect), window_to_region(new_rect)];
+        self.redraw_regions(&rects);
     }
 
     fn draw_icon_asset(&self, x: i32, y: i32, asset: IconAsset) {
@@ -893,15 +956,12 @@ impl GraphicsShell {
 
                 let now = interrupts::timer_ticks();
                 let mut should_open = false;
-                if let Some(last_click) = self.last_icon_click {
-                    if last_click.icon == DesktopIcon::Explorer && now.saturating_sub(last_click.tick) <= DOUBLE_CLICK_TICKS && was_selected {
+                if let Some(last_tick) = self.last_explorer_click_tick {
+                    if now.saturating_sub(last_tick) <= DOUBLE_CLICK_TICKS && was_selected {
                         should_open = true;
                     }
                 }
-                self.last_icon_click = Some(IconClickState {
-                    icon: DesktopIcon::Explorer,
-                    tick: now,
-                });
+                self.last_explorer_click_tick = Some(now);
                 if should_open {
                     self.explorer.open_selected(&mut self.fs);
                 }
