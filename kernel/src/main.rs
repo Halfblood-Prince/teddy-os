@@ -97,37 +97,41 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
     let mut last_seen_scancode = 0u8;
     let mut last_seen_second = 0u64;
     trace::set_boot_stage(0x70);
+    trace::set_boot_stage(0x71);
     if let Some(fb) = boot_info.framebuffer() {
+        trace::set_boot_stage(0x72);
         trace::set_framebuffer(fb.addr(), fb.width(), fb.height(), fb.pitch(), fb.bpp());
     }
+    trace::set_boot_stage(0x73);
     let shell = unsafe { &mut *core::ptr::addr_of_mut!(GRAPHICS_SHELL) };
+    trace::set_boot_stage(0x74);
     if !shell.init(boot_info) {
         loop {
             cpu::halt();
         }
     }
-    trace::set_boot_stage(0x71);
+    trace::set_boot_stage(0x75);
     shell.render();
-    trace::set_boot_stage(0x72);
+    trace::set_boot_stage(0x76);
     cpu::enable_interrupts();
-    trace::set_boot_stage(0x73);
+    trace::set_boot_stage(0x77);
 
     loop {
-        trace::set_boot_stage(0x74);
+        trace::set_boot_stage(0x80);
         let uptime_seconds = interrupts::uptime_seconds();
-        trace::set_boot_stage(0x75);
+        trace::set_boot_stage(0x81);
         if uptime_seconds != last_seen_second {
             last_seen_second = uptime_seconds;
-            trace::set_boot_stage(0x76);
+            trace::set_boot_stage(0x82);
             shell.tick(uptime_seconds);
         }
 
         let scancode = interrupts::last_scancode();
-        trace::set_boot_stage(0x77);
+        trace::set_boot_stage(0x83);
         if scancode != last_seen_scancode {
             last_seen_scancode = scancode;
             if scancode & 0x80 == 0 {
-                trace::set_boot_stage(0x78);
+                trace::set_boot_stage(0x84);
                 if let Some(action) = shell.handle_key(interrupts::last_ascii()) {
                     match action {
                         graphics::GraphicsAction::Reboot => reboot_system(),
@@ -137,10 +141,10 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
             }
         }
 
-        trace::set_boot_stage(0x79);
+        trace::set_boot_stage(0x85);
         shell.poll_input();
 
-        trace::set_boot_stage(0x7A);
+        trace::set_boot_stage(0x86);
         cpu::halt();
     }
 }

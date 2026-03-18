@@ -5,6 +5,7 @@ use crate::{
     input::{self, InputEvent, InputManager, MouseState},
     interrupts,
     terminal::{TerminalAction, TerminalApp},
+    trace,
 };
 
 const TITLE_BAR_HEIGHT: i32 = 14;
@@ -136,18 +137,23 @@ impl GraphicsShell {
     }
 
     pub fn init(&mut self, boot_info: BootInfo) -> bool {
+        trace::set_boot_stage(0x90);
         let fb = match boot_info.framebuffer() {
             Some(fb) => fb,
             None => return false,
         };
+        trace::set_boot_stage(0x91);
         if fb.bpp() != 8 && fb.bpp() != 24 && fb.bpp() != 32 {
             return false;
         }
 
+        trace::set_boot_stage(0x92);
         let max_x = fb.width() as i32 - 1;
         let max_y = fb.height() as i32 - 1;
         self.fb = fb;
+        trace::set_boot_stage(0x93);
         self.input.reset(max_x, max_y);
+        trace::set_boot_stage(0x94);
         self.uptime_seconds = 0;
         self.accent_phase = 0;
         self.terminal_open = false;
@@ -162,12 +168,17 @@ impl GraphicsShell {
             offset_y: 0,
         };
         self.last_icon_click = None;
+        trace::set_boot_stage(0x95);
         self.clear_cursor_backing();
         self.cursor_saved_x = 0;
         self.cursor_saved_y = 0;
+        trace::set_boot_stage(0x96);
         self.fs.init();
+        trace::set_boot_stage(0x97);
         self.terminal.init();
+        trace::set_boot_stage(0x98);
         self.explorer.init();
+        trace::set_boot_stage(0x99);
         true
     }
 
