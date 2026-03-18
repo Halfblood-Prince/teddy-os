@@ -38,7 +38,7 @@ $kernelElf = Join-Path (Join-Path $targetDir "x86_64-unknown-none\\$Profile") "t
 $kernelRaw = Join-Path $binDir "kernel.bin"
 $bootImg = Join-Path $isoRoot "boot.img"
 $stage2Size = 96 * 512
-$kernelSize = 256 * 512
+$kernelSize = 512 * 512
 
 Require-Command nasm
 Require-Command cargo
