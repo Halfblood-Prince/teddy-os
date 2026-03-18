@@ -170,7 +170,7 @@ impl GraphicsShell {
         self.last_icon_click = None;
         trace::set_boot_stage(0x95);
         trace::set_boot_stage(0x96);
-        self.fs.init();
+        self.fs.init_ram_only();
         trace::set_boot_stage(0x97);
         self.terminal.init();
         trace::set_boot_stage(0x98);

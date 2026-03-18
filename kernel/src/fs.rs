@@ -156,6 +156,18 @@ impl FileSystem {
     }
 
     pub fn init(&mut self) {
+        self.init_seed_data();
+        trace::set_boot_stage(0x54);
+        self.load_or_seed();
+    }
+
+    pub fn init_ram_only(&mut self) {
+        self.init_seed_data();
+        trace::set_boot_stage(0x54);
+        self.persistence = PersistenceState::NoDisk;
+    }
+
+    fn init_seed_data(&mut self) {
         trace::set_boot_stage(0x50);
         self.cwd = 0;
         let mut clear_index = 0usize;
@@ -174,8 +186,6 @@ impl FileSystem {
         self.nodes[4].init_file(0, "notes.txt", "Terminal now uses kernel fs APIs.");
         trace::set_boot_stage(0x53);
         self.refresh_cwd_path();
-        trace::set_boot_stage(0x54);
-        self.load_or_seed();
     }
 
     pub fn cwd_path(&self) -> &str {
