@@ -467,7 +467,8 @@ impl GraphicsShell {
         self.draw_number(rect.x + 92, rect.y + 38, self.fb.width() as u32, 15);
         self.draw_text(rect.x + 110, rect.y + 38, 15, "x");
         self.draw_number(rect.x + 120, rect.y + 38, self.fb.height() as u32, 15);
-        self.draw_text(rect.x + 140, rect.y + 38, 15, "x8");
+        self.draw_text(rect.x + 140, rect.y + 38, 15, "x");
+        self.draw_number(rect.x + 150, rect.y + 38, self.fb.bpp() as u32, 15);
 
         self.draw_text(rect.x + 12, rect.y + 52, 7, "Resolution");
         self.fill_rect(rect.x + 84, rect.y + 48, 62, 12, 8);

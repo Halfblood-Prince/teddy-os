@@ -16,9 +16,9 @@ ORG 0x8000
 %define MODE13_HEIGHT 200
 %define MODE13_PITCH 320
 %define MODE13_BPP 8
-%define VBE_MODE_640X480X24  0x112
-%define VBE_MODE_800X600X24  0x115
-%define VBE_MODE_1024X768X24 0x118
+%define VBE_MODE_640X480X8   0x101
+%define VBE_MODE_800X600X8   0x103
+%define VBE_MODE_1024X768X8  0x105
 
 stage2_start:
     cli
@@ -244,7 +244,7 @@ execute_command:
     jmp $
 
 .kernelgfx:
-    mov bx, VBE_MODE_640X480X24
+    mov bx, VBE_MODE_640X480X8
     mov byte [boot_video_mode], 2
     call set_kernel_vbe_mode
     jc .kernel_failed
@@ -255,7 +255,7 @@ execute_command:
     jmp $
 
 .kernelgfx800:
-    mov bx, VBE_MODE_800X600X24
+    mov bx, VBE_MODE_800X600X8
     mov byte [boot_video_mode], 3
     call set_kernel_vbe_mode
     jc .kernel_failed
@@ -266,7 +266,7 @@ execute_command:
     jmp $
 
 .kernelgfx1024:
-    mov bx, VBE_MODE_1024X768X24
+    mov bx, VBE_MODE_1024X768X8
     mov byte [boot_video_mode], 4
     call set_kernel_vbe_mode
     jc .kernel_failed

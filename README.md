@@ -114,9 +114,9 @@ When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
 
 Graphics boot modes:
 
-- `kernelgfx` boots a `640x480x24` desktop
-- `kernelgfx800` boots an `800x600x24` desktop
-- `kernelgfx1024` boots a `1024x768x24` desktop
+- `kernelgfx` boots a `640x480x8` desktop
+- `kernelgfx800` boots an `800x600x8` desktop
+- `kernelgfx1024` boots a `1024x768x8` desktop
 
 Kernel desktop controls:
 
