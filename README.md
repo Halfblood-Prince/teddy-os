@@ -115,9 +115,9 @@ When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
 
 Graphics boot modes:
 
-- `kernelgfx` requests `640x480x32`
-- `kernelgfx800` requests `800x600x32`
-- `kernelgfx1024` requests `1024x768x32`
+- `kernelgfx` prefers `640x480x32` and falls back to `640x480x8` if needed
+- `kernelgfx800` prefers `800x600x32` and falls back to `800x600x8` if needed
+- `kernelgfx1024` prefers `1024x768x32` and falls back to `1024x768x8` if needed
 - if VMware BIOS rejects a VBE mode, Teddy-OS falls back to the stable `320x200x8` graphics path
 
 Kernel desktop controls:

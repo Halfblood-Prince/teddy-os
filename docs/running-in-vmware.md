@@ -31,9 +31,9 @@ render a graphical desktop scaffold driven by the kernel framebuffer code.
 
 Additional graphics boot commands:
 
-- `kernelgfx` for `640x480x32`
-- `kernelgfx800` for `800x600x32`
-- `kernelgfx1024` for `1024x768x32`
+- `kernelgfx` for preferred `640x480x32` with `640x480x8` fallback
+- `kernelgfx800` for preferred `800x600x32` with `800x600x8` fallback
+- `kernelgfx1024` for preferred `1024x768x32` with `1024x768x8` fallback
 
 The kernel screen should include:
 

@@ -22,6 +22,11 @@ ORG 0x8000
 %define VBE_MODE_640X480X32   0x112
 %define VBE_MODE_800X600X32   0x115
 %define VBE_MODE_1024X768X32  0x118
+; Keep the older indexed-color modes as a compatibility fallback so the
+; requested resolution still works on stricter VMware BIOS revisions.
+%define VBE_MODE_640X480X8    0x101
+%define VBE_MODE_800X600X8    0x103
+%define VBE_MODE_1024X768X8   0x105
 
 stage2_start:
     cli
@@ -250,6 +255,9 @@ execute_command:
     mov bx, VBE_MODE_640X480X32
     call set_kernel_vbe_mode
     jnc .kernelgfx_ready
+    mov bx, VBE_MODE_640X480X8
+    call set_kernel_vbe_mode
+    jnc .kernelgfx_ready
     call set_kernel_graphics_mode
 .kernelgfx_ready:
     mov byte [boot_video_mode], 1
@@ -263,6 +271,9 @@ execute_command:
     mov bx, VBE_MODE_800X600X32
     call set_kernel_vbe_mode
     jnc .kernelgfx800_ready
+    mov bx, VBE_MODE_800X600X8
+    call set_kernel_vbe_mode
+    jnc .kernelgfx800_ready
     call set_kernel_graphics_mode
 .kernelgfx800_ready:
     mov byte [boot_video_mode], 1
@@ -274,6 +285,9 @@ execute_command:
 
 .kernelgfx1024:
     mov bx, VBE_MODE_1024X768X32
+    call set_kernel_vbe_mode
+    jnc .kernelgfx1024_ready
+    mov bx, VBE_MODE_1024X768X8
     call set_kernel_vbe_mode
     jnc .kernelgfx1024_ready
     call set_kernel_graphics_mode
