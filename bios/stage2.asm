@@ -244,10 +244,8 @@ execute_command:
     jmp $
 
 .kernelgfx:
-    mov bx, VBE_MODE_640X480X8
-    mov byte [boot_video_mode], 2
-    call set_kernel_vbe_mode
-    jc .kernel_failed
+    call set_kernel_graphics_mode
+    mov byte [boot_video_mode], 1
     call load_kernel_image
     jc .kernel_failed
     call write_boot_info
@@ -255,10 +253,8 @@ execute_command:
     jmp $
 
 .kernelgfx800:
-    mov bx, VBE_MODE_800X600X8
-    mov byte [boot_video_mode], 3
-    call set_kernel_vbe_mode
-    jc .kernel_failed
+    call set_kernel_graphics_mode
+    mov byte [boot_video_mode], 1
     call load_kernel_image
     jc .kernel_failed
     call write_boot_info
@@ -266,10 +262,8 @@ execute_command:
     jmp $
 
 .kernelgfx1024:
-    mov bx, VBE_MODE_1024X768X8
-    mov byte [boot_video_mode], 4
-    call set_kernel_vbe_mode
-    jc .kernel_failed
+    call set_kernel_graphics_mode
+    mov byte [boot_video_mode], 1
     call load_kernel_image
     jc .kernel_failed
     call write_boot_info
@@ -744,7 +738,7 @@ enable_fpu_sse:
 setup_page_tables:
     mov edi, pml4_table
     xor eax, eax
-    mov ecx, (4096 * 6) / 4
+    mov ecx, (4096 * 3) / 4
     rep stosd
 
     mov eax, pdpt_table
@@ -752,40 +746,13 @@ setup_page_tables:
     mov [pml4_table], eax
     mov dword [pml4_table + 4], 0
 
-    mov eax, pd_table_0
+    mov eax, pd_table
     or eax, 0x003
     mov [pdpt_table], eax
     mov dword [pdpt_table + 4], 0
 
-    mov eax, pd_table_1
-    or eax, 0x003
-    mov [pdpt_table + 8], eax
-    mov dword [pdpt_table + 12], 0
-
-    mov eax, pd_table_2
-    or eax, 0x003
-    mov [pdpt_table + 16], eax
-    mov dword [pdpt_table + 20], 0
-
-    mov eax, pd_table_3
-    or eax, 0x003
-    mov [pdpt_table + 24], eax
-    mov dword [pdpt_table + 28], 0
-
-    mov edi, pd_table_0
-    xor ebx, ebx
-    mov ecx, 2048
-
-.page_loop:
-    mov eax, ebx
-    shl eax, 21
-    or eax, 0x83
-    mov [edi], eax
-    mov dword [edi + 4], 0
-    add edi, 8
-    inc ebx
-    loop .page_loop
-
+    mov dword [pd_table], 0x00000083
+    mov dword [pd_table + 4], 0
     ret
 
 BITS 64
@@ -922,19 +889,7 @@ pdpt_table:
     times 512 dq 0
 
 align 4096
-pd_table_0:
-    times 512 dq 0
-
-align 4096
-pd_table_1:
-    times 512 dq 0
-
-align 4096
-pd_table_2:
-    times 512 dq 0
-
-align 4096
-pd_table_3:
+pd_table:
     times 512 dq 0
 
 times (STAGE2_SECTORS * 512) - ($ - $$) db 0
