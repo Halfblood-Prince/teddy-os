@@ -90,20 +90,13 @@ pub enum GraphicsAction {
 }
 
 impl GraphicsShell {
-    pub fn new(boot_info: BootInfo) -> Option<Self> {
-        let fb = boot_info.framebuffer()?;
-        if fb.bpp() != 8 && fb.bpp() != 24 && fb.bpp() != 32 {
-            return None;
-        }
-
-        let max_x = fb.width() as i32 - 1;
-        let max_y = fb.height() as i32 - 1;
-        let mut shell = Self {
-            fb,
+    pub const fn empty() -> Self {
+        Self {
+            fb: FramebufferInfo::empty(),
             fs: FileSystem::empty(),
             terminal: TerminalApp::empty(),
             explorer: ExplorerApp::empty(),
-            input: InputManager::new(max_x, max_y),
+            input: InputManager::new(0, 0),
             uptime_seconds: 0,
             accent_phase: 0,
             terminal_window: WindowRect {
@@ -139,11 +132,46 @@ impl GraphicsShell {
             cursor_backing: [0; CURSOR_SIZE * CURSOR_SIZE],
             cursor_saved_x: 0,
             cursor_saved_y: 0,
+        }
+    }
+
+    pub fn init(&mut self, boot_info: BootInfo) -> bool {
+        let fb = match boot_info.framebuffer() {
+            Some(fb) => fb,
+            None => return false,
         };
-        shell.fs.init();
-        shell.terminal.init();
-        shell.explorer.init();
-        Some(shell)
+        if fb.bpp() != 8 && fb.bpp() != 24 && fb.bpp() != 32 {
+            return false;
+        }
+
+        let max_x = fb.width() as i32 - 1;
+        let max_y = fb.height() as i32 - 1;
+        self.fb = fb;
+        self.fs = FileSystem::empty();
+        self.terminal = TerminalApp::empty();
+        self.explorer = ExplorerApp::empty();
+        self.input = InputManager::new(max_x, max_y);
+        self.uptime_seconds = 0;
+        self.accent_phase = 0;
+        self.terminal_open = false;
+        self.explorer_open = false;
+        self.settings_open = false;
+        self.focused_window = None;
+        self.selected_icon = None;
+        self.drag_state = DragState {
+            active: false,
+            window: None,
+            offset_x: 0,
+            offset_y: 0,
+        };
+        self.last_icon_click = None;
+        self.cursor_backing = [0; CURSOR_SIZE * CURSOR_SIZE];
+        self.cursor_saved_x = 0;
+        self.cursor_saved_y = 0;
+        self.fs.init();
+        self.terminal.init();
+        self.explorer.init();
+        true
     }
 
     pub fn render(&mut self) {

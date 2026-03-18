@@ -20,6 +20,7 @@ mod vga;
 
 const KERNEL_STACK_TOP: usize = 0x80000;
 static mut DESKTOP_SHELL: shell::DesktopShell = shell::DesktopShell::empty();
+static mut GRAPHICS_SHELL: graphics::GraphicsShell = graphics::GraphicsShell::empty();
 
 global_asm!(
     r#"
@@ -96,12 +97,12 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
     let mut last_seen_scancode = 0u8;
     let mut last_seen_second = 0u64;
     trace::set_boot_stage(0x70);
-    let mut shell = match graphics::GraphicsShell::new(boot_info) {
-        Some(shell) => shell,
-        None => loop {
+    let shell = unsafe { &mut *core::ptr::addr_of_mut!(GRAPHICS_SHELL) };
+    if !shell.init(boot_info) {
+        loop {
             cpu::halt();
-        },
-    };
+        }
+    }
     trace::set_boot_stage(0x71);
     shell.render();
     trace::set_boot_stage(0x72);

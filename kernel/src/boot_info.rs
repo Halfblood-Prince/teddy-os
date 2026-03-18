@@ -102,6 +102,16 @@ impl BootInfo {
 }
 
 impl FramebufferInfo {
+    pub const fn empty() -> Self {
+        Self {
+            addr: 0,
+            width: 0,
+            height: 0,
+            pitch: 0,
+            bpp: 0,
+        }
+    }
+
     pub const fn addr(self) -> u32 {
         self.addr
     }
