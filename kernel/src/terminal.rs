@@ -14,7 +14,6 @@ pub enum TerminalAction {
 }
 
 pub struct TerminalApp {
-    fs: FileSystem,
     history: [HistoryLine; MAX_HISTORY_LINES],
     history_len: usize,
     input: [u8; INPUT_BUFFER_LEN],
@@ -24,7 +23,6 @@ pub struct TerminalApp {
 impl TerminalApp {
     pub const fn empty() -> Self {
         Self {
-            fs: FileSystem::empty(),
             history: [HistoryLine::empty(); MAX_HISTORY_LINES],
             history_len: 0,
             input: [0; INPUT_BUFFER_LEN],
@@ -34,8 +32,6 @@ impl TerminalApp {
 
     pub fn init(&mut self) {
         trace::set_boot_stage(0x40);
-        self.fs.init();
-        trace::set_boot_stage(0x41);
         clear_history_lines(&mut self.history);
         self.history_len = 0;
         self.input = [0; INPUT_BUFFER_LEN];
@@ -47,7 +43,7 @@ impl TerminalApp {
         trace::set_boot_stage(0x44);
     }
 
-    pub fn handle_key(&mut self, ascii: u8) -> TerminalAction {
+    pub fn handle_key(&mut self, ascii: u8, fs: &mut FileSystem) -> TerminalAction {
         match ascii {
             8 => {
                 if self.input_len > 0 {
@@ -55,7 +51,7 @@ impl TerminalApp {
                 }
                 TerminalAction::None
             }
-            b'\n' => self.submit_command(),
+            b'\n' => self.submit_command(fs),
             0x20..=0x7E => {
                 if self.input_len < INPUT_BUFFER_LEN {
                     self.input[self.input_len] = ascii;
@@ -79,28 +75,28 @@ impl TerminalApp {
         core::str::from_utf8(&self.input[..self.input_len]).unwrap_or("")
     }
 
-    pub fn cwd(&self) -> &str {
-        self.fs.cwd_path()
+    pub fn cwd<'a>(&self, fs: &'a FileSystem) -> &'a str {
+        fs.cwd_path()
     }
 
-    fn submit_command(&mut self) -> TerminalAction {
+    fn submit_command(&mut self, fs: &mut FileSystem) -> TerminalAction {
         let command_buffer = self.input;
         let command_len = self.input_len;
         let command = core::str::from_utf8(&command_buffer[..command_len]).unwrap_or("");
 
-        self.push_prompt_line(command);
+        self.push_prompt_line(command, fs);
 
         let action = if command.is_empty() {
             TerminalAction::None
         } else {
-            self.execute(command)
+            self.execute(command, fs)
         };
 
         self.input_len = 0;
         action
     }
 
-    fn execute(&mut self, command: &str) -> TerminalAction {
+    fn execute(&mut self, command: &str, fs: &mut FileSystem) -> TerminalAction {
         if command == "help" {
             self.push_line("help echo clear ls cd pwd cat mkdir rm");
             self.push_line("touch uname reboot shutdown");
@@ -119,25 +115,25 @@ impl TerminalApp {
             return TerminalAction::None;
         }
         if command == "ls" {
-            self.push_listing();
+            self.push_listing(fs);
             return TerminalAction::None;
         }
         if starts_with(command, "cd ") {
             let path = slice_from(command, 3);
-            match self.fs.change_dir(path) {
+            match fs.change_dir(path) {
                 Ok(()) => {}
                 Err(message) => self.push_line(message),
             }
             return TerminalAction::None;
         }
         if command == "pwd" {
-            let cwd = self.fs.cwd_text();
+            let cwd = fs.cwd_text();
             self.push_line(cwd.as_str());
             return TerminalAction::None;
         }
         if starts_with(command, "cat ") {
             let path = slice_from(command, 4);
-            match self.push_file(path) {
+            match self.push_file(path, fs) {
                 Ok(()) => {}
                 Err(message) => self.push_line(message),
             }
@@ -145,7 +141,7 @@ impl TerminalApp {
         }
         if starts_with(command, "mkdir ") {
             let path = slice_from(command, 6);
-            match self.fs.create_dir(path) {
+            match fs.create_dir(path) {
                 Ok(()) => self.push_line("directory created"),
                 Err(message) => self.push_line(message),
             }
@@ -153,7 +149,7 @@ impl TerminalApp {
         }
         if starts_with(command, "rm ") {
             let path = slice_from(command, 3);
-            match self.fs.remove(path) {
+            match fs.remove(path) {
                 Ok(()) => self.push_line("removed"),
                 Err(message) => self.push_line(message),
             }
@@ -161,7 +157,7 @@ impl TerminalApp {
         }
         if starts_with(command, "touch ") {
             let path = slice_from(command, 6);
-            match self.fs.touch(path) {
+            match fs.touch(path) {
                 Ok(()) => self.push_line("file updated"),
                 Err(message) => self.push_line(message),
             }
@@ -189,8 +185,8 @@ impl TerminalApp {
         self.history_len = 0;
     }
 
-    fn push_prompt_line(&mut self, command: &str) {
-        let cwd = self.fs.cwd_text();
+    fn push_prompt_line(&mut self, command: &str, fs: &FileSystem) {
+        let cwd = fs.cwd_text();
         let mut line = HistoryLine::empty();
         line.push_str(cwd.as_str());
         line.push_str(" $ ");
@@ -219,19 +215,19 @@ impl TerminalApp {
         }
     }
 
-    fn push_file(&mut self, path: &str) -> Result<(), &'static str> {
+    fn push_file(&mut self, path: &str, fs: &FileSystem) -> Result<(), &'static str> {
         let mut buffer = [0u8; MAX_FILE_LEN];
-        let len = self.fs.read_file_into(path, &mut buffer)?;
+        let len = fs.read_file_into(path, &mut buffer)?;
         let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
         self.push_line(text);
         Ok(())
     }
 
-    fn push_listing(&mut self) {
+    fn push_listing(&mut self, fs: &FileSystem) {
         let mut kinds = [EntryKind::File; MAX_FS_NODES];
         let mut names = [NameText::empty(); MAX_FS_NODES];
         let mut sizes = [0usize; MAX_FS_NODES];
-        let len = self.fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
+        let len = fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
         if len == 0 {
             self.push_line("(empty)");
             return;

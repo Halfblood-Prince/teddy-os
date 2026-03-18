@@ -6,6 +6,7 @@ use core::panic::PanicInfo;
 
 mod boot_info;
 mod cpu;
+mod explorer;
 mod fs;
 mod interrupts;
 mod port;

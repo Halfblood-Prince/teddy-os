@@ -16,7 +16,7 @@ ISO for VMware.
 - keyboard input and a tiny BIOS shell in stage 2
 - a VGA mode `13h` graphics demo launched from the shell
 - a `kernel` command that loads and jumps to a real Rust x86_64 kernel binary
-- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, boot-info parsing, a text-mode desktop shell, a real terminal window MVP, and a dedicated kernel filesystem module
+- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, boot-info parsing, a text-mode desktop shell, a real terminal window MVP, a dedicated kernel filesystem module, and a keyboard-driven file explorer window
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
@@ -93,7 +93,7 @@ When you run `kernel`, the current kernel MVP should show:
 
 - a Teddy-OS desktop header and themed background
 - a bottom taskbar with a live uptime clock
-- a `Terminal` window and a `Welcome` window
+- a `Terminal` window and a `File Explorer` window
 - boot metadata from stage 2 inside the system window
 - live timer ticks plus the last keyboard scancode and ASCII value
 - a launcher panel you can open from the taskbar area
@@ -106,7 +106,7 @@ Kernel desktop controls:
 - `w`, `a`, `s`, `d` move the focused window while move mode is active
 - `F4` closes the focused window
 - `F5` restores the default window layout
-- launcher keys `1`, `2`, `3`, `4` open `Terminal`, `Welcome`, `System Monitor`, and `Roadmap`
+- launcher keys `1`, `2`, `3`, `4`, `5` open `Terminal`, `Explorer`, `Welcome`, `System Monitor`, and `Roadmap`
 
 Terminal commands:
 
@@ -126,11 +126,20 @@ Terminal commands:
 
 Filesystem note:
 
-- the terminal now talks to a dedicated kernel filesystem layer instead of owning storage logic directly
-- the filesystem is still memory-backed in this phase, but the API is now separated for later persistence and file explorer work
+- the terminal and explorer now talk to the same kernel filesystem layer
+- the filesystem is still memory-backed in this phase, but the API is now separated for later persistence work
+
+Explorer controls:
+
+- `j` and `k` move the selection
+- `Enter` opens folders or previews a file in the status area
+- `b` goes to the parent directory
+- `n` creates a new folder
+- `t` creates a new file
+- `x` deletes the selected entry
 
 ## Next Step
 
-Once this filesystem-layer milestone is proven stable in VMware, the next phase
-is to add persistent storage behind the kernel filesystem module and then build
-the file explorer on top of those APIs.
+Once this file-explorer milestone is proven stable in VMware, the next phase is
+to add persistent storage behind the kernel filesystem module so Terminal and
+Explorer changes survive reboot.

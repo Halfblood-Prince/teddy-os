@@ -1,9 +1,18 @@
-use crate::{boot_info::BootInfo, interrupts, terminal::{TerminalAction, TerminalApp}, trace, vga};
+use crate::{
+    boot_info::BootInfo,
+    explorer::ExplorerApp,
+    fs::{EntryKind, FileSystem, NameText, MAX_FS_NODES},
+    interrupts,
+    terminal::{TerminalAction, TerminalApp},
+    trace,
+    vga,
+};
 
-const MAX_WINDOWS: usize = 4;
+const MAX_WINDOWS: usize = 5;
 const TASKBAR_ROW: usize = 24;
 const DESKTOP_HEIGHT: usize = 24;
 const TERMINAL_VIEW_LINES: usize = 8;
+const EXPLORER_VIEW_LINES: usize = 7;
 
 pub enum ShellAction {
     Reboot,
@@ -12,7 +21,9 @@ pub enum ShellAction {
 
 pub struct DesktopShell {
     boot_info: Option<BootInfo>,
+    fs: FileSystem,
     terminal: TerminalApp,
+    explorer: ExplorerApp,
     windows: [Window; MAX_WINDOWS],
     focus_index: usize,
     launcher_open: bool,
@@ -24,9 +35,12 @@ impl DesktopShell {
     pub const fn empty() -> Self {
         Self {
             boot_info: None,
+            fs: FileSystem::empty(),
             terminal: TerminalApp::empty(),
+            explorer: ExplorerApp::empty(),
             windows: [
                 Window::hidden(WindowKind::Terminal),
+                Window::hidden(WindowKind::Explorer),
                 Window::hidden(WindowKind::Welcome),
                 Window::hidden(WindowKind::System),
                 Window::hidden(WindowKind::Roadmap),
@@ -42,8 +56,12 @@ impl DesktopShell {
         trace::set_boot_stage(0x31);
         self.boot_info = boot_info;
         trace::set_boot_stage(0x32);
+        self.fs.init();
+        trace::set_boot_stage(0x36);
         self.terminal.init();
         trace::set_boot_stage(0x33);
+        self.explorer.init();
+        trace::set_boot_stage(0x37);
         self.focus_index = 0;
         self.launcher_open = false;
         self.move_mode = false;
@@ -83,13 +101,19 @@ impl DesktopShell {
         }
 
         if self.focused_kind() == WindowKind::Terminal {
-            let action = self.terminal.handle_key(ascii);
+            let action = self.terminal.handle_key(ascii, &mut self.fs);
             self.render();
             return match action {
                 TerminalAction::None => None,
                 TerminalAction::Reboot => Some(ShellAction::Reboot),
                 TerminalAction::Shutdown => Some(ShellAction::Shutdown),
             };
+        }
+
+        if self.focused_kind() == WindowKind::Explorer {
+            if self.explorer.handle_key(ascii, &mut self.fs) {
+                self.render();
+            }
         }
 
         None
@@ -103,16 +127,21 @@ impl DesktopShell {
                 true
             }
             b'2' => {
-                self.open_window(WindowKind::Welcome);
+                self.open_window(WindowKind::Explorer);
                 self.launcher_open = false;
                 true
             }
             b'3' => {
-                self.open_window(WindowKind::System);
+                self.open_window(WindowKind::Welcome);
                 self.launcher_open = false;
                 true
             }
             b'4' => {
+                self.open_window(WindowKind::System);
+                self.launcher_open = false;
+                true
+            }
+            b'5' => {
                 self.open_window(WindowKind::Roadmap);
                 self.launcher_open = false;
                 true
@@ -199,6 +228,7 @@ impl DesktopShell {
     fn render_window_body(&self, window: &Window) {
         match window.kind {
             WindowKind::Terminal => self.render_terminal(window),
+            WindowKind::Explorer => self.render_explorer(window),
             WindowKind::Welcome => self.render_welcome(window),
             WindowKind::System => self.render_system(window),
             WindowKind::Roadmap => self.render_roadmap(window),
@@ -221,15 +251,63 @@ impl DesktopShell {
         }
 
         let prompt_row = window.y + window.height - 2;
-        vga::write_line(prompt_row, window.x + 2, self.terminal.cwd(), 0x0F);
-        vga::write_line(prompt_row, window.x + 2 + self.terminal.cwd().len(), " $ ", 0x0F);
-        vga::write_line(prompt_row, window.x + 5 + self.terminal.cwd().len(), self.terminal.input(), 0x07);
+        let cwd = self.terminal.cwd(&self.fs);
+        vga::write_line(prompt_row, window.x + 2, cwd, 0x0F);
+        vga::write_line(prompt_row, window.x + 2 + cwd.len(), " $ ", 0x0F);
+        vga::write_line(prompt_row, window.x + 5 + cwd.len(), self.terminal.input(), 0x07);
+    }
+
+    fn render_explorer(&self, window: &Window) {
+        vga::write_line(window.y + 2, window.x + 2, "Path:", 0x1F);
+        vga::write_line(window.y + 2, window.x + 8, self.fs.cwd_path(), 0x1E);
+        vga::write_line(window.y + 3, window.x + 2, "Entries:", 0x1F);
+
+        let mut kinds = [EntryKind::File; MAX_FS_NODES];
+        let mut names = [NameText::empty(); MAX_FS_NODES];
+        let mut sizes = [0usize; MAX_FS_NODES];
+        let len = self.fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
+
+        if len == 0 {
+            vga::write_line(window.y + 5, window.x + 4, "(empty)", 0x1E);
+        } else {
+            let visible = core::cmp::min(len, EXPLORER_VIEW_LINES);
+            let start = if self.explorer.selected_index() >= visible {
+                self.explorer.selected_index() + 1 - visible
+            } else {
+                0
+            };
+            let mut row = 0usize;
+            while row < visible {
+                let index = start + row;
+                let attr = if index == self.explorer.selected_index() { 0x70 } else { 0x1E };
+                vga::fill_rect(window.y + 5 + row, window.x + 2, 1, window.width - 4, b' ', attr);
+                match kinds[index] {
+                    EntryKind::Dir => vga::write_line(window.y + 5 + row, window.x + 3, "[DIR]", attr),
+                    EntryKind::File => vga::write_line(window.y + 5 + row, window.x + 3, "[FILE]", attr),
+                }
+                vga::write_line(window.y + 5 + row, window.x + 10, names[index].as_str(), attr);
+                if kinds[index] == EntryKind::File {
+                    let mut size_text = [b' '; 20];
+                    let size_len = format_decimal(sizes[index] as u64, &mut size_text);
+                    let mut size_index = 0usize;
+                    while size_index < size_len {
+                        vga::write_ascii(window.y + 5 + row, window.x + window.width - 8 + size_index, size_text[size_index], attr);
+                        size_index += 1;
+                    }
+                }
+                row += 1;
+            }
+        }
+
+        vga::write_line(window.y + window.height - 3, window.x + 2, "Status:", 0x1F);
+        vga::write_line(window.y + window.height - 3, window.x + 10, self.explorer.status(), 0x1E);
+        vga::write_line(window.y + window.height - 2, window.x + 2, "J/K move  Enter open  B back  N dir  T file  X delete", 0x17);
     }
 
     fn render_welcome(&self, window: &Window) {
         let lines = [
             "Welcome to Teddy Terminal.",
-            "Type commands in the terminal window.",
+            "Terminal and Explorer share one filesystem.",
             "F1 launcher  F2 focus  F3 move mode",
             "F4 close     F5 reset layout",
             "Use WASD while move mode is active.",
@@ -255,8 +333,8 @@ impl DesktopShell {
     fn render_roadmap(&self, window: &Window) {
         let lines = [
             "Terminal now has parsing, scrollback, and fs stubs.",
-            "Filesystem is still in-memory for this phase.",
-            "Next: persistent storage and file explorer UI.",
+            "Filesystem is shared by Terminal and Explorer.",
+            "Still memory-backed in this phase.",
             "Later: framebuffer windows and mouse input.",
         ];
         self.write_lines(window, &lines);
@@ -272,10 +350,11 @@ impl DesktopShell {
         vga::fill_rect(row, col + 1, 1, width - 2, b' ', 0x70);
         vga::write_line(row, col + 2, "Teddy Launcher", 0x70);
         vga::write_line(row + 2, col + 2, "[1] Terminal", 0x1F);
-        vga::write_line(row + 3, col + 2, "[2] Welcome", 0x1F);
-        vga::write_line(row + 4, col + 2, "[3] System Monitor", 0x1F);
-        vga::write_line(row + 5, col + 2, "[4] Roadmap", 0x1F);
-        vga::write_line(row + 7, col + 2, "Esc closes launcher", 0x17);
+        vga::write_line(row + 3, col + 2, "[2] Explorer", 0x1F);
+        vga::write_line(row + 4, col + 2, "[3] Welcome", 0x1F);
+        vga::write_line(row + 5, col + 2, "[4] System Monitor", 0x1F);
+        vga::write_line(row + 6, col + 2, "[5] Roadmap", 0x1F);
+        vga::write_line(row + 8, col + 2, "Esc closes launcher", 0x17);
     }
 
     fn render_taskbar(&self) {
@@ -399,6 +478,7 @@ impl DesktopShell {
 
     fn reset_layout(&mut self) {
         self.windows[WindowKind::Terminal as usize] = Window::new(WindowKind::Terminal, 2, 2, 60, 12, true);
+        self.windows[WindowKind::Explorer as usize] = Window::new(WindowKind::Explorer, 2, 14, 60, 10, true);
         self.windows[WindowKind::Welcome as usize] = Window::new(WindowKind::Welcome, 47, 2, 30, 9, true);
         self.windows[WindowKind::System as usize] = Window::new(WindowKind::System, 45, 11, 32, 12, false);
         self.windows[WindowKind::Roadmap as usize] = Window::new(WindowKind::Roadmap, 8, 15, 36, 8, false);
@@ -458,15 +538,17 @@ impl Window {
 #[repr(usize)]
 enum WindowKind {
     Terminal = 0,
-    Welcome = 1,
-    System = 2,
-    Roadmap = 3,
+    Explorer = 1,
+    Welcome = 2,
+    System = 3,
+    Roadmap = 4,
 }
 
 impl WindowKind {
     const fn title(self) -> &'static str {
         match self {
             Self::Terminal => "Terminal",
+            Self::Explorer => "File Explorer",
             Self::Welcome => "Welcome",
             Self::System => "System Monitor",
             Self::Roadmap => "Roadmap",
