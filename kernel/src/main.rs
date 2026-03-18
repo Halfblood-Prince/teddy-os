@@ -119,7 +119,12 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
         if scancode != last_seen_scancode {
             last_seen_scancode = scancode;
             if scancode & 0x80 == 0 {
-                shell.handle_key(interrupts::last_ascii());
+                if let Some(action) = shell.handle_key(interrupts::last_ascii()) {
+                    match action {
+                        graphics::GraphicsAction::Reboot => reboot_system(),
+                        graphics::GraphicsAction::Shutdown => shutdown_system(),
+                    }
+                }
             }
         }
 

@@ -1,7 +1,9 @@
 use crate::{
     boot_info::{BootInfo, FramebufferInfo},
+    fs::FileSystem,
     input::{self, InputEvent, InputManager, MouseState},
     interrupts,
+    terminal::{TerminalAction, TerminalApp},
 };
 
 const TITLE_BAR_HEIGHT: i32 = 14;
@@ -12,9 +14,12 @@ const STATUS_WIDTH: i32 = 296;
 const STATUS_HEIGHT: i32 = 22;
 const TASKBAR_Y: i32 = 182;
 const DOUBLE_CLICK_TICKS: u64 = 40;
+const TERMINAL_VIEW_LINES: usize = 5;
 
 pub struct GraphicsShell {
     fb: FramebufferInfo,
+    fs: FileSystem,
+    terminal: TerminalApp,
     input: InputManager,
     uptime_seconds: u64,
     accent_phase: u8,
@@ -77,6 +82,11 @@ enum MouseRedraw {
     Full,
 }
 
+pub enum GraphicsAction {
+    Reboot,
+    Shutdown,
+}
+
 impl GraphicsShell {
     pub fn new(boot_info: BootInfo) -> Option<Self> {
         let fb = boot_info.framebuffer()?;
@@ -86,8 +96,10 @@ impl GraphicsShell {
 
         let max_x = fb.width() as i32 - 1;
         let max_y = fb.height() as i32 - 1;
-        Some(Self {
+        let mut shell = Self {
             fb,
+            fs: FileSystem::empty(),
+            terminal: TerminalApp::empty(),
             input: InputManager::new(max_x, max_y),
             uptime_seconds: 0,
             accent_phase: 0,
@@ -124,7 +136,10 @@ impl GraphicsShell {
             cursor_backing: [0; CURSOR_SIZE * CURSOR_SIZE],
             cursor_saved_x: 0,
             cursor_saved_y: 0,
-        })
+        };
+        shell.fs.init();
+        shell.terminal.init();
+        Some(shell)
     }
 
     pub fn render(&mut self) {
@@ -146,11 +161,22 @@ impl GraphicsShell {
         }
     }
 
-    pub fn handle_key(&mut self, ascii: u8) {
+    pub fn handle_key(&mut self, ascii: u8) -> Option<GraphicsAction> {
+        if self.terminal_open && self.focused_window == Some(WindowKind::Terminal) {
+            let action = self.terminal.handle_key(ascii, &mut self.fs);
+            self.redraw_panels();
+            return match action {
+                TerminalAction::None => None,
+                TerminalAction::Reboot => Some(GraphicsAction::Reboot),
+                TerminalAction::Shutdown => Some(GraphicsAction::Shutdown),
+            };
+        }
+
         if ascii != b'?' {
             self.accent_phase = self.accent_phase.wrapping_add(1) % 3;
             self.redraw_hud();
         }
+        None
     }
 
     pub fn poll_input(&mut self) {
@@ -428,12 +454,38 @@ impl GraphicsShell {
         let title = if focused { 12 } else { 8 };
         self.draw_window_frame(rect, 1, title, "TERMINAL");
         self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, rect.height - 28, 0);
-        self.draw_text(rect.x + 14, rect.y + 26, 10, "TEDDY GRAPHICS TERMINAL");
-        self.draw_text(rect.x + 14, rect.y + 38, 15, "guest@teddy:/ $ help");
-        self.draw_text(rect.x + 14, rect.y + 50, 7, "Use 'kernel' for full CLI app.");
-        self.draw_text(rect.x + 14, rect.y + 62, 15, "guest@teddy:/ $ uname");
-        self.draw_text(rect.x + 14, rect.y + 74, 7, "Teddy-OS graphics desktop");
-        self.draw_text(rect.x + 14, rect.y + 86, 15, "guest@teddy:/ $ _");
+        self.draw_text(rect.x + 12, rect.y + 24, 10, "TEDDY GUI TERMINAL");
+
+        let start = self.terminal.history_len().saturating_sub(TERMINAL_VIEW_LINES);
+        let mut line = 0usize;
+        while line < TERMINAL_VIEW_LINES {
+            let history_index = start + line;
+            if history_index < self.terminal.history_len() {
+                self.draw_text(
+                    rect.x + 12,
+                    rect.y + 36 + (line as i32 * 10),
+                    15,
+                    self.terminal.history_line(history_index),
+                );
+            }
+            line += 1;
+        }
+
+        let cwd = self.terminal.cwd(&self.fs);
+        self.draw_text(rect.x + 12, rect.y + rect.height - 16, 15, cwd);
+        self.draw_text(rect.x + 12 + (cwd.len() as i32 * 6), rect.y + rect.height - 16, 15, " $ ");
+        self.draw_text(
+            rect.x + 30 + (cwd.len() as i32 * 6),
+            rect.y + rect.height - 16,
+            15,
+            self.terminal.input(),
+        );
+        self.draw_text(
+            rect.x + 30 + (cwd.len() as i32 * 6) + (self.terminal.input().len() as i32 * 6),
+            rect.y + rect.height - 16,
+            10,
+            "_",
+        );
     }
 
     fn draw_explorer_window(&self, focused: bool) {

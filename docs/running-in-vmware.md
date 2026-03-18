@@ -39,7 +39,7 @@ The kernel screen should include:
 
 - a Teddy-OS desktop header
 - a bottom taskbar with a live clock
-- a `Terminal` window
+- a `File Explorer` window
 - a `Welcome` window
 - a `System Monitor` window with boot metadata and live counters
 - a launcher panel when you press `F1`
@@ -62,7 +62,7 @@ Press a few keys in VMware after the kernel screen appears:
 - `w`, `a`, `s`, `d` move the focused window while move mode is enabled
 - `F4` closes the focused window
 - `F5` restores the default layout
-- launcher keys `1`, `2`, `3`, `4` open `Terminal`, `Welcome`, `System Monitor`, and `Roadmap`
+- launcher keys `1`, `2`, `3`, `4` open `Explorer`, `Welcome`, `System Monitor`, and `Roadmap`
 
 Try these terminal commands in the focused `Terminal` window:
 
@@ -89,7 +89,7 @@ The `System Monitor` window should update `Ticks`, `Uptime`, `Last key`, and
 Expected persistence result:
 
 - the `System Monitor` window should show `Storage  disk loaded` or `Storage  disk seeded`
-- create a file or folder in Terminal or Explorer
+- create a file or folder in Explorer
 - reboot the VM
 - the created entries should still be present after returning to the kernel desktop
 
@@ -111,4 +111,5 @@ Expected persistence result:
 Current limitation:
 
 - `kernelgfx` now has real mouse input and a basic Settings app, but it is still only the first interactive GUI scaffold
-- Terminal and Explorer remain on the stable text-desktop path for now
+- the real Terminal app now lives on the `kernelgfx*` desktop path
+- Explorer is still split between the older text shell and the newer GUI scaffold
