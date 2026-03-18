@@ -1,5 +1,6 @@
 use crate::{
     boot_info::{BootInfo, FramebufferInfo},
+    explorer::ExplorerApp,
     fs::FileSystem,
     input::{self, InputEvent, InputManager, MouseState},
     interrupts,
@@ -20,6 +21,7 @@ pub struct GraphicsShell {
     fb: FramebufferInfo,
     fs: FileSystem,
     terminal: TerminalApp,
+    explorer: ExplorerApp,
     input: InputManager,
     uptime_seconds: u64,
     accent_phase: u8,
@@ -100,6 +102,7 @@ impl GraphicsShell {
             fb,
             fs: FileSystem::empty(),
             terminal: TerminalApp::empty(),
+            explorer: ExplorerApp::empty(),
             input: InputManager::new(max_x, max_y),
             uptime_seconds: 0,
             accent_phase: 0,
@@ -139,6 +142,7 @@ impl GraphicsShell {
         };
         shell.fs.init();
         shell.terminal.init();
+        shell.explorer.init();
         Some(shell)
     }
 
@@ -170,6 +174,13 @@ impl GraphicsShell {
                 TerminalAction::Reboot => Some(GraphicsAction::Reboot),
                 TerminalAction::Shutdown => Some(GraphicsAction::Shutdown),
             };
+        }
+
+        if self.explorer_open && self.focused_window == Some(WindowKind::Explorer) {
+            if self.explorer.handle_key(ascii, &mut self.fs) {
+                self.redraw_panels();
+            }
+            return None;
         }
 
         if ascii != b'?' {
@@ -493,7 +504,7 @@ impl GraphicsShell {
         let title = if focused { 12 } else { 8 };
         self.draw_window_frame(rect, 3, title, "FILE EXPLORER");
         self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, 12, 8);
-        self.draw_text(rect.x + 12, rect.y + 24, 15, "HOME > TEDDY DISK > /");
+        self.draw_text(rect.x + 12, rect.y + 24, 15, self.fs.cwd_path());
 
         self.fill_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 1);
         self.draw_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 8);
@@ -503,10 +514,8 @@ impl GraphicsShell {
 
         self.fill_rect(rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46, 1);
         self.draw_rect(rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46, 8);
-        self.draw_explorer_entry(rect.x + 62, rect.y + 42, true, "docs");
-        self.draw_explorer_entry(rect.x + 62, rect.y + 56, false, "readme.txt");
-        self.draw_explorer_entry(rect.x + 62, rect.y + 70, false, "notes.txt");
-        self.draw_explorer_entry(rect.x + 62, rect.y + 84, true, "apps");
+        self.draw_explorer_entries(rect);
+        self.draw_text(rect.x + 12, rect.y + rect.height - 12, 15, self.explorer.status());
     }
 
     fn draw_settings_window(&self, focused: bool) {
@@ -545,6 +554,47 @@ impl GraphicsShell {
             self.fill_rect(x + 5, y, 4, 3, 7);
         }
         self.draw_text(x + 14, y + 1, 15, name);
+    }
+
+    fn draw_explorer_entries(&self, rect: WindowRect) {
+        let mut kinds = [crate::fs::EntryKind::File; crate::fs::MAX_FS_NODES];
+        let mut names = [crate::fs::NameText::empty(); crate::fs::MAX_FS_NODES];
+        let mut sizes = [0usize; crate::fs::MAX_FS_NODES];
+        let len = self.fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
+        if len == 0 {
+            self.draw_text(rect.x + 68, rect.y + 48, 15, "(EMPTY)");
+            return;
+        }
+
+        let visible = core::cmp::min(len, 4);
+        let start = if self.explorer.selected_index() >= visible {
+            self.explorer.selected_index() + 1 - visible
+        } else {
+            0
+        };
+
+        let mut row = 0usize;
+        while row < visible {
+            let index = start + row;
+            let y = rect.y + 42 + (row as i32 * 14);
+            let selected = index == self.explorer.selected_index();
+            if selected {
+                self.fill_rect(rect.x + 58, y - 2, rect.width - 68, 12, 12);
+            }
+            self.draw_explorer_entry(
+                rect.x + 62,
+                y,
+                kinds[index] == crate::fs::EntryKind::Dir,
+                names[index].as_str(),
+            );
+            if kinds[index] == crate::fs::EntryKind::File {
+                let mut buffer = [b' '; 10];
+                let len = format_small_decimal(sizes[index], &mut buffer);
+                let rendered = core::str::from_utf8(&buffer[..len]).unwrap_or("");
+                self.draw_text(rect.x + rect.width - 32, y + 1, 15, rendered);
+            }
+            row += 1;
+        }
     }
 
     fn draw_status(&self) {
@@ -1115,6 +1165,28 @@ fn rgb_to_bgr(rgb: u32) -> u32 {
     let g = (rgb >> 8) & 0xFF;
     let b = rgb & 0xFF;
     b | (g << 8) | (r << 16)
+}
+
+fn format_small_decimal(mut value: usize, buffer: &mut [u8; 10]) -> usize {
+    if value == 0 {
+        buffer[0] = b'0';
+        return 1;
+    }
+
+    let mut scratch = [0u8; 10];
+    let mut len = 0usize;
+    while value > 0 && len < scratch.len() {
+        scratch[len] = b'0' + (value % 10) as u8;
+        value /= 10;
+        len += 1;
+    }
+
+    let mut index = 0usize;
+    while index < len {
+        buffer[index] = scratch[len - 1 - index];
+        index += 1;
+    }
+    len
 }
 
 fn glyph_for(byte: u8) -> [u8; 7] {

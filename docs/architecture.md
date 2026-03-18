@@ -41,7 +41,7 @@ The new baseline restores a known-good target:
 11. The kernel desktop shell owns screen rendering while IRQ handlers only update state
 12. The terminal app is an isolated module that can later move behind app/window abstractions
 13. The filesystem logic now lives in a dedicated kernel module instead of inside the terminal
-14. The desktop shell now hosts both Terminal and Explorer against the same filesystem state
+14. The graphics shell now hosts both Terminal and Explorer against the same filesystem state
 15. The filesystem can now serialize itself to a reserved disk region on a VMware IDE disk
 16. A `kernelgfx` boot path now hands the kernel a mode `13h` framebuffer for GUI prerequisites
 

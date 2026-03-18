@@ -96,7 +96,7 @@ When you run `kernel`, the current kernel MVP should show:
 
 - a Teddy-OS desktop header and themed background
 - a bottom taskbar with a live uptime clock
-- a `File Explorer` window plus support windows
+- fallback text windows for welcome and system status
 - boot metadata from stage 2 inside the system window
 - live timer ticks plus the last keyboard scancode and ASCII value
 - a launcher panel you can open from the taskbar area
@@ -126,7 +126,7 @@ Kernel desktop controls:
 - `w`, `a`, `s`, `d` move the focused window while move mode is active
 - `F4` closes the focused window
 - `F5` restores the default window layout
-- launcher keys `1`, `2`, `3`, `4` open `Explorer`, `Welcome`, `System Monitor`, and `Roadmap`
+- launcher keys `1`, `2`, `3` open `Welcome`, `System Monitor`, and `Roadmap`
 
 Terminal commands:
 
@@ -163,8 +163,8 @@ Graphics scaffold note:
 
 - `kernelgfx` now includes PS/2 mouse input, a software cursor, desktop icons, taskbar buttons, draggable GUI windows, and a basic Settings app
 - it is still a scaffold, not yet the full desktop replacement
-- the real Terminal app is now wired into `kernelgfx*`
-- the existing `kernel` command now boots the text Explorer/system desktop
+- the real Terminal and Explorer apps are now wired into `kernelgfx*`
+- the existing `kernel` command now boots the text fallback desktop
 
 ## Next Step
 
