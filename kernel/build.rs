@@ -153,11 +153,7 @@ fn parse_bmp(bytes: &[u8], path: &Path) -> Result<IconData, String> {
         y += 1;
     }
 
-    Ok(IconData {
-        width,
-        height,
-        pixels,
-    })
+    Ok(center_on_square_canvas(width, height, &pixels))
 }
 
 fn empty_icon() -> IconData {
@@ -165,6 +161,39 @@ fn empty_icon() -> IconData {
         width: 0,
         height: 0,
         pixels: Vec::new(),
+    }
+}
+
+fn center_on_square_canvas(width: usize, height: usize, pixels: &[u8]) -> IconData {
+    if width == height {
+        return IconData {
+            width,
+            height,
+            pixels: pixels.to_vec(),
+        };
+    }
+
+    let canvas = width.max(height);
+    let offset_x = (canvas - width) / 2;
+    let offset_y = (canvas - height) / 2;
+    let mut padded = vec![TRANSPARENT; canvas * canvas];
+
+    let mut y = 0usize;
+    while y < height {
+        let mut x = 0usize;
+        while x < width {
+            let src = y * width + x;
+            let dst = (y + offset_y) * canvas + (x + offset_x);
+            padded[dst] = pixels[src];
+            x += 1;
+        }
+        y += 1;
+    }
+
+    IconData {
+        width: canvas,
+        height: canvas,
+        pixels: padded,
     }
 }
 
