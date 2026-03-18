@@ -49,6 +49,20 @@ impl InputManager {
         self.mouse
     }
 
+    pub fn reset(&mut self, max_x: i32, max_y: i32) {
+        self.mouse = MouseState {
+            x: max_x / 2,
+            y: max_y / 2,
+            buttons: 0,
+        };
+        self.last_mouse_seq = 0;
+        self.pending_pressed = 0;
+        self.pending_released = 0;
+        self.pending_move = false;
+        self.max_x = max_x;
+        self.max_y = max_y;
+    }
+
     pub fn pump_hardware(&mut self) -> bool {
         let packet = match interrupts::consume_mouse_packet(self.last_mouse_seq) {
             Some(packet) => packet,

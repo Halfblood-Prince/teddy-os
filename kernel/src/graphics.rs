@@ -147,10 +147,7 @@ impl GraphicsShell {
         let max_x = fb.width() as i32 - 1;
         let max_y = fb.height() as i32 - 1;
         self.fb = fb;
-        self.fs = FileSystem::empty();
-        self.terminal = TerminalApp::empty();
-        self.explorer = ExplorerApp::empty();
-        self.input = InputManager::new(max_x, max_y);
+        self.input.reset(max_x, max_y);
         self.uptime_seconds = 0;
         self.accent_phase = 0;
         self.terminal_open = false;
@@ -165,7 +162,7 @@ impl GraphicsShell {
             offset_y: 0,
         };
         self.last_icon_click = None;
-        self.cursor_backing = [0; CURSOR_SIZE * CURSOR_SIZE];
+        self.clear_cursor_backing();
         self.cursor_saved_x = 0;
         self.cursor_saved_y = 0;
         self.fs.init();
@@ -742,6 +739,14 @@ impl GraphicsShell {
                 col += 1;
             }
             row += 1;
+        }
+    }
+
+    fn clear_cursor_backing(&mut self) {
+        let mut index = 0usize;
+        while index < self.cursor_backing.len() {
+            self.cursor_backing[index] = 0;
+            index += 1;
         }
     }
 
