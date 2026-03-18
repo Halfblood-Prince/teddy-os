@@ -1,5 +1,5 @@
 use crate::{
-    fs::{DirectoryEntries, EntryKind, FileSystem, FileText, MAX_PATH_LEN},
+    fs::{EntryKind, FileSystem, NameText, MAX_FILE_LEN, MAX_FS_NODES, MAX_PATH_LEN},
     trace,
 };
 
@@ -119,7 +119,7 @@ impl TerminalApp {
             return TerminalAction::None;
         }
         if command == "ls" {
-            self.push_listing(self.fs.list_current_dir());
+            self.push_listing();
             return TerminalAction::None;
         }
         if starts_with(command, "cd ") {
@@ -137,8 +137,8 @@ impl TerminalApp {
         }
         if starts_with(command, "cat ") {
             let path = slice_from(command, 4);
-            match self.fs.read_file(path) {
-                Ok(content) => self.push_file_text(content),
+            match self.push_file(path) {
+                Ok(()) => {}
                 Err(message) => self.push_line(message),
             }
             return TerminalAction::None;
@@ -219,28 +219,35 @@ impl TerminalApp {
         }
     }
 
-    fn push_file_text(&mut self, text: FileText) {
-        self.push_line(text.as_str());
+    fn push_file(&mut self, path: &str) -> Result<(), &'static str> {
+        let mut buffer = [0u8; MAX_FILE_LEN];
+        let len = self.fs.read_file_into(path, &mut buffer)?;
+        let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
+        self.push_line(text);
+        Ok(())
     }
 
-    fn push_listing(&mut self, listing: DirectoryEntries) {
-        if listing.len == 0 {
+    fn push_listing(&mut self) {
+        let mut kinds = [EntryKind::File; MAX_FS_NODES];
+        let mut names = [NameText::empty(); MAX_FS_NODES];
+        let mut sizes = [0usize; MAX_FS_NODES];
+        let len = self.fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
+        if len == 0 {
             self.push_line("(empty)");
             return;
         }
 
         let mut index = 0usize;
-        while index < listing.len {
-            let entry = listing.entries[index];
+        while index < len {
             let mut line = HistoryLine::empty();
-            match entry.kind {
+            match kinds[index] {
                 EntryKind::Dir => line.push_str("[dir] "),
                 EntryKind::File => line.push_str("[file] "),
             }
-            line.push_str(entry.name.as_str());
-            if entry.kind == EntryKind::File {
+            line.push_str(names[index].as_str());
+            if kinds[index] == EntryKind::File {
                 line.push_str(" ");
-                append_decimal(&mut line, entry.size);
+                append_decimal(&mut line, sizes[index]);
                 line.push_str("b");
             }
             self.push_history(line);

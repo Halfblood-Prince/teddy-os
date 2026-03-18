@@ -31,25 +31,6 @@ impl NameText {
 }
 
 #[derive(Clone, Copy)]
-pub struct FileText {
-    bytes: [u8; MAX_FILE_LEN],
-    len: usize,
-}
-
-impl FileText {
-    pub const fn empty() -> Self {
-        Self {
-            bytes: [0; MAX_FILE_LEN],
-            len: 0,
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        core::str::from_utf8(&self.bytes[..self.len]).unwrap_or("")
-    }
-}
-
-#[derive(Clone, Copy)]
 pub struct PathText {
     bytes: [u8; MAX_PATH_LEN],
     len: usize,
@@ -65,38 +46,6 @@ impl PathText {
 
     pub fn as_str(&self) -> &str {
         core::str::from_utf8(&self.bytes[..self.len]).unwrap_or("/")
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct DirEntry {
-    pub kind: EntryKind,
-    pub name: NameText,
-    pub size: usize,
-}
-
-impl DirEntry {
-    const fn empty() -> Self {
-        Self {
-            kind: EntryKind::File,
-            name: NameText::empty(),
-            size: 0,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct DirectoryEntries {
-    pub entries: [DirEntry; MAX_FS_NODES],
-    pub len: usize,
-}
-
-impl DirectoryEntries {
-    const fn empty() -> Self {
-        Self {
-            entries: [DirEntry::empty(); MAX_FS_NODES],
-            len: 0,
-        }
     }
 }
 
@@ -243,20 +192,18 @@ impl FileSystem {
         Ok(())
     }
 
-    pub fn read_file(&self, path: &str) -> Result<FileText, &'static str> {
+    pub fn read_file_into(&self, path: &str, out: &mut [u8; MAX_FILE_LEN]) -> Result<usize, &'static str> {
         let node = self.resolve_path(path)?;
         let entry = &self.nodes[node];
         if entry.kind != EntryKind::File {
             return Err("cat: not a file");
         }
-        let mut text = FileText::empty();
         let mut index = 0usize;
         while index < entry.data_len {
-            text.bytes[index] = entry.data[index];
+            out[index] = entry.data[index];
             index += 1;
         }
-        text.len = entry.data_len;
-        Ok(text)
+        Ok(entry.data_len)
     }
 
     pub fn create_dir(&mut self, path: &str) -> Result<(), &'static str> {
@@ -291,27 +238,31 @@ impl FileSystem {
         Ok(())
     }
 
-    pub fn list_current_dir(&self) -> DirectoryEntries {
-        let mut listing = DirectoryEntries::empty();
+    pub fn list_current_dir_into(
+        &self,
+        kinds: &mut [EntryKind; MAX_FS_NODES],
+        names: &mut [NameText; MAX_FS_NODES],
+        sizes: &mut [usize; MAX_FS_NODES],
+    ) -> usize {
+        let mut len = 0usize;
         let mut index = 0usize;
         while index < MAX_FS_NODES {
             let node = &self.nodes[index];
             if node.used && index != 0 && node.parent == self.cwd {
-                let mut entry = DirEntry::empty();
-                entry.kind = node.kind;
-                entry.size = node.data_len;
+                kinds[len] = node.kind;
+                sizes[len] = node.data_len;
+                names[len] = NameText::empty();
                 let mut name_index = 0usize;
                 while name_index < node.name_len {
-                    entry.name.bytes[name_index] = node.name[name_index];
+                    names[len].bytes[name_index] = node.name[name_index];
                     name_index += 1;
                 }
-                entry.name.len = node.name_len;
-                listing.entries[listing.len] = entry;
-                listing.len += 1;
+                names[len].len = node.name_len;
+                len += 1;
             }
             index += 1;
         }
-        listing
+        len
     }
 
     fn resolve_dir(&self, path: &str) -> Result<usize, &'static str> {
