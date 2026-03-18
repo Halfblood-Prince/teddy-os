@@ -390,15 +390,23 @@ impl GraphicsShell {
             y += 1;
         }
 
-        self.fill_rect(0, 0, width as i32, 18, 8);
-        self.fill_rect(0, TASKBAR_Y, width as i32, 18, 8);
-        self.fill_rect(0, TASKBAR_Y - 1, width as i32, 1, 7);
+        self.fill_rect(0, 0, width as i32, 18, 1);
+        self.fill_rect(0, 16, width as i32, 2, 8);
+        self.fill_rect(0, TASKBAR_Y - 6, width as i32, 6, 8);
+        self.fill_rect(0, TASKBAR_Y, width as i32, 18, 0);
+        self.fill_rect(0, TASKBAR_Y, width as i32, 1, 15);
+        self.fill_rect(0, TASKBAR_Y + 1, width as i32, 1, 8);
+        self.fill_rect(4, 26, 64, 160, 1);
+        self.draw_rect(4, 26, 64, 160, 8);
     }
 
     fn draw_top_bar(&self) {
-        self.draw_text(10, 5, 15, "TEDDY-OS DESKTOP");
-        self.draw_text(160, 5, 14, "GRAPHICS SHELL");
-        self.draw_text(252, 5, 15, "VMWARE");
+        self.draw_text(10, 4, 15, "TEDDY-OS");
+        self.draw_text(64, 4, 7, "DESKTOP EDITION");
+        self.draw_text(190, 4, 14, "GRAPHICS");
+        self.draw_text(250, 4, 15, "BUILD");
+        self.draw_text(10, 10, 8, "Original Teddy shell theme");
+        self.draw_text(206, 10, 7, "VMWARE");
     }
 
     fn draw_desktop_icons(&self) {
@@ -410,25 +418,30 @@ impl GraphicsShell {
 
     fn draw_icon(&self, x: i32, y: i32, icon: DesktopIcon, label: &str) {
         let selected = self.selected_icon == Some(icon);
-        let frame = if selected { 15 } else { 8 };
-        let fill = if selected { 12 } else { 1 };
+        let frame = if selected { 15 } else { 7 };
+        let fill = if selected { 3 } else { 1 };
+        self.fill_rect(x - 3, y - 3, 44, 44, 0);
         self.fill_rect(x - 4, y - 4, 44, 44, fill);
         self.draw_rect(x - 4, y - 4, 44, 44, frame);
+        self.fill_rect(x - 4, y - 4, 44, 1, 8);
 
         match icon {
             DesktopIcon::Terminal => {
                 self.fill_rect(x + 2, y + 6, 28, 18, 0);
+                self.fill_rect(x + 2, y + 6, 28, 4, 8);
                 self.draw_rect(x + 2, y + 6, 28, 18, 15);
-                self.draw_text(x + 6, y + 11, 10, "C>");
-                self.draw_text(x + 6, y + 19, 15, "_");
+                self.draw_text(x + 6, y + 11, 10, ">");
+                self.draw_text(x + 12, y + 11, 15, "_");
+                self.draw_text(x + 6, y + 19, 7, "cmd");
             }
             DesktopIcon::Explorer => {
                 self.fill_rect(x + 4, y + 10, 24, 16, 14);
-                self.fill_rect(x + 6, y + 6, 10, 6, 12);
+                self.fill_rect(x + 6, y + 6, 10, 6, 6);
+                self.fill_rect(x + 7, y + 13, 18, 2, 12);
                 self.draw_rect(x + 4, y + 10, 24, 16, 6);
             }
             DesktopIcon::Settings => {
-                self.fill_rect(x + 8, y + 8, 16, 16, 7);
+                self.fill_rect(x + 8, y + 8, 16, 16, 8);
                 self.draw_rect(x + 8, y + 8, 16, 16, 15);
                 self.fill_rect(x + 13, y + 13, 6, 6, 1);
                 self.put_pixel(x + 16, y + 5, 15);
@@ -443,7 +456,7 @@ impl GraphicsShell {
         }
 
         if selected {
-            self.fill_rect(x - 2, y + 42, 60, 12, 1);
+            self.fill_rect(x - 2, y + 42, 60, 12, 3);
             self.draw_rect(x - 2, y + 42, 60, 12, 15);
         }
         self.draw_text(x, y + 45, 15, label);
@@ -470,10 +483,11 @@ impl GraphicsShell {
 
     fn draw_terminal_window(&self, focused: bool) {
         let rect = self.terminal_window;
-        let title = if focused { 12 } else { 8 };
+        let title = if focused { 3 } else { 8 };
         self.draw_window_frame(rect, 1, title, "TERMINAL");
         self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, rect.height - 28, 0);
-        self.draw_text(rect.x + 12, rect.y + 24, 10, "TEDDY GUI TERMINAL");
+        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, 8, 1);
+        self.draw_text(rect.x + 12, rect.y + 24, 10, "TEDDY COMMAND LINE");
 
         let start = self.terminal.history_len().saturating_sub(TERMINAL_VIEW_LINES);
         let mut line = 0usize;
@@ -509,30 +523,32 @@ impl GraphicsShell {
 
     fn draw_explorer_window(&self, focused: bool) {
         let rect = self.explorer_window;
-        let title = if focused { 12 } else { 8 };
+        let title = if focused { 3 } else { 8 };
         self.draw_window_frame(rect, 3, title, "FILE EXPLORER");
-        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, 12, 8);
+        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, 12, 1);
+        self.draw_rect(rect.x + 8, rect.y + 20, rect.width - 16, 12, 8);
         self.draw_text(rect.x + 12, rect.y + 24, 15, self.fs.cwd_path());
 
         self.draw_explorer_toolbar(rect);
 
-        self.fill_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 1);
+        self.fill_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 0);
         self.draw_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 8);
         self.draw_text(rect.x + 12, rect.y + 42, 15, "HOME");
         self.draw_text(rect.x + 12, rect.y + 54, 15, "DOCS");
-        self.draw_text(rect.x + 12, rect.y + 66, 15, "APPS");
+        self.draw_text(rect.x + 12, rect.y + 66, 7, "SPACE");
 
-        self.fill_rect(rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46, 1);
+        self.fill_rect(rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46, 0);
         self.draw_rect(rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46, 8);
         self.draw_explorer_entries(rect);
+        self.fill_rect(rect.x + 8, rect.y + rect.height - 16, rect.width - 16, 10, 1);
         self.draw_text(rect.x + 12, rect.y + rect.height - 12, 15, self.explorer.status());
     }
 
     fn draw_settings_window(&self, focused: bool) {
         let rect = self.settings_window;
-        let title = if focused { 12 } else { 8 };
+        let title = if focused { 3 } else { 8 };
         self.draw_window_frame(rect, 1, title, "SETTINGS");
-        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, rect.height - 28, 3);
+        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, rect.height - 28, 1);
         self.draw_text(rect.x + 12, rect.y + 24, 15, "DISPLAY");
         self.draw_text(rect.x + 12, rect.y + 38, 7, "Current mode");
         self.draw_number(rect.x + 92, rect.y + 38, self.fb.width() as u32, 15);
@@ -561,7 +577,7 @@ impl GraphicsShell {
     }
 
     fn draw_toolbar_button(&self, x: i32, y: i32, width: i32, label: &str) {
-        self.fill_rect(x, y, width, 12, 1);
+        self.fill_rect(x, y, width, 12, 8);
         self.draw_rect(x, y, width, 12, 15);
         self.draw_text(x + 4, y + 3, 15, label);
     }
@@ -602,7 +618,8 @@ impl GraphicsShell {
             let y = rect.y + 42 + (row as i32 * 14);
             let selected = index == self.explorer.selected_index();
             if selected {
-                self.fill_rect(rect.x + 58, y - 2, rect.width - 68, 12, 12);
+                self.fill_rect(rect.x + 58, y - 2, rect.width - 68, 12, 3);
+                self.draw_rect(rect.x + 58, y - 2, rect.width - 68, 12, 15);
             }
             self.draw_explorer_entry(
                 rect.x + 62,
@@ -744,8 +761,9 @@ impl GraphicsShell {
 
     fn draw_status(&self) {
         let mouse = self.input.mouse_state();
-        self.fill_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, STATUS_HEIGHT, 1);
+        self.fill_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, STATUS_HEIGHT, 0);
         self.draw_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, STATUS_HEIGHT, 15);
+        self.fill_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, 1, 8);
         self.draw_text(18, 148, 15, "UP");
         self.draw_number(36, 148, self.uptime_seconds as u32, 14);
         self.draw_text(64, 148, 15, "KEY");
@@ -757,24 +775,27 @@ impl GraphicsShell {
         self.draw_text(190, 148, 15, "B");
         self.draw_hex_byte(202, 148, mouse.buttons, 14);
         self.draw_text(220, 148, 15, "TIP");
-        self.draw_text(242, 148, 14, "DOUBLE-CLICK ICONS");
+        self.draw_text(236, 148, 7, "DESKTOP READY");
     }
 
     fn draw_taskbar(&self) {
         let accent = self.accent_color();
-        self.fill_rect(6, 185, 48, 10, accent);
-        self.draw_text(13, 187, 15, "TEDDY");
+        self.fill_rect(6, 184, 50, 12, accent);
+        self.draw_rect(6, 184, 50, 12, 15);
+        self.draw_text(14, 187, 15, "TEDDY");
 
         self.draw_taskbar_button(64, DesktopIcon::Terminal, self.terminal_open);
         self.draw_taskbar_button(126, DesktopIcon::Explorer, self.explorer_open);
         self.draw_taskbar_button(188, DesktopIcon::Settings, self.settings_open);
 
+        self.fill_rect(244, 184, 68, 12, 1);
+        self.draw_rect(244, 184, 68, 12, 8);
         self.draw_text(252, 187, 15, "UP");
         self.draw_number(270, 187, self.uptime_seconds as u32, 14);
     }
 
     fn draw_taskbar_button(&self, x: i32, icon: DesktopIcon, active: bool) {
-        let fill = if active { 12 } else { 1 };
+        let fill = if active { 3 } else { 1 };
         let edge = if active { 15 } else { 8 };
         let label = match icon {
             DesktopIcon::Terminal => "TERM",
@@ -796,12 +817,14 @@ impl GraphicsShell {
     }
 
     fn background_color_for_y(&self, y: i32) -> u8 {
-        if y < 52 {
+        if y < 40 {
             1
-        } else if y < 124 {
+        } else if y < 92 {
             9
-        } else {
+        } else if y < 150 {
             3
+        } else {
+            1
         }
     }
 
@@ -1058,19 +1081,21 @@ impl GraphicsShell {
     }
 
     fn draw_window_frame(&self, rect: WindowRect, body: u8, title: u8, label: &str) {
+        self.fill_rect(rect.x + 2, rect.y + 2, rect.width, rect.height, 0);
         self.fill_rect(rect.x, rect.y, rect.width, rect.height, body);
         self.draw_rect(rect.x, rect.y, rect.width, rect.height, 15);
         self.fill_rect(rect.x + 1, rect.y + 1, rect.width - 2, TITLE_BAR_HEIGHT, title);
+        self.fill_rect(rect.x + 1, rect.y + TITLE_BAR_HEIGHT + 1, rect.width - 2, 1, 8);
         self.draw_text(rect.x + 6, rect.y + 4, 15, label);
         self.fill_rect(rect.x + rect.width - 18, rect.y + 4, 5, 5, 4);
-        self.fill_rect(rect.x + rect.width - 10, rect.y + 4, 5, 5, 14);
+        self.fill_rect(rect.x + rect.width - 10, rect.y + 4, 5, 5, 8);
     }
 
     fn accent_color(&self) -> u8 {
         match self.accent_phase {
-            0 => 12,
-            1 => 13,
-            _ => 10,
+            0 => 3,
+            1 => 11,
+            _ => 8,
         }
     }
 
