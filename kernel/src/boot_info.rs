@@ -8,6 +8,12 @@ struct RawBootInfo {
     kernel_segment: u16,
     kernel_sectors: u16,
     stage2_sectors: u16,
+    video_mode: u8,
+    framebuffer_bpp: u8,
+    framebuffer_addr: u32,
+    framebuffer_width: u16,
+    framebuffer_height: u16,
+    framebuffer_pitch: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -17,6 +23,21 @@ pub struct BootInfo {
     kernel_segment: u16,
     kernel_sectors: u16,
     stage2_sectors: u16,
+    video_mode: u8,
+    framebuffer_bpp: u8,
+    framebuffer_addr: u32,
+    framebuffer_width: u16,
+    framebuffer_height: u16,
+    framebuffer_pitch: u16,
+}
+
+#[derive(Clone, Copy)]
+pub struct FramebufferInfo {
+    addr: u32,
+    width: u16,
+    height: u16,
+    pitch: u16,
+    bpp: u8,
 }
 
 impl BootInfo {
@@ -32,6 +53,12 @@ impl BootInfo {
             kernel_segment: raw.kernel_segment,
             kernel_sectors: raw.kernel_sectors,
             stage2_sectors: raw.stage2_sectors,
+            video_mode: raw.video_mode,
+            framebuffer_bpp: raw.framebuffer_bpp,
+            framebuffer_addr: raw.framebuffer_addr,
+            framebuffer_width: raw.framebuffer_width,
+            framebuffer_height: raw.framebuffer_height,
+            framebuffer_pitch: raw.framebuffer_pitch,
         })
     }
 
@@ -53,5 +80,45 @@ impl BootInfo {
 
     pub fn stage2_sectors(&self) -> u16 {
         self.stage2_sectors
+    }
+
+    pub fn graphics_mode_enabled(&self) -> bool {
+        self.video_mode != 0 && self.framebuffer_addr != 0
+    }
+
+    pub fn framebuffer(&self) -> Option<FramebufferInfo> {
+        if !self.graphics_mode_enabled() {
+            return None;
+        }
+
+        Some(FramebufferInfo {
+            addr: self.framebuffer_addr,
+            width: self.framebuffer_width,
+            height: self.framebuffer_height,
+            pitch: self.framebuffer_pitch,
+            bpp: self.framebuffer_bpp,
+        })
+    }
+}
+
+impl FramebufferInfo {
+    pub const fn addr(self) -> u32 {
+        self.addr
+    }
+
+    pub const fn width(self) -> u16 {
+        self.width
+    }
+
+    pub const fn height(self) -> u16 {
+        self.height
+    }
+
+    pub const fn pitch(self) -> u16 {
+        self.pitch
+    }
+
+    pub const fn bpp(self) -> u8 {
+        self.bpp
     }
 }

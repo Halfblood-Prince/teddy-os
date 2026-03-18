@@ -15,6 +15,7 @@ This reset starts from a small but extensible BIOS baseline:
 - a real terminal app with command parsing and a kernel filesystem layer
 - a keyboard-driven file explorer window using the same filesystem APIs
 - ATA-backed persistence for the filesystem when a VMware IDE disk is present
+- a separate graphics-mode kernel path with a framebuffer drawing scaffold
 - reproducible ISO output for VMware legacy BIOS boot
 
 ## Why This Reset Exists
@@ -42,6 +43,7 @@ The new baseline restores a known-good target:
 13. The filesystem logic now lives in a dedicated kernel module instead of inside the terminal
 14. The desktop shell now hosts both Terminal and Explorer against the same filesystem state
 15. The filesystem can now serialize itself to a reserved disk region on a VMware IDE disk
+16. A `kernelgfx` boot path now hands the kernel a mode `13h` framebuffer for GUI prerequisites
 
 ## Next Phases
 
@@ -54,4 +56,5 @@ The new baseline restores a known-good target:
 - Phase 7 reset: move filesystem logic into a dedicated kernel module and keep it memory-backed first
 - Phase 8 reset: add a file explorer window on top of the shared filesystem APIs
 - Phase 9 reset: add ATA-backed persistence behind that filesystem module so app-visible changes survive reboot
-- Phase 10 reset: improve explorer interactions and broaden app/window abstractions
+- Phase 10 reset: add a graphics framebuffer scaffold as the first prerequisite for clickable GUI work
+- Phase 11 reset: add PS/2 mouse input, cursor movement, and window hit-testing on that graphics path

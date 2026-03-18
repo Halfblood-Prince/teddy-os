@@ -25,6 +25,10 @@ Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
 64-bit Rust kernel desktop shell, arm hardware interrupts, and update live
 status fields.
 
+Try `kernelgfx` at the prompt for the new graphics prerequisite path. You
+should see Teddy-OS switch into VGA mode `13h` and render a graphical desktop
+scaffold driven by the kernel framebuffer code.
+
 The kernel screen should include:
 
 - a Teddy-OS desktop header
@@ -33,6 +37,14 @@ The kernel screen should include:
 - a `Welcome` window
 - a `System Monitor` window with boot metadata and live counters
 - a launcher panel when you press `F1`
+
+The `kernelgfx` graphics screen should include:
+
+- a graphical Teddy-OS header
+- a bottom taskbar
+- window-like panels with bitmap-rendered labels
+- a status strip showing uptime, last key, and scancode
+- a placeholder cursor block in the upper-right area
 
 Press a few keys in VMware after the kernel screen appears:
 
@@ -72,3 +84,16 @@ Expected persistence result:
 - create a file or folder in Terminal or Explorer
 - reboot the VM
 - the created entries should still be present after returning to the kernel desktop
+
+## Graphics Scaffold Test
+
+- boot to the BIOS shell
+- run `kernelgfx`
+- verify that the screen changes from text mode to a pixel UI
+- wait a few seconds and confirm the uptime changes
+- press a few keys and confirm the status area updates
+
+Current limitation:
+
+- `kernelgfx` is only the framebuffer and rendering scaffold for future mouse GUI work
+- Terminal and Explorer remain on the stable text-desktop path for now

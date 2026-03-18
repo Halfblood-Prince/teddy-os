@@ -9,6 +9,11 @@ ORG 0x8000
 %define KERNEL_LOAD_SEG  0x2000
 %define KERNEL_SECTORS   256
 %define KERNEL_LBA_START (1 + STAGE2_SECTORS)
+%define MODE13_FRAMEBUFFER 0x000A0000
+%define MODE13_WIDTH 320
+%define MODE13_HEIGHT 200
+%define MODE13_PITCH 320
+%define MODE13_BPP 8
 
 stage2_start:
     cli
@@ -152,6 +157,12 @@ execute_command:
     je .kernel
 
     mov si, input_buffer
+    mov di, cmd_kernelgfx
+    call strings_equal
+    cmp al, 1
+    je .kernelgfx
+
+    mov si, input_buffer
     mov di, cmd_echo_prefix
     call starts_with
     cmp al, 1
@@ -203,6 +214,16 @@ execute_command:
     jmp .done
 
 .kernel:
+    mov byte [boot_video_mode], 0
+    call load_kernel_image
+    jc .kernel_failed
+    call write_boot_info
+    call enter_long_mode
+    jmp $
+
+.kernelgfx:
+    call set_kernel_graphics_mode
+    mov byte [boot_video_mode], 1
     call load_kernel_image
     jc .kernel_failed
     call write_boot_info
@@ -480,7 +501,7 @@ write_boot_info:
     mov cx, 8
     rep movsb
 
-    mov byte [es:di], 1
+    mov byte [es:di], 2
     inc di
     mov al, [boot_drive]
     mov [es:di], al
@@ -492,6 +513,25 @@ write_boot_info:
     mov [es:di], ax
     add di, 2
     mov ax, STAGE2_SECTORS
+    mov [es:di], ax
+    add di, 2
+
+    mov al, [boot_video_mode]
+    mov [es:di], al
+    inc di
+    mov byte [es:di], MODE13_BPP
+    inc di
+
+    mov eax, MODE13_FRAMEBUFFER
+    mov [es:di], eax
+    add di, 4
+    mov ax, MODE13_WIDTH
+    mov [es:di], ax
+    add di, 2
+    mov ax, MODE13_HEIGHT
+    mov [es:di], ax
+    add di, 2
+    mov ax, MODE13_PITCH
     mov [es:di], ax
 
     pop es
@@ -537,6 +577,11 @@ enter_long_mode:
     or eax, 1
     mov cr0, eax
     jmp 0x08:protected_mode_entry
+
+set_kernel_graphics_mode:
+    mov ax, 0x0013
+    int 0x10
+    ret
 
 enable_a20_fast:
     in al, 0x92
@@ -686,15 +731,15 @@ title_text db "TEDDY-OS", 0
 status_text db "Legacy BIOS stage 2 online", 0
 detail_text db "Stage 1 loaded this program from disk sectors", 0
 next_text db "Next: graphics mode and x86_64 kernel handoff", 0
-shell_text db "Shell ready. Commands: help, clear, info, echo, graphics, kernel, reboot", 0
+shell_text db "Shell ready. Commands: help, clear, info, echo, graphics, kernel, kernelgfx, reboot", 0
 footer_text db "Boot OK - Stage 2 running", 0
 prompt_text db "> ", 0
 unknown_text db "Unknown command. Type help.", 0
 help_text_1 db "help  - list commands", 0
 help_text_2 db "info  - show stage information", 0
-help_text_3 db "clear - clear, echo X, graphics, kernel, reboot", 0
+help_text_3 db "clear - clear, echo X, graphics, kernel, kernelgfx, reboot", 0
 info_text_1 db "Teddy-OS BIOS Stage 2 is using INT 16h for keyboard input.", 0
-info_text_2 db "The kernel command now loads and jumps to a Rust x86_64 kernel.", 0
+info_text_2 db "Kernelgfx boots the kernel in VGA mode 13h for graphics work.", 0
 gfx_title db "TEDDY-OS GRAPHICS", 0
 gfx_panel_title db "RESET GUI", 0
 gfx_panel_body db "Mode 13h online", 0
@@ -707,11 +752,13 @@ cmd_clear db "clear", 0
 cmd_info db "info", 0
 cmd_graphics db "graphics", 0
 cmd_kernel db "kernel", 0
+cmd_kernelgfx db "kernelgfx", 0
 cmd_reboot db "reboot", 0
 cmd_echo_prefix db "echo ", 0
 
 rect_color db 0
 boot_drive db 0
+boot_video_mode db 0
 input_len db 0
 input_buffer times INPUT_BUFFER_SIZE db 0
 

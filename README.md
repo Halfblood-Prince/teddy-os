@@ -87,6 +87,7 @@ Example commands:
 - `echo hello`
 - `graphics`
 - `kernel`
+- `kernelgfx`
 - `reboot`
 
 When you run `kernel`, the current kernel MVP should show:
@@ -97,6 +98,15 @@ When you run `kernel`, the current kernel MVP should show:
 - boot metadata from stage 2 inside the system window
 - live timer ticks plus the last keyboard scancode and ASCII value
 - a launcher panel you can open from the taskbar area
+
+When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
+
+- VGA mode `13h` pixel framebuffer
+- a graphical top bar and taskbar
+- window-like panels rendered by the kernel
+- bitmap text drawn by the new graphics layer
+- a status panel with uptime and keyboard state
+- a cursor placeholder that changes color as input arrives
 
 Kernel desktop controls:
 
@@ -138,6 +148,12 @@ Explorer controls:
 - `n` creates a new folder
 - `t` creates a new file
 - `x` deletes the selected entry
+
+Graphics scaffold note:
+
+- `kernelgfx` is the new prerequisite path for future mouse-driven GUI work
+- it is a scaffold, not yet the full desktop replacement
+- the existing `kernel` command still boots the stable text desktop and apps
 
 ## Next Step
 

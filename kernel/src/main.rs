@@ -8,6 +8,7 @@ mod boot_info;
 mod cpu;
 mod explorer;
 mod fs;
+mod graphics;
 mod interrupts;
 mod port;
 mod shell;
@@ -52,6 +53,11 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     interrupts::init();
     trace::set_boot_stage(2);
     let boot_info = boot_info::BootInfo::parse(boot_info_addr);
+    if let Some(info) = boot_info {
+        if info.graphics_mode_enabled() {
+            run_graphics_shell(info);
+        }
+    }
     trace::set_boot_stage(3);
     let desktop = unsafe { &mut *core::ptr::addr_of_mut!(DESKTOP_SHELL) };
     trace::set_boot_stage(0x30);
@@ -81,6 +87,41 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
                 }
             }
         }
+        cpu::halt();
+    }
+}
+
+fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
+    let mut last_seen_scancode = 0u8;
+    let mut last_seen_second = 0u64;
+    trace::set_boot_stage(0x70);
+    let mut shell = match graphics::GraphicsShell::new(boot_info) {
+        Some(shell) => shell,
+        None => loop {
+            cpu::halt();
+        },
+    };
+    trace::set_boot_stage(0x71);
+    shell.render();
+    trace::set_boot_stage(0x72);
+    cpu::enable_interrupts();
+    trace::set_boot_stage(0x73);
+
+    loop {
+        let uptime_seconds = interrupts::uptime_seconds();
+        if uptime_seconds != last_seen_second {
+            last_seen_second = uptime_seconds;
+            shell.tick(uptime_seconds);
+        }
+
+        let scancode = interrupts::last_scancode();
+        if scancode != last_seen_scancode {
+            last_seen_scancode = scancode;
+            if scancode & 0x80 == 0 {
+                shell.handle_key(interrupts::last_ascii());
+            }
+        }
+
         cpu::halt();
     }
 }
