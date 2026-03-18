@@ -20,8 +20,10 @@ pub struct GraphicsShell {
     accent_phase: u8,
     terminal_window: WindowRect,
     explorer_window: WindowRect,
+    settings_window: WindowRect,
     terminal_open: bool,
     explorer_open: bool,
+    settings_open: bool,
     focused_window: Option<WindowKind>,
     selected_icon: Option<DesktopIcon>,
     drag_state: DragState,
@@ -35,12 +37,14 @@ pub struct GraphicsShell {
 enum DesktopIcon {
     Terminal,
     Explorer,
+    Settings,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum WindowKind {
     Terminal,
     Explorer,
+    Settings,
 }
 
 #[derive(Clone, Copy)]
@@ -99,8 +103,15 @@ impl GraphicsShell {
                 width: 168,
                 height: 104,
             },
+            settings_window: WindowRect {
+                x: 92,
+                y: 58,
+                width: 164,
+                height: 96,
+            },
             terminal_open: true,
             explorer_open: true,
+            settings_open: false,
             focused_window: Some(WindowKind::Explorer),
             selected_icon: None,
             drag_state: DragState {
@@ -316,9 +327,10 @@ impl GraphicsShell {
     }
 
     fn draw_desktop_icons(&self) {
-        self.fill_background_rect(0, 18, 74, 122);
+        self.fill_background_rect(0, 18, 74, 176);
         self.draw_icon(14, 28, DesktopIcon::Terminal, "TERMINAL");
         self.draw_icon(14, 82, DesktopIcon::Explorer, "EXPLORER");
+        self.draw_icon(14, 136, DesktopIcon::Settings, "SETTINGS");
     }
 
     fn draw_icon(&self, x: i32, y: i32, icon: DesktopIcon, label: &str) {
@@ -340,6 +352,19 @@ impl GraphicsShell {
                 self.fill_rect(x + 6, y + 6, 10, 6, 12);
                 self.draw_rect(x + 4, y + 10, 24, 16, 6);
             }
+            DesktopIcon::Settings => {
+                self.fill_rect(x + 8, y + 8, 16, 16, 7);
+                self.draw_rect(x + 8, y + 8, 16, 16, 15);
+                self.fill_rect(x + 13, y + 13, 6, 6, 1);
+                self.put_pixel(x + 16, y + 5, 15);
+                self.put_pixel(x + 16, y + 27, 15);
+                self.put_pixel(x + 5, y + 16, 15);
+                self.put_pixel(x + 27, y + 16, 15);
+                self.put_pixel(x + 9, y + 9, 15);
+                self.put_pixel(x + 23, y + 9, 15);
+                self.put_pixel(x + 9, y + 23, 15);
+                self.put_pixel(x + 23, y + 23, 15);
+            }
         }
 
         if selected {
@@ -352,6 +377,9 @@ impl GraphicsShell {
     fn draw_windows(&self) {
         match self.focused_window {
             Some(WindowKind::Terminal) => {
+                if self.settings_open {
+                    self.draw_settings_window(false);
+                }
                 if self.explorer_open {
                     self.draw_explorer_window(false);
                 }
@@ -363,8 +391,22 @@ impl GraphicsShell {
                 if self.terminal_open {
                     self.draw_terminal_window(false);
                 }
+                if self.settings_open {
+                    self.draw_settings_window(false);
+                }
                 if self.explorer_open {
                     self.draw_explorer_window(true);
+                }
+            }
+            Some(WindowKind::Settings) => {
+                if self.terminal_open {
+                    self.draw_terminal_window(false);
+                }
+                if self.explorer_open {
+                    self.draw_explorer_window(false);
+                }
+                if self.settings_open {
+                    self.draw_settings_window(true);
                 }
             }
             None => {
@@ -373,6 +415,9 @@ impl GraphicsShell {
                 }
                 if self.explorer_open {
                     self.draw_explorer_window(false);
+                }
+                if self.settings_open {
+                    self.draw_settings_window(false);
                 }
             }
         }
@@ -410,6 +455,29 @@ impl GraphicsShell {
         self.draw_explorer_entry(rect.x + 62, rect.y + 56, false, "readme.txt");
         self.draw_explorer_entry(rect.x + 62, rect.y + 70, false, "notes.txt");
         self.draw_explorer_entry(rect.x + 62, rect.y + 84, true, "apps");
+    }
+
+    fn draw_settings_window(&self, focused: bool) {
+        let rect = self.settings_window;
+        let title = if focused { 12 } else { 8 };
+        self.draw_window_frame(rect, 1, title, "SETTINGS");
+        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, rect.height - 28, 3);
+        self.draw_text(rect.x + 12, rect.y + 24, 15, "DISPLAY");
+        self.draw_text(rect.x + 12, rect.y + 38, 7, "Current mode");
+        self.draw_number(rect.x + 92, rect.y + 38, self.fb.width() as u32, 15);
+        self.draw_text(rect.x + 110, rect.y + 38, 15, "x");
+        self.draw_number(rect.x + 120, rect.y + 38, self.fb.height() as u32, 15);
+        self.draw_text(rect.x + 140, rect.y + 38, 15, "x8");
+
+        self.draw_text(rect.x + 12, rect.y + 52, 7, "Resolution");
+        self.fill_rect(rect.x + 84, rect.y + 48, 62, 12, 8);
+        self.draw_rect(rect.x + 84, rect.y + 48, 62, 12, 15);
+        self.draw_text(rect.x + 92, rect.y + 51, 15, "320 X 200");
+
+        self.draw_text(rect.x + 12, rect.y + 68, 7, "Status");
+        self.draw_text(rect.x + 68, rect.y + 68, 14, "LOCKED TO VGA MODE 13H");
+        self.draw_text(rect.x + 12, rect.y + 82, 7, "Next");
+        self.draw_text(rect.x + 44, rect.y + 82, 15, "Add VBE or UEFI framebuffer modes");
     }
 
     fn draw_explorer_entry(&self, x: i32, y: i32, folder: bool, name: &str) {
@@ -450,9 +518,10 @@ impl GraphicsShell {
 
         self.draw_taskbar_button(64, DesktopIcon::Terminal, self.terminal_open);
         self.draw_taskbar_button(126, DesktopIcon::Explorer, self.explorer_open);
+        self.draw_taskbar_button(188, DesktopIcon::Settings, self.settings_open);
 
-        self.draw_text(226, 187, 15, "UP");
-        self.draw_number(244, 187, self.uptime_seconds as u32, 14);
+        self.draw_text(252, 187, 15, "UP");
+        self.draw_number(270, 187, self.uptime_seconds as u32, 14);
     }
 
     fn draw_taskbar_button(&self, x: i32, icon: DesktopIcon, active: bool) {
@@ -461,6 +530,7 @@ impl GraphicsShell {
         let label = match icon {
             DesktopIcon::Terminal => "TERM",
             DesktopIcon::Explorer => "FILES",
+            DesktopIcon::Settings => "SET",
         };
         self.fill_rect(x, 184, 54, 12, fill);
         self.draw_rect(x, 184, 54, 12, edge);
@@ -550,6 +620,9 @@ impl GraphicsShell {
         if point_in_rect(x, y, 10, 78, 44, 54) {
             return Some(DesktopIcon::Explorer);
         }
+        if point_in_rect(x, y, 10, 132, 44, 54) {
+            return Some(DesktopIcon::Settings);
+        }
         None
     }
 
@@ -560,23 +633,46 @@ impl GraphicsShell {
         if point_in_rect(x, y, 126, 184, 54, 12) {
             return Some(DesktopIcon::Explorer);
         }
+        if point_in_rect(x, y, 188, 184, 54, 12) {
+            return Some(DesktopIcon::Settings);
+        }
         None
     }
 
     fn hit_window(&self, x: i32, y: i32) -> Option<WindowKind> {
-        if self.focused_window == Some(WindowKind::Explorer) {
-            if self.explorer_open && point_in_window(self.explorer_window, x, y) {
-                return Some(WindowKind::Explorer);
+        match self.focused_window {
+            Some(WindowKind::Settings) => {
+                if self.settings_open && point_in_window(self.settings_window, x, y) {
+                    return Some(WindowKind::Settings);
+                }
+                if self.explorer_open && point_in_window(self.explorer_window, x, y) {
+                    return Some(WindowKind::Explorer);
+                }
+                if self.terminal_open && point_in_window(self.terminal_window, x, y) {
+                    return Some(WindowKind::Terminal);
+                }
             }
-            if self.terminal_open && point_in_window(self.terminal_window, x, y) {
-                return Some(WindowKind::Terminal);
+            Some(WindowKind::Explorer) => {
+                if self.explorer_open && point_in_window(self.explorer_window, x, y) {
+                    return Some(WindowKind::Explorer);
+                }
+                if self.settings_open && point_in_window(self.settings_window, x, y) {
+                    return Some(WindowKind::Settings);
+                }
+                if self.terminal_open && point_in_window(self.terminal_window, x, y) {
+                    return Some(WindowKind::Terminal);
+                }
             }
-        } else {
-            if self.terminal_open && point_in_window(self.terminal_window, x, y) {
-                return Some(WindowKind::Terminal);
-            }
-            if self.explorer_open && point_in_window(self.explorer_window, x, y) {
-                return Some(WindowKind::Explorer);
+            _ => {
+                if self.terminal_open && point_in_window(self.terminal_window, x, y) {
+                    return Some(WindowKind::Terminal);
+                }
+                if self.explorer_open && point_in_window(self.explorer_window, x, y) {
+                    return Some(WindowKind::Explorer);
+                }
+                if self.settings_open && point_in_window(self.settings_window, x, y) {
+                    return Some(WindowKind::Settings);
+                }
             }
         }
         None
@@ -612,6 +708,10 @@ impl GraphicsShell {
                 self.explorer_open = true;
                 self.focused_window = Some(WindowKind::Explorer);
             }
+            DesktopIcon::Settings => {
+                self.settings_open = true;
+                self.focused_window = Some(WindowKind::Settings);
+            }
         }
     }
 
@@ -638,6 +738,8 @@ impl GraphicsShell {
                     if self.focused_window == Some(WindowKind::Explorer) {
                         self.focused_window = if self.terminal_open {
                             Some(WindowKind::Terminal)
+                        } else if self.settings_open {
+                            Some(WindowKind::Settings)
                         } else {
                             None
                         };
@@ -647,6 +749,23 @@ impl GraphicsShell {
                     self.focused_window = Some(WindowKind::Explorer);
                 }
             }
+            DesktopIcon::Settings => {
+                if self.settings_open && self.focused_window == Some(WindowKind::Settings) {
+                    self.settings_open = false;
+                    if self.focused_window == Some(WindowKind::Settings) {
+                        self.focused_window = if self.explorer_open {
+                            Some(WindowKind::Explorer)
+                        } else if self.terminal_open {
+                            Some(WindowKind::Terminal)
+                        } else {
+                            None
+                        };
+                    }
+                } else {
+                    self.settings_open = true;
+                    self.focused_window = Some(WindowKind::Settings);
+                }
+            }
         }
     }
 
@@ -654,11 +773,20 @@ impl GraphicsShell {
         match window {
             WindowKind::Terminal => self.terminal_open = false,
             WindowKind::Explorer => self.explorer_open = false,
+            WindowKind::Settings => self.settings_open = false,
         }
         if self.focused_window == Some(window) {
             self.focused_window = if window == WindowKind::Terminal && self.explorer_open {
                 Some(WindowKind::Explorer)
+            } else if window == WindowKind::Terminal && self.settings_open {
+                Some(WindowKind::Settings)
             } else if window == WindowKind::Explorer && self.terminal_open {
+                Some(WindowKind::Terminal)
+            } else if window == WindowKind::Explorer && self.settings_open {
+                Some(WindowKind::Settings)
+            } else if window == WindowKind::Settings && self.explorer_open {
+                Some(WindowKind::Explorer)
+            } else if window == WindowKind::Settings && self.terminal_open {
                 Some(WindowKind::Terminal)
             } else {
                 None
@@ -670,6 +798,7 @@ impl GraphicsShell {
         match icon {
             DesktopIcon::Terminal => self.terminal_open,
             DesktopIcon::Explorer => self.explorer_open,
+            DesktopIcon::Settings => self.settings_open,
         }
     }
 
@@ -677,6 +806,7 @@ impl GraphicsShell {
         match window {
             WindowKind::Terminal => self.terminal_window,
             WindowKind::Explorer => self.explorer_window,
+            WindowKind::Settings => self.settings_window,
         }
     }
 
@@ -684,6 +814,7 @@ impl GraphicsShell {
         match window {
             WindowKind::Terminal => &mut self.terminal_window,
             WindowKind::Explorer => &mut self.explorer_window,
+            WindowKind::Settings => &mut self.settings_window,
         }
     }
 
