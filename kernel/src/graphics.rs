@@ -18,6 +18,9 @@ const TASKBAR_Y: i32 = 182;
 const DOUBLE_CLICK_TICKS: u64 = 40;
 const TERMINAL_VIEW_LINES: usize = 5;
 const EXPLORER_ROWS_VISIBLE: usize = 4;
+const SIDEBAR_WIDTH: i32 = 74;
+const TOP_BAR_HEIGHT: i32 = 18;
+const TASKBAR_HEIGHT: i32 = 18;
 
 struct IconAsset {
     width: usize,
@@ -64,6 +67,14 @@ enum WindowKind {
 
 #[derive(Clone, Copy)]
 struct WindowRect {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+#[derive(Clone, Copy)]
+struct Rect {
     x: i32,
     y: i32,
     width: i32,
@@ -207,7 +218,7 @@ impl GraphicsShell {
     pub fn handle_key(&mut self, ascii: u8) -> Option<GraphicsAction> {
         if self.terminal_open && self.focused_window == Some(WindowKind::Terminal) {
             let action = self.terminal.handle_key(ascii, &mut self.fs);
-            self.redraw_panels();
+            self.redraw_window(WindowKind::Terminal);
             return match action {
                 TerminalAction::None => None,
                 TerminalAction::Reboot => Some(GraphicsAction::Reboot),
@@ -217,7 +228,7 @@ impl GraphicsShell {
 
         if self.explorer_open && self.focused_window == Some(WindowKind::Explorer) {
             if self.explorer.handle_key(ascii, &mut self.fs) {
-                self.redraw_panels();
+                self.redraw_window(WindowKind::Explorer);
             }
             return None;
         }
@@ -279,10 +290,13 @@ impl GraphicsShell {
         let next_x = clamp(state.x - self.drag_state.offset_x, 0, max_x);
         let next_y = clamp(state.y - self.drag_state.offset_y, 20, max_y);
 
+        let old_rect = self.window_bounds(window);
         let rect = self.window_rect_mut(window);
         rect.x = next_x;
         rect.y = next_y;
-        MouseRedraw::Full
+        let new_rect = *rect;
+        self.redraw_window_move(old_rect, new_rect);
+        MouseRedraw::None
     }
 
     fn handle_mouse_down(&mut self, state: MouseState, button: u8) -> MouseRedraw {
@@ -291,18 +305,22 @@ impl GraphicsShell {
         }
 
         if let Some(window) = self.hit_close_button(state.x, state.y) {
+            let closed_rect = self.window_bounds(window);
             self.close_window(window);
-            return MouseRedraw::Full;
+            self.redraw_region(window_to_region(closed_rect));
+            return MouseRedraw::None;
         }
 
         if let Some(window) = self.hit_title_bar(state.x, state.y) {
+            let old_focus = self.focused_window;
             self.focus_window(window);
             let rect = self.window_bounds(window);
             self.drag_state.active = true;
             self.drag_state.window = Some(window);
             self.drag_state.offset_x = state.x - rect.x;
             self.drag_state.offset_y = state.y - rect.y;
-            return MouseRedraw::Full;
+            self.redraw_focus_change(old_focus, Some(window));
+            return MouseRedraw::None;
         }
 
         if let Some(redraw) = self.handle_window_client_click(state.x, state.y) {
@@ -310,18 +328,24 @@ impl GraphicsShell {
         }
 
         if let Some(window) = self.hit_window(state.x, state.y) {
+            let old_focus = self.focused_window;
             self.focus_window(window);
             self.selected_icon = None;
-            return MouseRedraw::Panels;
+            self.redraw_focus_change(old_focus, Some(window));
+            return MouseRedraw::None;
         }
 
         if let Some(icon) = self.hit_taskbar_button(state.x, state.y) {
+            let old_focus = self.focused_window;
             let opened = self.icon_is_open(icon);
             self.toggle_or_focus(icon);
             if opened != self.icon_is_open(icon) {
-                return MouseRedraw::Full;
+                self.redraw_panels();
+                return MouseRedraw::None;
             }
-            return MouseRedraw::Panels;
+            self.redraw_focus_change(old_focus, self.focused_window);
+            self.redraw_hud();
+            return MouseRedraw::None;
         }
 
         if let Some(icon) = self.hit_icon(state.x, state.y) {
@@ -336,14 +360,17 @@ impl GraphicsShell {
             self.selected_icon = Some(icon);
             if should_open {
                 self.open_window_for_icon(icon);
-                return MouseRedraw::Full;
+                self.redraw_panels();
+                return MouseRedraw::None;
             }
-            return MouseRedraw::Panels;
+            self.redraw_icon_strip();
+            return MouseRedraw::None;
         }
 
         self.selected_icon = None;
         self.focused_window = None;
-        MouseRedraw::Panels
+        self.redraw_panels();
+        MouseRedraw::None
     }
 
     fn handle_mouse_up(&mut self, _state: MouseState, button: u8) -> MouseRedraw {
@@ -352,7 +379,8 @@ impl GraphicsShell {
             self.drag_state.active = false;
             self.drag_state.window = None;
             if was_dragging {
-                return MouseRedraw::Panels;
+                self.redraw_hud();
+                return MouseRedraw::None;
             }
         }
         MouseRedraw::Overlay
@@ -365,19 +393,27 @@ impl GraphicsShell {
     }
 
     fn redraw_hud(&mut self) {
-        self.restore_cursor_backing();
-        self.draw_taskbar();
-        self.save_cursor_backing(self.input.mouse_state());
-        self.draw_cursor();
+        self.redraw_region(Rect {
+            x: 0,
+            y: TASKBAR_Y - 6,
+            width: self.fb.width() as i32,
+            height: TASKBAR_HEIGHT + 6,
+        });
     }
 
     fn redraw_panels(&mut self) {
-        self.restore_cursor_backing();
-        self.draw_desktop_icons();
-        self.draw_windows();
-        self.draw_taskbar();
-        self.save_cursor_backing(self.input.mouse_state());
-        self.draw_cursor();
+        self.redraw_icon_strip();
+        let order = self.window_order();
+        let mut index = 0usize;
+        while index < order.len() {
+            if let Some(window) = order[index] {
+                if self.window_is_open(window) {
+                    self.redraw_window(window);
+                }
+            }
+            index += 1;
+        }
+        self.redraw_hud();
     }
 
     fn draw_background(&self) {
@@ -398,6 +434,31 @@ impl GraphicsShell {
         self.fill_rect(0, TASKBAR_Y + 1, width as i32, 1, 8);
         self.fill_rect(4, 26, 64, 160, 1);
         self.draw_rect(4, 26, 64, 160, 8);
+    }
+
+    fn draw_background_region(&self, rect: Rect) {
+        let clipped = self.clip_rect(rect);
+        if clipped.width <= 0 || clipped.height <= 0 {
+            return;
+        }
+
+        let mut y = clipped.y;
+        while y < clipped.y + clipped.height {
+            let color = self.background_color_for_y(y);
+            self.fill_rect(clipped.x, y, clipped.width, 1, color);
+            y += 1;
+        }
+
+        self.fill_if_intersects(clipped, Rect { x: 0, y: 0, width: self.fb.width() as i32, height: TOP_BAR_HEIGHT }, 1);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: 16, width: self.fb.width() as i32, height: 2 }, 8);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: TASKBAR_Y - 6, width: self.fb.width() as i32, height: 6 }, 8);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: TASKBAR_Y, width: self.fb.width() as i32, height: TASKBAR_HEIGHT }, 0);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: TASKBAR_Y, width: self.fb.width() as i32, height: 1 }, 15);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: TASKBAR_Y + 1, width: self.fb.width() as i32, height: 1 }, 8);
+        self.fill_if_intersects(clipped, Rect { x: 4, y: 26, width: 64, height: 160 }, 1);
+        if rects_intersect(clipped, Rect { x: 4, y: 26, width: 64, height: 160 }) {
+            self.draw_rect(4, 26, 64, 160, 8);
+        }
     }
 
     fn draw_top_bar(&self) {
@@ -587,6 +648,77 @@ impl GraphicsShell {
         self.fill_rect(x, y, width, 12, 8);
         self.draw_rect(x, y, width, 12, 15);
         self.draw_text(x + 4, y + 3, 15, label);
+    }
+
+    fn redraw_region(&mut self, rect: Rect) {
+        let clipped = self.clip_rect(rect);
+        if clipped.width <= 0 || clipped.height <= 0 {
+            return;
+        }
+
+        self.restore_cursor_backing();
+        self.draw_background_region(clipped);
+        if rects_intersect(clipped, Rect { x: 0, y: 0, width: self.fb.width() as i32, height: TOP_BAR_HEIGHT }) {
+            self.draw_top_bar();
+        }
+        if rects_intersect(clipped, Rect { x: 0, y: 18, width: SIDEBAR_WIDTH, height: TASKBAR_Y - 18 }) {
+            self.draw_desktop_icons();
+        }
+
+        let order = self.window_order();
+        let mut index = order.len();
+        while index > 0 {
+            index -= 1;
+            if let Some(window) = order[index] {
+                if !self.window_is_open(window) {
+                    continue;
+                }
+                if !rects_intersect(clipped, window_to_region(self.window_bounds(window))) {
+                    continue;
+                }
+                let focused = self.focused_window == Some(window);
+                match window {
+                    WindowKind::Terminal => self.draw_terminal_window(focused),
+                    WindowKind::Explorer => self.draw_explorer_window(focused),
+                    WindowKind::Settings => self.draw_settings_window(focused),
+                }
+            }
+        }
+
+        if rects_intersect(clipped, Rect { x: 0, y: TASKBAR_Y - 6, width: self.fb.width() as i32, height: TASKBAR_HEIGHT + 6 }) {
+            self.draw_taskbar();
+        }
+        self.save_cursor_backing(self.input.mouse_state());
+        self.draw_cursor();
+    }
+
+    fn redraw_window(&mut self, window: WindowKind) {
+        if self.window_is_open(window) {
+            self.redraw_region(window_to_region(self.window_bounds(window)));
+        }
+    }
+
+    fn redraw_icon_strip(&mut self) {
+        self.redraw_region(Rect {
+            x: 0,
+            y: 18,
+            width: SIDEBAR_WIDTH,
+            height: TASKBAR_Y - 18,
+        });
+    }
+
+    fn redraw_focus_change(&mut self, old_focus: Option<WindowKind>, new_focus: Option<WindowKind>) {
+        if let Some(window) = old_focus {
+            self.redraw_window(window);
+        }
+        if let Some(window) = new_focus {
+            self.redraw_window(window);
+        }
+    }
+
+    fn redraw_window_move(&mut self, old_rect: WindowRect, new_rect: WindowRect) {
+        self.redraw_region(window_to_region(old_rect));
+        self.redraw_region(window_to_region(new_rect));
     }
 
     fn draw_icon_asset(&self, x: i32, y: i32, asset: IconAsset) {
@@ -1178,6 +1310,25 @@ impl GraphicsShell {
         }
     }
 
+    fn clip_rect(&self, rect: Rect) -> Rect {
+        let left = clamp(rect.x, 0, self.fb.width() as i32);
+        let top = clamp(rect.y, 0, self.fb.height() as i32);
+        let right = clamp(rect.x + rect.width, 0, self.fb.width() as i32);
+        let bottom = clamp(rect.y + rect.height, 0, self.fb.height() as i32);
+        Rect {
+            x: left,
+            y: top,
+            width: (right - left).max(0),
+            height: (bottom - top).max(0),
+        }
+    }
+
+    fn fill_if_intersects(&self, clip: Rect, target: Rect, color: u8) {
+        if let Some(intersection) = intersect_rects(clip, target) {
+            self.fill_rect(intersection.x, intersection.y, intersection.width, intersection.height, color);
+        }
+    }
+
     fn read_native_pixel(&self, x: i32, y: i32) -> u32 {
         if x < 0 || y < 0 {
             return 0;
@@ -1278,6 +1429,36 @@ fn point_in_rect(x: i32, y: i32, left: i32, top: i32, width: i32, height: i32) -
 
 fn point_in_window(rect: WindowRect, x: i32, y: i32) -> bool {
     point_in_rect(x, y, rect.x, rect.y, rect.width, rect.height)
+}
+
+fn window_to_region(rect: WindowRect) -> Rect {
+    Rect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width + 2,
+        height: rect.height + 2,
+    }
+}
+
+fn rects_intersect(a: Rect, b: Rect) -> bool {
+    intersect_rects(a, b).is_some()
+}
+
+fn intersect_rects(a: Rect, b: Rect) -> Option<Rect> {
+    let left = a.x.max(b.x);
+    let top = a.y.max(b.y);
+    let right = (a.x + a.width).min(b.x + b.width);
+    let bottom = (a.y + a.height).min(b.y + b.height);
+    if right <= left || bottom <= top {
+        return None;
+    }
+
+    Some(Rect {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+    })
 }
 
 fn mouse_changed(previous: MouseState, current: MouseState) -> bool {
