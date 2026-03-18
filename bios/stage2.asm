@@ -16,9 +16,12 @@ ORG 0x8000
 %define MODE13_HEIGHT 200
 %define MODE13_PITCH 320
 %define MODE13_BPP 8
-%define VBE_MODE_640X480X8   0x101
-%define VBE_MODE_800X600X8   0x103
-%define VBE_MODE_1024X768X8  0x105
+; Prefer linear true-color VBE modes for the kernel graphics shell.
+; These mode IDs are widely supported by VMware's VBE BIOS and should
+; report 32 bpp on modern virtual hardware.
+%define VBE_MODE_640X480X32   0x112
+%define VBE_MODE_800X600X32   0x115
+%define VBE_MODE_1024X768X32  0x118
 
 stage2_start:
     cli
@@ -244,7 +247,7 @@ execute_command:
     jmp $
 
 .kernelgfx:
-    mov bx, VBE_MODE_640X480X8
+    mov bx, VBE_MODE_640X480X32
     call set_kernel_vbe_mode
     jnc .kernelgfx_ready
     call set_kernel_graphics_mode
@@ -257,7 +260,7 @@ execute_command:
     jmp $
 
 .kernelgfx800:
-    mov bx, VBE_MODE_800X600X8
+    mov bx, VBE_MODE_800X600X32
     call set_kernel_vbe_mode
     jnc .kernelgfx800_ready
     call set_kernel_graphics_mode
@@ -270,7 +273,7 @@ execute_command:
     jmp $
 
 .kernelgfx1024:
-    mov bx, VBE_MODE_1024X768X8
+    mov bx, VBE_MODE_1024X768X32
     call set_kernel_vbe_mode
     jnc .kernelgfx1024_ready
     call set_kernel_graphics_mode
