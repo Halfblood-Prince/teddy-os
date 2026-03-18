@@ -211,9 +211,11 @@ impl GraphicsShell {
         trace::set_boot_stage(0x97);
         self.terminal.init();
         trace::set_boot_stage(0x98);
+        trace::set_boot_stage(0x9A);
         self.explorer.init();
+        trace::set_boot_stage(0x9B);
         self.writer.init();
-        trace::set_boot_stage(0x99);
+        trace::set_boot_stage(0x9C);
         true
     }
 

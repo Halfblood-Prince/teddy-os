@@ -1,4 +1,7 @@
-use crate::fs::{FileSystem, MAX_FILE_LEN};
+use crate::{
+    fs::{FileSystem, MAX_FILE_LEN},
+    trace,
+};
 
 const STATUS_LEN: usize = 58;
 const PATH_LEN: usize = 72;
@@ -27,6 +30,7 @@ impl WriterApp {
     }
 
     pub fn init(&mut self) {
+        trace::set_boot_stage(0xB0);
         self.path = [0; PATH_LEN];
         self.path_len = 0;
         self.buffer = [0; MAX_FILE_LEN];
@@ -34,7 +38,9 @@ impl WriterApp {
         self.dirty = false;
         self.status = [b' '; STATUS_LEN];
         self.status_len = 0;
+        trace::set_boot_stage(0xB1);
         self.set_status("Open a .txt file from Explorer to edit it");
+        trace::set_boot_stage(0xB2);
     }
 
     pub fn open(&mut self, path: &str, fs: &FileSystem) -> bool {

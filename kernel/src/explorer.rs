@@ -1,4 +1,7 @@
-use crate::fs::{EntryKind, FileSystem, NameText, MAX_FILE_LEN, MAX_FS_NODES};
+use crate::{
+    fs::{EntryKind, FileSystem, NameText, MAX_FILE_LEN, MAX_FS_NODES},
+    trace,
+};
 
 const STATUS_LEN: usize = 58;
 
@@ -28,12 +31,16 @@ impl ExplorerApp {
     }
 
     pub fn init(&mut self) {
+        trace::set_boot_stage(0xA0);
         self.selection = 0;
+        trace::set_boot_stage(0xA1);
         self.status = [b' '; STATUS_LEN];
         self.status_len = 0;
         self.created_dirs = 0;
         self.created_files = 0;
+        trace::set_boot_stage(0xA2);
         self.set_status("J/K select  Enter open  B back  N dir  T file  X delete");
+        trace::set_boot_stage(0xA3);
     }
 
     pub fn handle_key(&mut self, ascii: u8, fs: &mut FileSystem) -> ExplorerAction {
