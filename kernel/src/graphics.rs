@@ -169,9 +169,6 @@ impl GraphicsShell {
         };
         self.last_icon_click = None;
         trace::set_boot_stage(0x95);
-        self.clear_cursor_backing();
-        self.cursor_saved_x = 0;
-        self.cursor_saved_y = 0;
         trace::set_boot_stage(0x96);
         self.fs.init();
         trace::set_boot_stage(0x97);
@@ -750,14 +747,6 @@ impl GraphicsShell {
                 col += 1;
             }
             row += 1;
-        }
-    }
-
-    fn clear_cursor_backing(&mut self) {
-        let mut index = 0usize;
-        while index < self.cursor_backing.len() {
-            self.cursor_backing[index] = 0;
-            index += 1;
         }
     }
 
