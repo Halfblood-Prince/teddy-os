@@ -222,7 +222,7 @@ impl GraphicsShell {
         if self.terminal_open && self.focused_window == Some(WindowKind::Terminal) {
             let action = self.terminal.handle_key(ascii, &mut self.fs);
             if matches!(ascii, 8 | 0x20..=0x7E) {
-                self.redraw_terminal_input();
+                self.redraw_terminal_input_strip();
             } else {
                 self.redraw_window(WindowKind::Terminal);
             }
@@ -758,17 +758,31 @@ impl GraphicsShell {
         }
     }
 
-    fn redraw_terminal_input(&mut self) {
+    fn redraw_terminal_input_strip(&mut self) {
         if !self.terminal_open {
             return;
         }
         let rect = self.terminal_window;
-        self.redraw_region(Rect {
-            x: rect.x + 8,
-            y: rect.y + rect.height - 22,
-            width: rect.width - 16,
-            height: 16,
-        });
+        self.restore_cursor_backing();
+        self.fill_rect(rect.x + 8, rect.y + rect.height - 22, rect.width - 16, 16, 0);
+
+        let cwd = self.terminal.cwd(&self.fs);
+        self.draw_text(rect.x + 12, rect.y + rect.height - 16, 15, cwd);
+        self.draw_text(rect.x + 12 + (cwd.len() as i32 * 6), rect.y + rect.height - 16, 15, " $ ");
+        self.draw_text(
+            rect.x + 30 + (cwd.len() as i32 * 6),
+            rect.y + rect.height - 16,
+            15,
+            self.terminal.input(),
+        );
+        self.draw_text(
+            rect.x + 30 + (cwd.len() as i32 * 6) + (self.terminal.input().len() as i32 * 6),
+            rect.y + rect.height - 16,
+            10,
+            "_",
+        );
+        self.save_cursor_backing(self.input.mouse_state());
+        self.draw_cursor();
     }
 
     fn redraw_icon_strip(&mut self) {

@@ -669,6 +669,8 @@ set_kernel_vbe_mode:
     cmp ax, 0x004F
     jne .error
 
+    call set_vga_dac_palette
+
     mov eax, [es:40]
     mov [boot_framebuffer_addr], eax
     mov ax, [es:18]
@@ -688,6 +690,32 @@ set_kernel_vbe_mode:
 .out:
     pop es
     pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+set_vga_dac_palette:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    mov dx, 0x03C8
+    xor al, al
+    out dx, al
+    inc dx
+    mov si, vga_palette_data
+    mov cx, 16 * 3
+
+.palette_loop:
+    lodsb
+    out dx, al
+    loop .palette_loop
+
+    pop si
     pop dx
     pop cx
     pop bx
@@ -893,6 +921,10 @@ gfx_panel_body db "Mode 13h online", 0
 gfx_footer db "Press any key to return", 0
 kernel_fail_text db "Rust kernel load failed.", 0
 boot_info_signature db "TEDDYOS", 0
+vga_palette_data db 0,0,0, 0,0,42, 0,42,0, 0,42,42
+                 db 42,0,0, 42,0,42, 42,21,0, 42,42,42
+                 db 21,21,21, 21,21,63, 21,63,21, 63,63,21
+                 db 63,21,21, 63,21,63, 21,63,63, 63,63,63
 
 cmd_help db "help", 0
 cmd_clear db "clear", 0
