@@ -316,7 +316,11 @@ impl FsNode {
     }
 
     fn set_name(&mut self, name: &str) {
-        self.name = [0; MAX_NAME_LEN];
+        let mut clear_index = 0usize;
+        while clear_index < MAX_NAME_LEN {
+            self.name[clear_index] = 0;
+            clear_index += 1;
+        }
         self.name_len = 0;
         let bytes = name.as_bytes();
         let limit = core::cmp::min(bytes.len(), MAX_NAME_LEN);
@@ -329,7 +333,11 @@ impl FsNode {
     }
 
     fn set_data(&mut self, contents: &str) {
-        self.data = [0; MAX_FILE_LEN];
+        let mut clear_index = 0usize;
+        while clear_index < MAX_FILE_LEN {
+            self.data[clear_index] = 0;
+            clear_index += 1;
+        }
         self.data_len = 0;
         let bytes = contents.as_bytes();
         let limit = core::cmp::min(bytes.len(), MAX_FILE_LEN);
@@ -373,16 +381,15 @@ impl MiniFs {
 
     fn init(&mut self) {
         trace::set_boot_stage(0x50);
-        let mut index = 0usize;
-        while index < MAX_FS_NODES {
-            self.nodes[index] = FsNode::empty();
-            index += 1;
-        }
-        trace::set_boot_stage(0x51);
         self.cwd = 0;
-        self.cwd_path = [b' '; MAX_LINE_LEN];
+        let mut clear_index = 0usize;
+        while clear_index < MAX_LINE_LEN {
+            self.cwd_path[clear_index] = b' ';
+            clear_index += 1;
+        }
         self.cwd_path_len = 1;
         self.cwd_path[0] = b'/';
+        trace::set_boot_stage(0x51);
         trace::set_boot_stage(0x52);
         self.nodes[0].init_dir(0, "");
         self.nodes[1].init_dir(0, "docs");
