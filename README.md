@@ -16,7 +16,7 @@ ISO for VMware.
 - keyboard input and a tiny BIOS shell in stage 2
 - a VGA mode `13h` graphics demo launched from the shell
 - a `kernel` command that loads and jumps to a real Rust x86_64 kernel binary
-- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, boot-info parsing, a text-mode desktop shell, a real terminal window MVP, a dedicated kernel filesystem module, and a keyboard-driven file explorer window
+- a modular Rust kernel with stable VGA text output, timer IRQs, keyboard IRQs, boot-info parsing, a text-mode desktop shell, a real terminal window MVP, a dedicated kernel filesystem module, a keyboard-driven file explorer window, and ATA-backed filesystem persistence
 - a legacy BIOS ISO build path
 - reproducible PowerShell build and ISO scripts
 - GitHub Actions ISO build-and-release workflow
@@ -127,7 +127,8 @@ Terminal commands:
 Filesystem note:
 
 - the terminal and explorer now talk to the same kernel filesystem layer
-- the filesystem is still memory-backed in this phase, but the API is now separated for later persistence work
+- attach a small VMware IDE disk to enable persistence across reboot
+- without that disk, Teddy-OS falls back to an in-memory filesystem
 
 Explorer controls:
 
@@ -140,6 +141,6 @@ Explorer controls:
 
 ## Next Step
 
-Once this file-explorer milestone is proven stable in VMware, the next phase is
-to add persistent storage behind the kernel filesystem module so Terminal and
-Explorer changes survive reboot.
+Once this persistence milestone is proven stable in VMware, the next phase is
+to improve the file explorer UI and then move toward broader app/windowing work
+on top of the now-persistent filesystem layer.

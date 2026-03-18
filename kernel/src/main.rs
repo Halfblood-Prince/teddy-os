@@ -11,6 +11,7 @@ mod fs;
 mod interrupts;
 mod port;
 mod shell;
+mod storage;
 mod terminal;
 mod trace;
 mod vga;

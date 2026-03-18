@@ -14,6 +14,7 @@ This reset starts from a small but extensible BIOS baseline:
 - a keyboard-driven text-mode desktop shell layered on top of the kernel
 - a real terminal app with command parsing and a kernel filesystem layer
 - a keyboard-driven file explorer window using the same filesystem APIs
+- ATA-backed persistence for the filesystem when a VMware IDE disk is present
 - reproducible ISO output for VMware legacy BIOS boot
 
 ## Why This Reset Exists
@@ -40,6 +41,7 @@ The new baseline restores a known-good target:
 12. The terminal app is an isolated module that can later move behind app/window abstractions
 13. The filesystem logic now lives in a dedicated kernel module instead of inside the terminal
 14. The desktop shell now hosts both Terminal and Explorer against the same filesystem state
+15. The filesystem can now serialize itself to a reserved disk region on a VMware IDE disk
 
 ## Next Phases
 
@@ -51,4 +53,5 @@ The new baseline restores a known-good target:
 - Phase 6 reset: add a real terminal app and an in-memory filesystem model without destabilizing the BIOS baseline
 - Phase 7 reset: move filesystem logic into a dedicated kernel module and keep it memory-backed first
 - Phase 8 reset: add a file explorer window on top of the shared filesystem APIs
-- Phase 9 reset: add persistent storage behind that filesystem module so app-visible changes survive reboot
+- Phase 9 reset: add ATA-backed persistence behind that filesystem module so app-visible changes survive reboot
+- Phase 10 reset: improve explorer interactions and broaden app/window abstractions

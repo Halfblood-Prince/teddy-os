@@ -327,6 +327,8 @@ impl DesktopShell {
         line += 1;
         self.write_hex_byte(line, window.x + 2, "Scancode", interrupts::last_scancode());
         line += 1;
+        self.write_kv(line, window.x + 2, "Storage", self.fs.persistence_label());
+        line += 1;
         self.write_boot_info(line, window.x + 2);
     }
 
