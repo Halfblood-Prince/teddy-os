@@ -8,12 +8,22 @@ use crate::{
     trace,
 };
 
+mod generated_icons {
+    include!(concat!(env!("OUT_DIR"), "/generated_icons.rs"));
+}
+
 const TITLE_BAR_HEIGHT: i32 = 14;
 const CURSOR_SIZE: usize = 16;
 const TASKBAR_Y: i32 = 182;
 const DOUBLE_CLICK_TICKS: u64 = 40;
 const TERMINAL_VIEW_LINES: usize = 5;
 const EXPLORER_ROWS_VISIBLE: usize = 4;
+
+struct IconAsset {
+    width: usize,
+    height: usize,
+    pixels: &'static [u8],
+}
 
 pub struct GraphicsShell {
     fb: FramebufferInfo,
@@ -415,33 +425,40 @@ impl GraphicsShell {
         self.draw_rect(x - 4, y - 4, 44, 44, frame);
         self.fill_rect(x - 4, y - 4, 44, 1, 8);
 
-        match icon {
-            DesktopIcon::Terminal => {
-                self.fill_rect(x + 2, y + 6, 28, 18, 0);
-                self.fill_rect(x + 2, y + 6, 28, 4, 8);
-                self.draw_rect(x + 2, y + 6, 28, 18, 15);
-                self.draw_text(x + 6, y + 11, 10, ">");
-                self.draw_text(x + 12, y + 11, 15, "_");
-                self.draw_text(x + 6, y + 19, 7, "cmd");
-            }
-            DesktopIcon::Explorer => {
-                self.fill_rect(x + 4, y + 10, 24, 16, 14);
-                self.fill_rect(x + 6, y + 6, 10, 6, 6);
-                self.fill_rect(x + 7, y + 13, 18, 2, 12);
-                self.draw_rect(x + 4, y + 10, 24, 16, 6);
-            }
-            DesktopIcon::Settings => {
-                self.fill_rect(x + 8, y + 8, 16, 16, 8);
-                self.draw_rect(x + 8, y + 8, 16, 16, 15);
-                self.fill_rect(x + 13, y + 13, 6, 6, 1);
-                self.put_pixel(x + 16, y + 5, 15);
-                self.put_pixel(x + 16, y + 27, 15);
-                self.put_pixel(x + 5, y + 16, 15);
-                self.put_pixel(x + 27, y + 16, 15);
-                self.put_pixel(x + 9, y + 9, 15);
-                self.put_pixel(x + 23, y + 9, 15);
-                self.put_pixel(x + 9, y + 23, 15);
-                self.put_pixel(x + 23, y + 23, 15);
+        let asset = icon_asset(icon);
+        if asset.width != 0 && asset.height != 0 {
+            let draw_x = x + ((32 - asset.width as i32) / 2);
+            let draw_y = y + ((30 - asset.height as i32) / 2);
+            self.draw_icon_asset(draw_x, draw_y, asset);
+        } else {
+            match icon {
+                DesktopIcon::Terminal => {
+                    self.fill_rect(x + 2, y + 6, 28, 18, 0);
+                    self.fill_rect(x + 2, y + 6, 28, 4, 8);
+                    self.draw_rect(x + 2, y + 6, 28, 18, 15);
+                    self.draw_text(x + 6, y + 11, 10, ">");
+                    self.draw_text(x + 12, y + 11, 15, "_");
+                    self.draw_text(x + 6, y + 19, 7, "cmd");
+                }
+                DesktopIcon::Explorer => {
+                    self.fill_rect(x + 4, y + 10, 24, 16, 14);
+                    self.fill_rect(x + 6, y + 6, 10, 6, 6);
+                    self.fill_rect(x + 7, y + 13, 18, 2, 12);
+                    self.draw_rect(x + 4, y + 10, 24, 16, 6);
+                }
+                DesktopIcon::Settings => {
+                    self.fill_rect(x + 8, y + 8, 16, 16, 8);
+                    self.draw_rect(x + 8, y + 8, 16, 16, 15);
+                    self.fill_rect(x + 13, y + 13, 6, 6, 1);
+                    self.put_pixel(x + 16, y + 5, 15);
+                    self.put_pixel(x + 16, y + 27, 15);
+                    self.put_pixel(x + 5, y + 16, 15);
+                    self.put_pixel(x + 27, y + 16, 15);
+                    self.put_pixel(x + 9, y + 9, 15);
+                    self.put_pixel(x + 23, y + 9, 15);
+                    self.put_pixel(x + 9, y + 23, 15);
+                    self.put_pixel(x + 23, y + 23, 15);
+                }
             }
         }
 
@@ -570,6 +587,21 @@ impl GraphicsShell {
         self.fill_rect(x, y, width, 12, 8);
         self.draw_rect(x, y, width, 12, 15);
         self.draw_text(x + 4, y + 3, 15, label);
+    }
+
+    fn draw_icon_asset(&self, x: i32, y: i32, asset: IconAsset) {
+        let mut row = 0usize;
+        while row < asset.height {
+            let mut col = 0usize;
+            while col < asset.width {
+                let pixel = asset.pixels[row * asset.width + col];
+                if pixel != 255 {
+                    self.put_pixel(x + col as i32, y + row as i32, pixel);
+                }
+                col += 1;
+            }
+            row += 1;
+        }
     }
 
     fn draw_explorer_entry(&self, x: i32, y: i32, folder: bool, name: &str) {
@@ -1259,6 +1291,26 @@ fn combine_redraw(current: MouseRedraw, next: MouseRedraw) -> MouseRedraw {
         (MouseRedraw::Hud, _) | (_, MouseRedraw::Hud) => MouseRedraw::Hud,
         (MouseRedraw::Overlay, _) | (_, MouseRedraw::Overlay) => MouseRedraw::Overlay,
         _ => MouseRedraw::None,
+    }
+}
+
+fn icon_asset(icon: DesktopIcon) -> IconAsset {
+    match icon {
+        DesktopIcon::Terminal => IconAsset {
+            width: generated_icons::TERMINAL_ICON_WIDTH,
+            height: generated_icons::TERMINAL_ICON_HEIGHT,
+            pixels: &generated_icons::TERMINAL_ICON_PIXELS,
+        },
+        DesktopIcon::Explorer => IconAsset {
+            width: generated_icons::EXPLORER_ICON_WIDTH,
+            height: generated_icons::EXPLORER_ICON_HEIGHT,
+            pixels: &generated_icons::EXPLORER_ICON_PIXELS,
+        },
+        DesktopIcon::Settings => IconAsset {
+            width: generated_icons::SETTINGS_ICON_WIDTH,
+            height: generated_icons::SETTINGS_ICON_HEIGHT,
+            pixels: &generated_icons::SETTINGS_ICON_PIXELS,
+        },
     }
 }
 

@@ -26,6 +26,7 @@ ISO for VMware.
 
 - `bios/` - legacy BIOS boot sector and second-stage program
 - `docs/` - reset architecture and VMware notes
+- `assets/` - desktop icon source images and future visual assets
 - `scripts/` - build, ISO, and clean scripts
 
 ## Build
@@ -165,6 +166,15 @@ Graphics scaffold note:
 - it is still a scaffold, not yet the full desktop replacement
 - the real Terminal and Explorer apps are now wired into `kernelgfx*`
 - the existing `kernel` command now boots the text fallback desktop
+
+Custom desktop icons:
+
+- put custom icon bitmaps in `assets/icons/`
+- supported names are `terminal.bmp`, `explorer.bmp`, and `settings.bmp`
+- supported format is uncompressed `24-bit` or `32-bit` BMP
+- recommended icon size is `24x24` or `32x32`
+- rebuild after adding an icon; the kernel build converts it automatically
+- if an icon file is missing, Teddy-OS uses its built-in fallback icon
 
 ## Next Step
 
