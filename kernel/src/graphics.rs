@@ -10,10 +10,6 @@ use crate::{
 
 const TITLE_BAR_HEIGHT: i32 = 14;
 const CURSOR_SIZE: usize = 11;
-const STATUS_X: i32 = 12;
-const STATUS_Y: i32 = 142;
-const STATUS_WIDTH: i32 = 296;
-const STATUS_HEIGHT: i32 = 22;
 const TASKBAR_Y: i32 = 182;
 const DOUBLE_CLICK_TICKS: u64 = 40;
 const TERMINAL_VIEW_LINES: usize = 5;
@@ -185,7 +181,6 @@ impl GraphicsShell {
         self.draw_top_bar();
         self.draw_desktop_icons();
         self.draw_windows();
-        self.draw_status();
         self.draw_taskbar();
         self.save_cursor_backing(self.input.mouse_state());
         self.draw_cursor();
@@ -353,18 +348,14 @@ impl GraphicsShell {
         MouseRedraw::Overlay
     }
 
-    fn refresh_cursor_overlay(&mut self, previous_mouse: MouseState) {
+    fn refresh_cursor_overlay(&mut self, _previous_mouse: MouseState) {
         self.restore_cursor_backing();
-        if mouse_changed(previous_mouse, self.input.mouse_state()) {
-            self.draw_status();
-        }
         self.save_cursor_backing(self.input.mouse_state());
         self.draw_cursor();
     }
 
     fn redraw_hud(&mut self) {
         self.restore_cursor_backing();
-        self.draw_status();
         self.draw_taskbar();
         self.save_cursor_backing(self.input.mouse_state());
         self.draw_cursor();
@@ -374,7 +365,6 @@ impl GraphicsShell {
         self.restore_cursor_backing();
         self.draw_desktop_icons();
         self.draw_windows();
-        self.draw_status();
         self.draw_taskbar();
         self.save_cursor_backing(self.input.mouse_state());
         self.draw_cursor();
@@ -759,25 +749,6 @@ impl GraphicsShell {
         false
     }
 
-    fn draw_status(&self) {
-        let mouse = self.input.mouse_state();
-        self.fill_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, STATUS_HEIGHT, 0);
-        self.draw_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, STATUS_HEIGHT, 15);
-        self.fill_rect(STATUS_X, STATUS_Y, STATUS_WIDTH, 1, 8);
-        self.draw_text(18, 148, 15, "UP");
-        self.draw_number(36, 148, self.uptime_seconds as u32, 14);
-        self.draw_text(64, 148, 15, "KEY");
-        self.draw_ascii(88, 148, interrupts::last_ascii(), 14);
-        self.draw_text(102, 148, 15, "X");
-        self.draw_number(114, 148, mouse.x as u32, 14);
-        self.draw_text(146, 148, 15, "Y");
-        self.draw_number(158, 148, mouse.y as u32, 14);
-        self.draw_text(190, 148, 15, "B");
-        self.draw_hex_byte(202, 148, mouse.buttons, 14);
-        self.draw_text(220, 148, 15, "TIP");
-        self.draw_text(236, 148, 7, "DESKTOP READY");
-    }
-
     fn draw_taskbar(&self) {
         let accent = self.accent_color();
         self.fill_rect(6, 184, 50, 12, accent);
@@ -1124,21 +1095,6 @@ impl GraphicsShell {
         }
     }
 
-    fn draw_ascii(&self, x: i32, y: i32, byte: u8, color: u8) {
-        let rendered = match byte {
-            0x20..=0x7E => byte,
-            _ => b'?',
-        };
-        self.draw_char(x, y, rendered, color);
-    }
-
-    fn draw_hex_byte(&self, x: i32, y: i32, value: u8, color: u8) {
-        let hi = nybble_to_hex((value >> 4) & 0x0F);
-        let lo = nybble_to_hex(value & 0x0F);
-        self.draw_char(x, y, hi, color);
-        self.draw_char(x + 6, y, lo, color);
-    }
-
     fn draw_number(&self, x: i32, y: i32, mut value: u32, color: u8) {
         if value == 0 {
             self.draw_char(x, y, b'0', color);
@@ -1310,13 +1266,6 @@ fn clamp(value: i32, min: i32, max: i32) -> i32 {
         max
     } else {
         value
-    }
-}
-
-fn nybble_to_hex(value: u8) -> u8 {
-    match value {
-        0..=9 => b'0' + value,
-        _ => b'A' + (value - 10),
     }
 }
 
