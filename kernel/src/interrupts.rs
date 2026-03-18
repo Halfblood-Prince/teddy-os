@@ -1,7 +1,7 @@
 use core::arch::global_asm;
-use core::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicU8, AtomicU64, Ordering};
 
-use crate::{cpu, port, trace, vga};
+use crate::{cpu, input::MousePacket, port, trace, vga};
 
 const IDT_ENTRIES: usize = 256;
 const PIC1_COMMAND: u16 = 0x20;
@@ -16,10 +16,23 @@ const PIT_TICKS_PER_SECOND: u32 = 100;
 
 const TIMER_VECTOR: u8 = 32;
 const KEYBOARD_VECTOR: u8 = 33;
+const MOUSE_VECTOR: u8 = 44;
+const PS2_DATA: u16 = 0x60;
+const PS2_STATUS: u16 = 0x64;
+const PS2_COMMAND: u16 = 0x64;
 
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 static LAST_SCANCODE: AtomicU8 = AtomicU8::new(0);
 static LAST_ASCII: AtomicU8 = AtomicU8::new(b'-');
+static MOUSE_SEQ: AtomicU64 = AtomicU64::new(0);
+static MOUSE_DELTA_X: AtomicI32 = AtomicI32::new(0);
+static MOUSE_DELTA_Y: AtomicI32 = AtomicI32::new(0);
+static MOUSE_BUTTONS: AtomicU8 = AtomicU8::new(0);
+static MOUSE_PRESSED: AtomicU8 = AtomicU8::new(0);
+static MOUSE_RELEASED: AtomicU8 = AtomicU8::new(0);
+
+static mut MOUSE_PACKET_INDEX: u8 = 0;
+static mut MOUSE_PACKET_BYTES: [u8; 3] = [0; 3];
 
 #[repr(C)]
 struct InterruptStackFrame {
@@ -253,8 +266,10 @@ pub fn init() {
     }
 
     remap_pic();
-    set_irq_masks(0b1111_1100, 0b1111_1111);
     init_pit(PIT_TICKS_PER_SECOND);
+    init_ps2_mouse();
+    // Unmask timer, keyboard, and IRQ2 so slave IRQ12 mouse events can reach the CPU.
+    set_irq_masks(0b1111_1000, 0b1110_1111);
 }
 
 pub fn timer_ticks() -> u64 {
@@ -273,11 +288,28 @@ pub fn uptime_seconds() -> u64 {
     timer_ticks() / PIT_TICKS_PER_SECOND as u64
 }
 
+pub fn consume_mouse_packet(last_seq: u64) -> Option<MousePacket> {
+    let seq = MOUSE_SEQ.load(Ordering::Acquire);
+    if seq == last_seq {
+        return None;
+    }
+
+    Some(MousePacket {
+        seq,
+        dx: MOUSE_DELTA_X.swap(0, Ordering::AcqRel),
+        dy: MOUSE_DELTA_Y.swap(0, Ordering::AcqRel),
+        buttons: MOUSE_BUTTONS.load(Ordering::Acquire),
+        pressed: MOUSE_PRESSED.swap(0, Ordering::AcqRel),
+        released: MOUSE_RELEASED.swap(0, Ordering::AcqRel),
+    })
+}
+
 #[no_mangle]
 extern "C" fn interrupt_dispatch(vector: u64, error_code: u64, stack_frame: *const InterruptStackFrame) {
     match vector as u8 {
         TIMER_VECTOR => handle_timer_irq(),
         KEYBOARD_VECTOR => handle_keyboard_irq(),
+        MOUSE_VECTOR => handle_mouse_irq(),
         _ if vector < 32 => handle_exception(vector as u8, error_code, stack_frame),
         _ => end_of_interrupt(vector as u8),
     }
@@ -289,12 +321,33 @@ fn handle_timer_irq() {
 }
 
 fn handle_keyboard_irq() {
-    let scancode = port::inb(0x60);
+    let scancode = port::inb(PS2_DATA);
     LAST_SCANCODE.store(scancode, Ordering::Relaxed);
     if scancode & 0x80 == 0 {
         LAST_ASCII.store(decode_scancode(scancode), Ordering::Relaxed);
     }
     end_of_interrupt(KEYBOARD_VECTOR);
+}
+
+fn handle_mouse_irq() {
+    let byte = port::inb(PS2_DATA);
+
+    unsafe {
+        if MOUSE_PACKET_INDEX == 0 && byte & 0x08 == 0 {
+            end_of_interrupt(MOUSE_VECTOR);
+            return;
+        }
+
+        MOUSE_PACKET_BYTES[MOUSE_PACKET_INDEX as usize] = byte;
+        MOUSE_PACKET_INDEX += 1;
+
+        if MOUSE_PACKET_INDEX == 3 {
+            MOUSE_PACKET_INDEX = 0;
+            process_mouse_packet(MOUSE_PACKET_BYTES);
+        }
+    }
+
+    end_of_interrupt(MOUSE_VECTOR);
 }
 
 fn handle_exception(vector: u8, error_code: u64, stack_frame: *const InterruptStackFrame) {
@@ -406,6 +459,28 @@ fn set_irq_masks(master_mask: u8, slave_mask: u8) {
     port::outb(PIC2_DATA, slave_mask);
 }
 
+fn init_ps2_mouse() {
+    ps2_wait_write();
+    port::outb(PS2_COMMAND, 0xA8);
+
+    ps2_wait_write();
+    port::outb(PS2_COMMAND, 0x20);
+    ps2_wait_read();
+    let mut config = port::inb(PS2_DATA);
+    config |= 0x02;
+    config &= !0x20;
+
+    ps2_wait_write();
+    port::outb(PS2_COMMAND, 0x60);
+    ps2_wait_write();
+    port::outb(PS2_DATA, config);
+
+    mouse_write(0xF6);
+    let _ = mouse_read();
+    mouse_write(0xF4);
+    let _ = mouse_read();
+}
+
 fn init_pit(hz: u32) {
     let divisor = (PIT_BASE_FREQUENCY / hz) as u16;
     port::outb(PIT_COMMAND, 0x36);
@@ -420,4 +495,68 @@ fn end_of_interrupt(vector: u8) {
     if vector >= 32 {
         port::outb(PIC1_COMMAND, PIC_EOI);
     }
+}
+
+fn process_mouse_packet(packet: [u8; 3]) {
+    let status = packet[0];
+    if status & 0xC0 != 0 {
+        return;
+    }
+
+    let dx = sign_extend(packet[1], status & 0x10 != 0);
+    let dy = sign_extend(packet[2], status & 0x20 != 0);
+    let buttons = status & 0x07;
+    let previous = MOUSE_BUTTONS.swap(buttons, Ordering::AcqRel);
+    let pressed = (!previous) & buttons;
+    let released = previous & (!buttons);
+
+    MOUSE_DELTA_X.fetch_add(dx, Ordering::AcqRel);
+    MOUSE_DELTA_Y.fetch_add(dy, Ordering::AcqRel);
+    if pressed != 0 {
+        MOUSE_PRESSED.fetch_or(pressed, Ordering::AcqRel);
+    }
+    if released != 0 {
+        MOUSE_RELEASED.fetch_or(released, Ordering::AcqRel);
+    }
+    MOUSE_SEQ.fetch_add(1, Ordering::Release);
+}
+
+fn sign_extend(byte: u8, negative: bool) -> i32 {
+    if negative {
+        (byte as i32) - 256
+    } else {
+        byte as i32
+    }
+}
+
+fn ps2_wait_write() {
+    let mut spins = 0usize;
+    while spins < 100_000 {
+        if port::inb(PS2_STATUS) & 0x02 == 0 {
+            return;
+        }
+        spins += 1;
+    }
+}
+
+fn ps2_wait_read() {
+    let mut spins = 0usize;
+    while spins < 100_000 {
+        if port::inb(PS2_STATUS) & 0x01 != 0 {
+            return;
+        }
+        spins += 1;
+    }
+}
+
+fn mouse_write(value: u8) {
+    ps2_wait_write();
+    port::outb(PS2_COMMAND, 0xD4);
+    ps2_wait_write();
+    port::outb(PS2_DATA, value);
+}
+
+fn mouse_read() -> u8 {
+    ps2_wait_read();
+    port::inb(PS2_DATA)
 }

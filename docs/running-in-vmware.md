@@ -43,8 +43,9 @@ The `kernelgfx` graphics screen should include:
 - a graphical Teddy-OS header
 - a bottom taskbar
 - window-like panels with bitmap-rendered labels
-- a status strip showing uptime, last key, and scancode
-- a placeholder cursor block in the upper-right area
+- a status strip showing uptime, last key, scancode, mouse coordinates, and button state
+- a software cursor that follows VMware mouse movement
+- a draggable window when you hold the left mouse button on its title bar
 
 Press a few keys in VMware after the kernel screen appears:
 
@@ -92,8 +93,11 @@ Expected persistence result:
 - verify that the screen changes from text mode to a pixel UI
 - wait a few seconds and confirm the uptime changes
 - press a few keys and confirm the status area updates
+- move the mouse and confirm the cursor and `X` / `Y` values update
+- hold the left mouse button on the `DESKTOP DEMO` title bar and drag it
+- click the other mouse buttons and confirm the `B` value changes
 
 Current limitation:
 
-- `kernelgfx` is only the framebuffer and rendering scaffold for future mouse GUI work
+- `kernelgfx` now has real mouse input, but it is still only the first interactive GUI scaffold
 - Terminal and Explorer remain on the stable text-desktop path for now

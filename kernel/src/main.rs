@@ -9,6 +9,7 @@ mod cpu;
 mod explorer;
 mod fs;
 mod graphics;
+mod input;
 mod interrupts;
 mod port;
 mod shell;
@@ -121,6 +122,8 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
                 shell.handle_key(interrupts::last_ascii());
             }
         }
+
+        shell.poll_input();
 
         cpu::halt();
     }

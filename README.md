@@ -105,8 +105,9 @@ When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
 - a graphical top bar and taskbar
 - window-like panels rendered by the kernel
 - bitmap text drawn by the new graphics layer
-- a status panel with uptime and keyboard state
-- a cursor placeholder that changes color as input arrives
+- a status panel with uptime, keyboard state, mouse coordinates, and button state
+- a software mouse cursor driven by PS/2 IRQ12 input
+- a draggable demo window that responds to title-bar clicks
 
 Kernel desktop controls:
 
@@ -151,8 +152,8 @@ Explorer controls:
 
 Graphics scaffold note:
 
-- `kernelgfx` is the new prerequisite path for future mouse-driven GUI work
-- it is a scaffold, not yet the full desktop replacement
+- `kernelgfx` now includes PS/2 mouse input, a software cursor, and title-bar dragging
+- it is still a scaffold, not yet the full desktop replacement
 - the existing `kernel` command still boots the stable text desktop and apps
 
 ## Next Step
