@@ -12,13 +12,13 @@ mod generated_icons {
     include!(concat!(env!("OUT_DIR"), "/generated_icons.rs"));
 }
 
+const BASE_WIDTH: i32 = 320;
+const BASE_HEIGHT: i32 = 200;
 const TITLE_BAR_HEIGHT: i32 = 14;
 const CURSOR_SIZE: usize = 16;
-const TASKBAR_Y: i32 = 182;
 const DOUBLE_CLICK_TICKS: u64 = 40;
 const TERMINAL_VIEW_LINES: usize = 5;
 const EXPLORER_ROWS_VISIBLE: usize = 4;
-const SIDEBAR_WIDTH: i32 = 74;
 const TOP_BAR_HEIGHT: i32 = 18;
 const TASKBAR_HEIGHT: i32 = 18;
 
@@ -191,6 +191,7 @@ impl GraphicsShell {
         self.last_explorer_click_tick = None;
         trace::set_boot_stage(0x95);
         trace::set_boot_stage(0x96);
+        self.reset_layout();
         self.fs.init_ram_only();
         trace::set_boot_stage(0x97);
         self.terminal.init();
@@ -198,6 +199,32 @@ impl GraphicsShell {
         self.explorer.init();
         trace::set_boot_stage(0x99);
         true
+    }
+
+    fn reset_layout(&mut self) {
+        let s = self.ui_scale();
+        let width = self.fb.width() as i32;
+        let height = self.fb.height() as i32;
+        let taskbar_y = self.taskbar_y();
+
+        self.terminal_window = WindowRect {
+            x: clamp(self.sx(70), 8, width - self.sx(168) - 8),
+            y: clamp(self.sy(32), self.top_bar_height() + 6, taskbar_y - self.sy(96) - 8),
+            width: self.sx(168).max(220),
+            height: (self.sy(96) + s * 8).max(140),
+        };
+        self.explorer_window = WindowRect {
+            x: clamp(self.sx(126), 12, width - self.sx(168) - 12),
+            y: clamp(self.sy(46), self.top_bar_height() + 12, taskbar_y - self.sy(104) - 8),
+            width: (self.sx(168) + s * 24).max(260),
+            height: (self.sy(104) + s * 16).max(170),
+        };
+        self.settings_window = WindowRect {
+            x: clamp(self.sx(92), 12, width - self.sx(164) - 12),
+            y: clamp(self.sy(58), self.top_bar_height() + 12, taskbar_y - self.sy(96) - 8),
+            width: (self.sx(164) + s * 12).max(240),
+            height: (self.sy(96) + s * 10).max(150),
+        };
     }
 
     pub fn render(&mut self) {
@@ -293,7 +320,7 @@ impl GraphicsShell {
 
         let bounds = self.window_bounds(window);
         let max_x = self.fb.width() as i32 - bounds.width - 1;
-        let max_y = TASKBAR_Y - bounds.height - 2;
+        let max_y = self.taskbar_y() - bounds.height - 2;
         let next_x = clamp(state.x - self.drag_state.offset_x, 0, max_x);
         let next_y = clamp(state.y - self.drag_state.offset_y, 20, max_y);
 
@@ -402,9 +429,9 @@ impl GraphicsShell {
     fn redraw_hud(&mut self) {
         self.redraw_region(Rect {
             x: 0,
-            y: TASKBAR_Y - 6,
+            y: self.taskbar_y() - self.sy(6),
             width: self.fb.width() as i32,
-            height: TASKBAR_HEIGHT + 6,
+            height: self.taskbar_height() + self.sy(6),
         });
     }
 
@@ -413,9 +440,9 @@ impl GraphicsShell {
         let mut count = 0usize;
         rects[count] = Rect {
             x: 0,
-            y: 18,
-            width: SIDEBAR_WIDTH,
-            height: TASKBAR_Y - 18,
+            y: self.top_bar_height(),
+            width: self.sidebar_width(),
+            height: self.taskbar_y() - self.top_bar_height(),
         };
         count += 1;
         let order = self.window_order();
@@ -431,9 +458,9 @@ impl GraphicsShell {
         }
         rects[count] = Rect {
             x: 0,
-            y: TASKBAR_Y - 6,
+            y: self.taskbar_y() - self.sy(6),
             width: self.fb.width() as i32,
-            height: TASKBAR_HEIGHT + 6,
+            height: self.taskbar_height() + self.sy(6),
         };
         count += 1;
         self.redraw_regions(&rects[..count]);
@@ -442,6 +469,10 @@ impl GraphicsShell {
     fn draw_background(&self) {
         let height = self.fb.height() as usize;
         let width = self.fb.width() as usize;
+        let top_bar_height = self.top_bar_height();
+        let taskbar_y = self.taskbar_y();
+        let taskbar_height = self.taskbar_height();
+        let sidebar_width = self.sidebar_width();
         let mut y = 0usize;
         while y < height {
             let color = self.background_color_for_y(y as i32);
@@ -449,14 +480,14 @@ impl GraphicsShell {
             y += 1;
         }
 
-        self.fill_rect(0, 0, width as i32, 18, 1);
-        self.fill_rect(0, 16, width as i32, 2, 8);
-        self.fill_rect(0, TASKBAR_Y - 6, width as i32, 6, 8);
-        self.fill_rect(0, TASKBAR_Y, width as i32, 18, 0);
-        self.fill_rect(0, TASKBAR_Y, width as i32, 1, 15);
-        self.fill_rect(0, TASKBAR_Y + 1, width as i32, 1, 8);
-        self.fill_rect(4, 26, 64, 160, 1);
-        self.draw_rect(4, 26, 64, 160, 8);
+        self.fill_rect(0, 0, width as i32, top_bar_height, 1);
+        self.fill_rect(0, top_bar_height - self.sy(2), width as i32, self.sy(2), 8);
+        self.fill_rect(0, taskbar_y - self.sy(6), width as i32, self.sy(6), 8);
+        self.fill_rect(0, taskbar_y, width as i32, taskbar_height, 0);
+        self.fill_rect(0, taskbar_y, width as i32, 1, 15);
+        self.fill_rect(0, taskbar_y + 1, width as i32, 1, 8);
+        self.fill_rect(self.sx(4), top_bar_height + self.sy(8), sidebar_width - self.sx(10), taskbar_y - top_bar_height - self.sy(14), 1);
+        self.draw_rect(self.sx(4), top_bar_height + self.sy(8), sidebar_width - self.sx(10), taskbar_y - top_bar_height - self.sy(14), 8);
     }
 
     fn draw_background_region(&self, rect: Rect) {
@@ -464,6 +495,15 @@ impl GraphicsShell {
         if clipped.width <= 0 || clipped.height <= 0 {
             return;
         }
+        let top_bar_height = self.top_bar_height();
+        let taskbar_y = self.taskbar_y();
+        let taskbar_height = self.taskbar_height();
+        let sidebar_rect = Rect {
+            x: self.sx(4),
+            y: top_bar_height + self.sy(8),
+            width: self.sidebar_width() - self.sx(10),
+            height: taskbar_y - top_bar_height - self.sy(14),
+        };
 
         let mut y = clipped.y;
         while y < clipped.y + clipped.height {
@@ -472,85 +512,82 @@ impl GraphicsShell {
             y += 1;
         }
 
-        self.fill_if_intersects(clipped, Rect { x: 0, y: 0, width: self.fb.width() as i32, height: TOP_BAR_HEIGHT }, 1);
-        self.fill_if_intersects(clipped, Rect { x: 0, y: 16, width: self.fb.width() as i32, height: 2 }, 8);
-        self.fill_if_intersects(clipped, Rect { x: 0, y: TASKBAR_Y - 6, width: self.fb.width() as i32, height: 6 }, 8);
-        self.fill_if_intersects(clipped, Rect { x: 0, y: TASKBAR_Y, width: self.fb.width() as i32, height: TASKBAR_HEIGHT }, 0);
-        self.fill_if_intersects(clipped, Rect { x: 0, y: TASKBAR_Y, width: self.fb.width() as i32, height: 1 }, 15);
-        self.fill_if_intersects(clipped, Rect { x: 0, y: TASKBAR_Y + 1, width: self.fb.width() as i32, height: 1 }, 8);
-        self.fill_if_intersects(clipped, Rect { x: 4, y: 26, width: 64, height: 160 }, 1);
-        if rects_intersect(clipped, Rect { x: 4, y: 26, width: 64, height: 160 }) {
-            self.draw_rect(4, 26, 64, 160, 8);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: 0, width: self.fb.width() as i32, height: top_bar_height }, 1);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: top_bar_height - self.sy(2), width: self.fb.width() as i32, height: self.sy(2) }, 8);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: taskbar_y - self.sy(6), width: self.fb.width() as i32, height: self.sy(6) }, 8);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: taskbar_y, width: self.fb.width() as i32, height: taskbar_height }, 0);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: taskbar_y, width: self.fb.width() as i32, height: 1 }, 15);
+        self.fill_if_intersects(clipped, Rect { x: 0, y: taskbar_y + 1, width: self.fb.width() as i32, height: 1 }, 8);
+        self.fill_if_intersects(clipped, sidebar_rect, 1);
+        if rects_intersect(clipped, sidebar_rect) {
+            self.draw_rect(sidebar_rect.x, sidebar_rect.y, sidebar_rect.width, sidebar_rect.height, 8);
         }
     }
 
     fn draw_top_bar(&self) {
-        self.draw_text(10, 4, 15, "TEDDY-OS");
-        self.draw_text(64, 4, 7, "DESKTOP EDITION");
-        self.draw_text(190, 4, 14, "GRAPHICS");
-        self.draw_text(250, 4, 15, "BUILD");
-        self.draw_text(10, 10, 8, "Original Teddy shell theme");
-        self.draw_text(206, 10, 7, "VMWARE");
+        self.draw_text(self.sx(10), self.sy(4), 15, "TEDDY-OS");
+        self.draw_text(self.sx(64), self.sy(4), 7, "DESKTOP EDITION");
+        self.draw_text(self.fb.width() as i32 - self.sx(130), self.sy(4), 14, "GRAPHICS");
+        self.draw_text(self.fb.width() as i32 - self.sx(70), self.sy(4), 15, "BUILD");
+        self.draw_text(self.sx(10), self.sy(10), 8, "Original Teddy shell theme");
+        self.draw_text(self.fb.width() as i32 - self.sx(114), self.sy(10), 7, "VMWARE");
     }
 
     fn draw_desktop_icons(&self) {
-        self.fill_background_rect(0, 18, 74, 176);
-        self.draw_icon(14, 28, DesktopIcon::Terminal, "TERMINAL");
-        self.draw_icon(14, 82, DesktopIcon::Explorer, "EXPLORER");
-        self.draw_icon(14, 136, DesktopIcon::Settings, "SETTINGS");
+        self.fill_background_rect(0, self.top_bar_height(), self.sidebar_width(), self.taskbar_y() - self.top_bar_height());
+        self.draw_icon(self.sx(14), self.top_bar_height() + self.sy(10), DesktopIcon::Terminal, "TERMINAL");
+        self.draw_icon(self.sx(14), self.top_bar_height() + self.sy(64), DesktopIcon::Explorer, "EXPLORER");
+        self.draw_icon(self.sx(14), self.top_bar_height() + self.sy(118), DesktopIcon::Settings, "SETTINGS");
     }
 
     fn draw_icon(&self, x: i32, y: i32, icon: DesktopIcon, label: &str) {
+        let s = self.ui_scale();
+        let card = self.sx(44);
+        let label_w = self.sx(60);
+        let icon_w = self.sx(32);
+        let icon_h = self.sy(30);
         let selected = self.selected_icon == Some(icon);
         let frame = if selected { 15 } else { 7 };
         let fill = if selected { 3 } else { 1 };
-        self.fill_rect(x - 3, y - 3, 44, 44, 0);
-        self.fill_rect(x - 4, y - 4, 44, 44, fill);
-        self.draw_rect(x - 4, y - 4, 44, 44, frame);
-        self.fill_rect(x - 4, y - 4, 44, 1, 8);
+        self.fill_rect(x - s * 3, y - s * 3, card, card, 0);
+        self.fill_rect(x - s * 4, y - s * 4, card, card, fill);
+        self.draw_rect(x - s * 4, y - s * 4, card, card, frame);
+        self.fill_rect(x - s * 4, y - s * 4, card, s, 8);
 
         let asset = icon_asset(icon);
         if asset.width != 0 && asset.height != 0 {
-            let draw_x = x + ((32 - asset.width as i32) / 2);
-            let draw_y = y + ((30 - asset.height as i32) / 2);
+            let draw_x = x + ((icon_w - asset.width as i32 * s) / 2);
+            let draw_y = y + ((icon_h - asset.height as i32 * s) / 2);
             self.draw_icon_asset(draw_x, draw_y, asset);
         } else {
             match icon {
                 DesktopIcon::Terminal => {
-                    self.fill_rect(x + 2, y + 6, 28, 18, 0);
-                    self.fill_rect(x + 2, y + 6, 28, 4, 8);
-                    self.draw_rect(x + 2, y + 6, 28, 18, 15);
-                    self.draw_text(x + 6, y + 11, 10, ">");
-                    self.draw_text(x + 12, y + 11, 15, "_");
-                    self.draw_text(x + 6, y + 19, 7, "cmd");
+                    self.fill_rect(x + self.sx(2), y + self.sy(6), self.sx(28), self.sy(18), 0);
+                    self.fill_rect(x + self.sx(2), y + self.sy(6), self.sx(28), self.sy(4), 8);
+                    self.draw_rect(x + self.sx(2), y + self.sy(6), self.sx(28), self.sy(18), 15);
+                    self.draw_text(x + self.sx(6), y + self.sy(11), 10, ">");
+                    self.draw_text(x + self.sx(12), y + self.sy(11), 15, "_");
+                    self.draw_text(x + self.sx(6), y + self.sy(19), 7, "cmd");
                 }
                 DesktopIcon::Explorer => {
-                    self.fill_rect(x + 4, y + 10, 24, 16, 14);
-                    self.fill_rect(x + 6, y + 6, 10, 6, 6);
-                    self.fill_rect(x + 7, y + 13, 18, 2, 12);
-                    self.draw_rect(x + 4, y + 10, 24, 16, 6);
+                    self.fill_rect(x + self.sx(4), y + self.sy(10), self.sx(24), self.sy(16), 14);
+                    self.fill_rect(x + self.sx(6), y + self.sy(6), self.sx(10), self.sy(6), 6);
+                    self.fill_rect(x + self.sx(7), y + self.sy(13), self.sx(18), self.sy(2), 12);
+                    self.draw_rect(x + self.sx(4), y + self.sy(10), self.sx(24), self.sy(16), 6);
                 }
                 DesktopIcon::Settings => {
-                    self.fill_rect(x + 8, y + 8, 16, 16, 8);
-                    self.draw_rect(x + 8, y + 8, 16, 16, 15);
-                    self.fill_rect(x + 13, y + 13, 6, 6, 1);
-                    self.put_pixel(x + 16, y + 5, 15);
-                    self.put_pixel(x + 16, y + 27, 15);
-                    self.put_pixel(x + 5, y + 16, 15);
-                    self.put_pixel(x + 27, y + 16, 15);
-                    self.put_pixel(x + 9, y + 9, 15);
-                    self.put_pixel(x + 23, y + 9, 15);
-                    self.put_pixel(x + 9, y + 23, 15);
-                    self.put_pixel(x + 23, y + 23, 15);
+                    self.fill_rect(x + self.sx(8), y + self.sy(8), self.sx(16), self.sy(16), 8);
+                    self.draw_rect(x + self.sx(8), y + self.sy(8), self.sx(16), self.sy(16), 15);
+                    self.fill_rect(x + self.sx(13), y + self.sy(13), self.sx(6), self.sy(6), 1);
                 }
             }
         }
 
         if selected {
-            self.fill_rect(x - 2, y + 42, 60, 12, 3);
-            self.draw_rect(x - 2, y + 42, 60, 12, 15);
+            self.fill_rect(x - s * 2, y + self.sy(42), label_w, self.sy(12), 3);
+            self.draw_rect(x - s * 2, y + self.sy(42), label_w, self.sy(12), 15);
         }
-        self.draw_text(x, y + 45, 15, label);
+        self.draw_text(x, y + self.sy(45), 15, label);
     }
 
     fn draw_windows(&self) {
@@ -575,10 +612,12 @@ impl GraphicsShell {
     fn draw_terminal_window(&self, focused: bool) {
         let rect = self.terminal_window;
         let title = if focused { 3 } else { 8 };
+        let pad = self.sx(8);
+        let line_step = self.sy(10);
         self.draw_window_frame(rect, 1, title, "TERMINAL");
-        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, rect.height - 28, 0);
-        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, 8, 1);
-        self.draw_text(rect.x + 12, rect.y + 24, 10, "TEDDY COMMAND LINE");
+        self.fill_rect(rect.x + pad, rect.y + self.sy(20), rect.width - pad * 2, rect.height - self.sy(28), 0);
+        self.fill_rect(rect.x + pad, rect.y + self.sy(20), rect.width - pad * 2, self.sy(8), 1);
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(24), 10, "TEDDY COMMAND LINE");
 
         let start = self.terminal.history_len().saturating_sub(TERMINAL_VIEW_LINES);
         let mut line = 0usize;
@@ -586,8 +625,8 @@ impl GraphicsShell {
             let history_index = start + line;
             if history_index < self.terminal.history_len() {
                 self.draw_text(
-                    rect.x + 12,
-                    rect.y + 36 + (line as i32 * 10),
+                    rect.x + self.sx(12),
+                    rect.y + self.sy(36) + (line as i32 * line_step),
                     15,
                     self.terminal.history_line(history_index),
                 );
@@ -596,17 +635,18 @@ impl GraphicsShell {
         }
 
         let cwd = self.terminal.cwd(&self.fs);
-        self.draw_text(rect.x + 12, rect.y + rect.height - 16, 15, cwd);
-        self.draw_text(rect.x + 12 + (cwd.len() as i32 * 6), rect.y + rect.height - 16, 15, " $ ");
+        let text_step = self.text_step();
+        self.draw_text(rect.x + self.sx(12), rect.y + rect.height - self.sy(16), 15, cwd);
+        self.draw_text(rect.x + self.sx(12) + (cwd.len() as i32 * text_step), rect.y + rect.height - self.sy(16), 15, " $ ");
         self.draw_text(
-            rect.x + 30 + (cwd.len() as i32 * 6),
-            rect.y + rect.height - 16,
+            rect.x + self.sx(30) + (cwd.len() as i32 * text_step),
+            rect.y + rect.height - self.sy(16),
             15,
             self.terminal.input(),
         );
         self.draw_text(
-            rect.x + 30 + (cwd.len() as i32 * 6) + (self.terminal.input().len() as i32 * 6),
-            rect.y + rect.height - 16,
+            rect.x + self.sx(30) + (cwd.len() as i32 * text_step) + (self.terminal.input().len() as i32 * text_step),
+            rect.y + rect.height - self.sy(16),
             10,
             "_",
         );
@@ -616,61 +656,64 @@ impl GraphicsShell {
         let rect = self.explorer_window;
         let title = if focused { 3 } else { 8 };
         self.draw_window_frame(rect, 3, title, "FILE EXPLORER");
-        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, 12, 1);
-        self.draw_rect(rect.x + 8, rect.y + 20, rect.width - 16, 12, 8);
-        self.draw_text(rect.x + 12, rect.y + 24, 15, self.fs.cwd_path());
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), self.sy(12), 1);
+        self.draw_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), self.sy(12), 8);
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(24), 15, self.fs.cwd_path());
 
         self.draw_explorer_toolbar(rect);
 
-        self.fill_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 0);
-        self.draw_rect(rect.x + 8, rect.y + 36, 42, rect.height - 46, 8);
-        self.draw_text(rect.x + 12, rect.y + 42, 15, "HOME");
-        self.draw_text(rect.x + 12, rect.y + 54, 15, "DOCS");
-        self.draw_text(rect.x + 12, rect.y + 66, 7, "SPACE");
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(36), self.sx(42), rect.height - self.sy(46), 0);
+        self.draw_rect(rect.x + self.sx(8), rect.y + self.sy(36), self.sx(42), rect.height - self.sy(46), 8);
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(42), 15, "HOME");
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(54), 15, "DOCS");
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(66), 7, "SPACE");
 
-        self.fill_rect(rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46, 0);
-        self.draw_rect(rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46, 8);
+        self.fill_rect(rect.x + self.sx(56), rect.y + self.sy(36), rect.width - self.sx(64), rect.height - self.sy(46), 0);
+        self.draw_rect(rect.x + self.sx(56), rect.y + self.sy(36), rect.width - self.sx(64), rect.height - self.sy(46), 8);
         self.draw_explorer_entries(rect);
-        self.fill_rect(rect.x + 8, rect.y + rect.height - 16, rect.width - 16, 10, 1);
-        self.draw_text(rect.x + 12, rect.y + rect.height - 12, 15, self.explorer.status());
+        self.fill_rect(rect.x + self.sx(8), rect.y + rect.height - self.sy(16), rect.width - self.sx(16), self.sy(10), 1);
+        self.draw_text(rect.x + self.sx(12), rect.y + rect.height - self.sy(12), 15, self.explorer.status());
     }
 
     fn draw_settings_window(&self, focused: bool) {
         let rect = self.settings_window;
         let title = if focused { 3 } else { 8 };
         self.draw_window_frame(rect, 1, title, "SETTINGS");
-        self.fill_rect(rect.x + 8, rect.y + 20, rect.width - 16, rect.height - 28, 1);
-        self.draw_text(rect.x + 12, rect.y + 24, 15, "DISPLAY");
-        self.draw_text(rect.x + 12, rect.y + 38, 7, "Current mode");
-        self.draw_number(rect.x + 92, rect.y + 38, self.fb.width() as u32, 15);
-        self.draw_text(rect.x + 110, rect.y + 38, 15, "x");
-        self.draw_number(rect.x + 120, rect.y + 38, self.fb.height() as u32, 15);
-        self.draw_text(rect.x + 140, rect.y + 38, 15, "x");
-        self.draw_number(rect.x + 150, rect.y + 38, self.fb.bpp() as u32, 15);
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), rect.height - self.sy(28), 1);
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(24), 15, "DISPLAY");
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(38), 7, "Current mode");
+        self.draw_number(rect.x + self.sx(92), rect.y + self.sy(38), self.fb.width() as u32, 15);
+        self.draw_text(rect.x + self.sx(110), rect.y + self.sy(38), 15, "x");
+        self.draw_number(rect.x + self.sx(120), rect.y + self.sy(38), self.fb.height() as u32, 15);
+        self.draw_text(rect.x + self.sx(140), rect.y + self.sy(38), 15, "x");
+        self.draw_number(rect.x + self.sx(150), rect.y + self.sy(38), self.fb.bpp() as u32, 15);
 
-        self.draw_text(rect.x + 12, rect.y + 52, 7, "Resolution");
-        self.fill_rect(rect.x + 84, rect.y + 48, 62, 12, 8);
-        self.draw_rect(rect.x + 84, rect.y + 48, 62, 12, 15);
-        self.draw_text(rect.x + 92, rect.y + 51, 15, "320 X 200");
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(52), 7, "Resolution");
+        self.fill_rect(rect.x + self.sx(84), rect.y + self.sy(48), self.sx(62), self.sy(12), 8);
+        self.draw_rect(rect.x + self.sx(84), rect.y + self.sy(48), self.sx(62), self.sy(12), 15);
+        self.draw_number(rect.x + self.sx(92), rect.y + self.sy(51), self.fb.width() as u32, 15);
+        self.draw_text(rect.x + self.sx(116), rect.y + self.sy(51), 15, "X");
+        self.draw_number(rect.x + self.sx(126), rect.y + self.sy(51), self.fb.height() as u32, 15);
 
-        self.draw_text(rect.x + 12, rect.y + 68, 7, "Status");
-        self.draw_text(rect.x + 68, rect.y + 68, 14, "APPLY AT BOOT");
-        self.draw_text(rect.x + 12, rect.y + 82, 7, "Modes");
-        self.draw_text(rect.x + 48, rect.y + 82, 15, "kernelgfx 640x480");
-        self.draw_text(rect.x + 48, rect.y + 90, 15, "kfg800   800x600");
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(68), 7, "Status");
+        self.draw_text(rect.x + self.sx(68), rect.y + self.sy(68), 14, "APPLY AT BOOT");
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(82), 7, "Modes");
+        self.draw_text(rect.x + self.sx(48), rect.y + self.sy(82), 15, "kernelgfx");
+        self.draw_text(rect.x + self.sx(48), rect.y + self.sy(90), 15, "kfg800");
+        self.draw_text(rect.x + self.sx(48), rect.y + self.sy(98), 15, "kfg1024");
     }
 
     fn draw_explorer_toolbar(&self, rect: WindowRect) {
-        self.draw_toolbar_button(rect.x + 56, rect.y + 20, 18, "UP");
-        self.draw_toolbar_button(rect.x + 78, rect.y + 20, 26, "DIR");
-        self.draw_toolbar_button(rect.x + 108, rect.y + 20, 30, "FILE");
-        self.draw_toolbar_button(rect.x + 142, rect.y + 20, 24, "DEL");
+        self.draw_toolbar_button(rect.x + self.sx(56), rect.y + self.sy(20), self.sx(18), "UP");
+        self.draw_toolbar_button(rect.x + self.sx(78), rect.y + self.sy(20), self.sx(26), "DIR");
+        self.draw_toolbar_button(rect.x + self.sx(108), rect.y + self.sy(20), self.sx(30), "FILE");
+        self.draw_toolbar_button(rect.x + self.sx(142), rect.y + self.sy(20), self.sx(24), "DEL");
     }
 
     fn draw_toolbar_button(&self, x: i32, y: i32, width: i32, label: &str) {
-        self.fill_rect(x, y, width, 12, 8);
-        self.draw_rect(x, y, width, 12, 15);
-        self.draw_text(x + 4, y + 3, 15, label);
+        self.fill_rect(x, y, width, self.sy(12), 8);
+        self.draw_rect(x, y, width, self.sy(12), 15);
+        self.draw_text(x + self.sx(4), y + self.sy(3), 15, label);
     }
 
     fn redraw_region(&mut self, rect: Rect) {
@@ -691,9 +734,9 @@ impl GraphicsShell {
             if clipped.width > 0 && clipped.height > 0 {
                 clipped_rects[clipped_len] = clipped;
                 clipped_len += 1;
-                has_top |= rects_intersect(clipped, Rect { x: 0, y: 0, width: self.fb.width() as i32, height: TOP_BAR_HEIGHT });
-                has_icons |= rects_intersect(clipped, Rect { x: 0, y: 18, width: SIDEBAR_WIDTH, height: TASKBAR_Y - 18 });
-                has_taskbar |= rects_intersect(clipped, Rect { x: 0, y: TASKBAR_Y - 6, width: self.fb.width() as i32, height: TASKBAR_HEIGHT + 6 });
+                has_top |= rects_intersect(clipped, Rect { x: 0, y: 0, width: self.fb.width() as i32, height: self.top_bar_height() });
+                has_icons |= rects_intersect(clipped, Rect { x: 0, y: self.top_bar_height(), width: self.sidebar_width(), height: self.taskbar_y() - self.top_bar_height() });
+                has_taskbar |= rects_intersect(clipped, Rect { x: 0, y: self.taskbar_y() - self.sy(6), width: self.fb.width() as i32, height: self.taskbar_height() + self.sy(6) });
             }
             index += 1;
         }
@@ -763,21 +806,24 @@ impl GraphicsShell {
             return;
         }
         let rect = self.terminal_window;
+        let pad = self.sx(8);
+        let baseline = rect.y + rect.height - self.sy(16);
+        let text_step = self.text_step();
         self.restore_cursor_backing();
-        self.fill_rect(rect.x + 8, rect.y + rect.height - 22, rect.width - 16, 16, 0);
+        self.fill_rect(rect.x + pad, rect.y + rect.height - self.sy(22), rect.width - pad * 2, self.sy(16), 0);
 
         let cwd = self.terminal.cwd(&self.fs);
-        self.draw_text(rect.x + 12, rect.y + rect.height - 16, 15, cwd);
-        self.draw_text(rect.x + 12 + (cwd.len() as i32 * 6), rect.y + rect.height - 16, 15, " $ ");
+        self.draw_text(rect.x + self.sx(12), baseline, 15, cwd);
+        self.draw_text(rect.x + self.sx(12) + (cwd.len() as i32 * text_step), baseline, 15, " $ ");
         self.draw_text(
-            rect.x + 30 + (cwd.len() as i32 * 6),
-            rect.y + rect.height - 16,
+            rect.x + self.sx(30) + (cwd.len() as i32 * text_step),
+            baseline,
             15,
             self.terminal.input(),
         );
         self.draw_text(
-            rect.x + 30 + (cwd.len() as i32 * 6) + (self.terminal.input().len() as i32 * 6),
-            rect.y + rect.height - 16,
+            rect.x + self.sx(30) + (cwd.len() as i32 * text_step) + (self.terminal.input().len() as i32 * text_step),
+            baseline,
             10,
             "_",
         );
@@ -788,9 +834,9 @@ impl GraphicsShell {
     fn redraw_icon_strip(&mut self) {
         self.redraw_region(Rect {
             x: 0,
-            y: 18,
-            width: SIDEBAR_WIDTH,
-            height: TASKBAR_Y - 18,
+            y: self.top_bar_height(),
+            width: self.sidebar_width(),
+            height: self.taskbar_y() - self.top_bar_height(),
         });
     }
 
@@ -816,13 +862,20 @@ impl GraphicsShell {
     }
 
     fn draw_icon_asset(&self, x: i32, y: i32, asset: IconAsset) {
+        let scale = self.ui_scale();
         let mut row = 0usize;
         while row < asset.height {
             let mut col = 0usize;
             while col < asset.width {
                 let pixel = asset.pixels[row * asset.width + col];
                 if pixel != 255 {
-                    self.put_pixel(x + col as i32, y + row as i32, pixel);
+                    self.fill_rect(
+                        x + col as i32 * scale,
+                        y + row as i32 * scale,
+                        scale,
+                        scale,
+                        pixel,
+                    );
                 }
                 col += 1;
             }
@@ -831,16 +884,17 @@ impl GraphicsShell {
     }
 
     fn draw_explorer_entry(&self, x: i32, y: i32, folder: bool, name: &str) {
+        let s = self.ui_scale();
         if folder {
-            self.fill_rect(x, y + 1, 10, 7, 14);
-            self.fill_rect(x + 1, y - 1, 4, 3, 12);
-            self.draw_rect(x, y + 1, 10, 7, 6);
+            self.fill_rect(x, y + s, self.sx(10), self.sy(7), 14);
+            self.fill_rect(x + s, y - s, self.sx(4), self.sy(3), 12);
+            self.draw_rect(x, y + s, self.sx(10), self.sy(7), 6);
         } else {
-            self.fill_rect(x, y, 9, 10, 15);
-            self.draw_rect(x, y, 9, 10, 8);
-            self.fill_rect(x + 5, y, 4, 3, 7);
+            self.fill_rect(x, y, self.sx(9), self.sy(10), 15);
+            self.draw_rect(x, y, self.sx(9), self.sy(10), 8);
+            self.fill_rect(x + self.sx(5), y, self.sx(4), self.sy(3), 7);
         }
-        self.draw_text(x + 14, y + 1, 15, name);
+        self.draw_text(x + self.sx(14), y + s, 15, name);
     }
 
     fn draw_explorer_entries(&self, rect: WindowRect) {
@@ -849,7 +903,7 @@ impl GraphicsShell {
         let mut sizes = [0usize; crate::fs::MAX_FS_NODES];
         let len = self.fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
         if len == 0 {
-            self.draw_text(rect.x + 68, rect.y + 48, 15, "(EMPTY)");
+            self.draw_text(rect.x + self.sx(68), rect.y + self.sy(48), 15, "(EMPTY)");
             return;
         }
 
@@ -863,14 +917,14 @@ impl GraphicsShell {
         let mut row = 0usize;
         while row < visible {
             let index = start + row;
-            let y = rect.y + 42 + (row as i32 * 14);
+            let y = rect.y + self.sy(42) + (row as i32 * self.sy(14));
             let selected = index == self.explorer.selected_index();
             if selected {
-                self.fill_rect(rect.x + 58, y - 2, rect.width - 68, 12, 3);
-                self.draw_rect(rect.x + 58, y - 2, rect.width - 68, 12, 15);
+                self.fill_rect(rect.x + self.sx(58), y - self.sy(2), rect.width - self.sx(68), self.sy(12), 3);
+                self.draw_rect(rect.x + self.sx(58), y - self.sy(2), rect.width - self.sx(68), self.sy(12), 15);
             }
             self.draw_explorer_entry(
-                rect.x + 62,
+                rect.x + self.sx(62),
                 y,
                 kinds[index] == crate::fs::EntryKind::Dir,
                 names[index].as_str(),
@@ -879,7 +933,7 @@ impl GraphicsShell {
                 let mut buffer = [b' '; 10];
                 let len = format_small_decimal(sizes[index], &mut buffer);
                 let rendered = core::str::from_utf8(&buffer[..len]).unwrap_or("");
-                self.draw_text(rect.x + rect.width - 32, y + 1, 15, rendered);
+                self.draw_text(rect.x + rect.width - self.sx(32), y + self.ui_scale(), 15, rendered);
             }
             row += 1;
         }
@@ -927,16 +981,16 @@ impl GraphicsShell {
 
     fn handle_explorer_toolbar_click(&mut self, x: i32, y: i32) -> bool {
         let rect = self.explorer_window;
-        if point_in_rect(x, y, rect.x + 56, rect.y + 20, 18, 12) {
+        if point_in_rect(x, y, rect.x + self.sx(56), rect.y + self.sy(20), self.sx(18), self.sy(12)) {
             return self.explorer.go_parent(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + 78, rect.y + 20, 26, 12) {
+        if point_in_rect(x, y, rect.x + self.sx(78), rect.y + self.sy(20), self.sx(26), self.sy(12)) {
             return self.explorer.create_folder(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + 108, rect.y + 20, 30, 12) {
+        if point_in_rect(x, y, rect.x + self.sx(108), rect.y + self.sy(20), self.sx(30), self.sy(12)) {
             return self.explorer.create_file(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + 142, rect.y + 20, 24, 12) {
+        if point_in_rect(x, y, rect.x + self.sx(142), rect.y + self.sy(20), self.sx(24), self.sy(12)) {
             return self.explorer.delete_selected(&mut self.fs);
         }
         false
@@ -944,13 +998,13 @@ impl GraphicsShell {
 
     fn handle_explorer_sidebar_click(&mut self, x: i32, y: i32) -> bool {
         let rect = self.explorer_window;
-        if point_in_rect(x, y, rect.x + 8, rect.y + 36, 42, 12) {
+        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(36), self.sx(42), self.sy(12)) {
             return self.explorer.go_home(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + 8, rect.y + 48, 42, 12) {
+        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(48), self.sx(42), self.sy(12)) {
             return self.explorer.go_docs(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + 8, rect.y + 60, 42, 12) {
+        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(60), self.sx(42), self.sy(12)) {
             return self.explorer.go_home(&mut self.fs);
         }
         false
@@ -958,7 +1012,7 @@ impl GraphicsShell {
 
     fn handle_explorer_entry_click(&mut self, x: i32, y: i32) -> bool {
         let rect = self.explorer_window;
-        if !point_in_rect(x, y, rect.x + 56, rect.y + 36, rect.width - 64, rect.height - 46) {
+        if !point_in_rect(x, y, rect.x + self.sx(56), rect.y + self.sy(36), rect.width - self.sx(64), rect.height - self.sy(46)) {
             return false;
         }
 
@@ -980,8 +1034,8 @@ impl GraphicsShell {
         let mut row = 0usize;
         while row < visible {
             let index = start + row;
-            let row_y = rect.y + 42 + (row as i32 * 14);
-            if point_in_rect(x, y, rect.x + 58, row_y - 2, rect.width - 68, 12) {
+            let row_y = rect.y + self.sy(42) + (row as i32 * self.sy(14));
+            if point_in_rect(x, y, rect.x + self.sx(58), row_y - self.sy(2), rect.width - self.sx(68), self.sy(12)) {
                 let was_selected = index == self.explorer.selected_index();
                 self.explorer.select_index(index, &self.fs);
 
@@ -1006,18 +1060,20 @@ impl GraphicsShell {
 
     fn draw_taskbar(&self) {
         let accent = self.accent_color();
-        self.fill_rect(6, 184, 50, 12, accent);
-        self.draw_rect(6, 184, 50, 12, 15);
-        self.draw_text(14, 187, 15, "TEDDY");
+        let y = self.taskbar_y() + self.sy(2);
+        let button_h = self.sy(12);
+        self.fill_rect(self.sx(6), y, self.sx(50), button_h, accent);
+        self.draw_rect(self.sx(6), y, self.sx(50), button_h, 15);
+        self.draw_text(self.sx(14), y + self.sy(3), 15, "TEDDY");
 
-        self.draw_taskbar_button(64, DesktopIcon::Terminal, self.terminal_open);
-        self.draw_taskbar_button(126, DesktopIcon::Explorer, self.explorer_open);
-        self.draw_taskbar_button(188, DesktopIcon::Settings, self.settings_open);
+        self.draw_taskbar_button(self.sx(64), DesktopIcon::Terminal, self.terminal_open);
+        self.draw_taskbar_button(self.sx(126), DesktopIcon::Explorer, self.explorer_open);
+        self.draw_taskbar_button(self.sx(188), DesktopIcon::Settings, self.settings_open);
 
-        self.fill_rect(244, 184, 68, 12, 1);
-        self.draw_rect(244, 184, 68, 12, 8);
-        self.draw_text(252, 187, 15, "UP");
-        self.draw_number(270, 187, self.uptime_seconds as u32, 14);
+        self.fill_rect(self.fb.width() as i32 - self.sx(76), y, self.sx(68), button_h, 1);
+        self.draw_rect(self.fb.width() as i32 - self.sx(76), y, self.sx(68), button_h, 8);
+        self.draw_text(self.fb.width() as i32 - self.sx(68), y + self.sy(3), 15, "UP");
+        self.draw_number(self.fb.width() as i32 - self.sx(50), y + self.sy(3), self.uptime_seconds as u32, 14);
     }
 
     fn draw_taskbar_button(&self, x: i32, icon: DesktopIcon, active: bool) {
@@ -1028,9 +1084,10 @@ impl GraphicsShell {
             DesktopIcon::Explorer => "FILES",
             DesktopIcon::Settings => "SET",
         };
-        self.fill_rect(x, 184, 54, 12, fill);
-        self.draw_rect(x, 184, 54, 12, edge);
-        self.draw_text(x + 10, 187, 15, label);
+        let y = self.taskbar_y() + self.sy(2);
+        self.fill_rect(x, y, self.sx(54), self.sy(12), fill);
+        self.draw_rect(x, y, self.sx(54), self.sy(12), edge);
+        self.draw_text(x + self.sx(10), y + self.sy(3), 15, label);
     }
 
     fn fill_background_rect(&self, x: i32, y: i32, width: i32, height: i32) {
@@ -1115,26 +1172,27 @@ impl GraphicsShell {
     }
 
     fn hit_icon(&self, x: i32, y: i32) -> Option<DesktopIcon> {
-        if point_in_rect(x, y, 10, 24, 44, 54) {
+        if point_in_rect(x, y, self.sx(10), self.top_bar_height() + self.sy(6), self.sx(44), self.sy(54)) {
             return Some(DesktopIcon::Terminal);
         }
-        if point_in_rect(x, y, 10, 78, 44, 54) {
+        if point_in_rect(x, y, self.sx(10), self.top_bar_height() + self.sy(60), self.sx(44), self.sy(54)) {
             return Some(DesktopIcon::Explorer);
         }
-        if point_in_rect(x, y, 10, 132, 44, 54) {
+        if point_in_rect(x, y, self.sx(10), self.top_bar_height() + self.sy(114), self.sx(44), self.sy(54)) {
             return Some(DesktopIcon::Settings);
         }
         None
     }
 
     fn hit_taskbar_button(&self, x: i32, y: i32) -> Option<DesktopIcon> {
-        if point_in_rect(x, y, 64, 184, 54, 12) {
+        let ty = self.taskbar_y() + self.sy(2);
+        if point_in_rect(x, y, self.sx(64), ty, self.sx(54), self.sy(12)) {
             return Some(DesktopIcon::Terminal);
         }
-        if point_in_rect(x, y, 126, 184, 54, 12) {
+        if point_in_rect(x, y, self.sx(126), ty, self.sx(54), self.sy(12)) {
             return Some(DesktopIcon::Explorer);
         }
-        if point_in_rect(x, y, 188, 184, 54, 12) {
+        if point_in_rect(x, y, self.sx(188), ty, self.sx(54), self.sy(12)) {
             return Some(DesktopIcon::Settings);
         }
         None
@@ -1157,7 +1215,7 @@ impl GraphicsShell {
     fn hit_title_bar(&self, x: i32, y: i32) -> Option<WindowKind> {
         let window = self.hit_window(x, y)?;
         let rect = self.window_bounds(window);
-        if point_in_rect(x, y, rect.x, rect.y, rect.width, TITLE_BAR_HEIGHT + 2) {
+        if point_in_rect(x, y, rect.x, rect.y, rect.width, self.title_bar_height() + 2) {
             Some(window)
         } else {
             None
@@ -1313,11 +1371,11 @@ impl GraphicsShell {
         self.fill_rect(rect.x + 2, rect.y + 2, rect.width, rect.height, 0);
         self.fill_rect(rect.x, rect.y, rect.width, rect.height, body);
         self.draw_rect(rect.x, rect.y, rect.width, rect.height, 15);
-        self.fill_rect(rect.x + 1, rect.y + 1, rect.width - 2, TITLE_BAR_HEIGHT, title);
-        self.fill_rect(rect.x + 1, rect.y + TITLE_BAR_HEIGHT + 1, rect.width - 2, 1, 8);
-        self.draw_text(rect.x + 6, rect.y + 4, 15, label);
-        self.fill_rect(rect.x + rect.width - 18, rect.y + 4, 5, 5, 4);
-        self.fill_rect(rect.x + rect.width - 10, rect.y + 4, 5, 5, 8);
+        self.fill_rect(rect.x + 1, rect.y + 1, rect.width - 2, self.title_bar_height(), title);
+        self.fill_rect(rect.x + 1, rect.y + self.title_bar_height() + 1, rect.width - 2, 1, 8);
+        self.draw_text(rect.x + self.sx(6), rect.y + self.sy(4), 15, label);
+        self.fill_rect(rect.x + rect.width - self.sx(18), rect.y + self.sy(4), self.sx(5), self.sy(5), 4);
+        self.fill_rect(rect.x + rect.width - self.sx(10), rect.y + self.sy(4), self.sx(5), self.sy(5), 8);
     }
 
     fn accent_color(&self) -> u8 {
@@ -1328,24 +1386,68 @@ impl GraphicsShell {
         }
     }
 
+    fn ui_scale(&self) -> i32 {
+        let scale_x = (self.fb.width() as i32 / BASE_WIDTH).max(1);
+        let scale_y = (self.fb.height() as i32 / BASE_HEIGHT).max(1);
+        scale_x.min(scale_y).clamp(1, 3)
+    }
+
+    fn text_scale(&self) -> i32 {
+        self.ui_scale()
+    }
+
+    fn text_step(&self) -> i32 {
+        6 * self.text_scale()
+    }
+
+    fn sx(&self, value: i32) -> i32 {
+        value * self.ui_scale()
+    }
+
+    fn sy(&self, value: i32) -> i32 {
+        value * self.ui_scale()
+    }
+
+    fn top_bar_height(&self) -> i32 {
+        TOP_BAR_HEIGHT * self.ui_scale()
+    }
+
+    fn title_bar_height(&self) -> i32 {
+        TITLE_BAR_HEIGHT * self.ui_scale()
+    }
+
+    fn taskbar_height(&self) -> i32 {
+        TASKBAR_HEIGHT * self.ui_scale()
+    }
+
+    fn taskbar_y(&self) -> i32 {
+        self.fb.height() as i32 - self.taskbar_height()
+    }
+
+    fn sidebar_width(&self) -> i32 {
+        self.sx(74)
+    }
+
     fn draw_text(&self, x: i32, y: i32, color: u8, text: &str) {
         let bytes = text.as_bytes();
         let mut index = 0usize;
+        let step = self.text_step();
         while index < bytes.len() {
-            self.draw_char(x + (index as i32 * 6), y, bytes[index], color);
+            self.draw_char(x + (index as i32 * step), y, bytes[index], color);
             index += 1;
         }
     }
 
     fn draw_char(&self, x: i32, y: i32, byte: u8, color: u8) {
         let glyph = glyph_for(byte);
+        let scale = self.text_scale();
         let mut row = 0usize;
         while row < glyph.len() {
             let bits = glyph[row];
             let mut col = 0usize;
             while col < 5 {
                 if bits & (1 << (4 - col)) != 0 {
-                    self.put_pixel(x + col as i32, y + row as i32, color);
+                    self.fill_rect(x + col as i32 * scale, y + row as i32 * scale, scale, scale, color);
                 }
                 col += 1;
             }
@@ -1368,8 +1470,9 @@ impl GraphicsShell {
         }
 
         let mut index = 0usize;
+        let step = self.text_step();
         while index < len {
-            self.draw_char(x + (index as i32 * 6), y, scratch[len - 1 - index], color);
+            self.draw_char(x + (index as i32 * step), y, scratch[len - 1 - index], color);
             index += 1;
         }
     }
