@@ -18,7 +18,7 @@ mod terminal;
 mod trace;
 mod vga;
 
-const KERNEL_STACK_TOP: usize = 0x80000;
+const KERNEL_STACK_TOP: usize = 0x200000;
 static mut DESKTOP_SHELL: shell::DesktopShell = shell::DesktopShell::empty();
 static mut GRAPHICS_SHELL: graphics::GraphicsShell = graphics::GraphicsShell::empty();
 
