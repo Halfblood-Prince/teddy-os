@@ -77,19 +77,32 @@ fn load_icon(path: &Path) -> IconData {
         };
     }
 
-    let bytes = fs::read(path).unwrap_or_else(|err| panic!("failed to read {}: {}", path.display(), err));
-    parse_bmp(&bytes, path)
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            println!("cargo:warning=failed to read {}: {}", path.display(), err);
+            return empty_icon();
+        }
+    };
+
+    match parse_bmp(&bytes, path) {
+        Ok(icon) => icon,
+        Err(message) => {
+            println!("cargo:warning={}", message);
+            empty_icon()
+        }
+    }
 }
 
-fn parse_bmp(bytes: &[u8], path: &Path) -> IconData {
+fn parse_bmp(bytes: &[u8], path: &Path) -> Result<IconData, String> {
     if bytes.len() < 54 || &bytes[0..2] != b"BM" {
-        panic!("{} must be an uncompressed BMP file", path.display());
+        return Err(format!("{} must be an uncompressed BMP file", path.display()));
     }
 
     let data_offset = read_u32(bytes, 10) as usize;
     let dib_size = read_u32(bytes, 14);
     if dib_size < 40 {
-        panic!("{} uses an unsupported BMP header", path.display());
+        return Err(format!("{} uses an unsupported BMP header", path.display()));
     }
 
     let width = read_i32(bytes, 18);
@@ -99,10 +112,13 @@ fn parse_bmp(bytes: &[u8], path: &Path) -> IconData {
     let compression = read_u32(bytes, 30);
 
     if width <= 0 || height == 0 {
-        panic!("{} has invalid dimensions", path.display());
+        return Err(format!("{} has invalid dimensions", path.display()));
     }
     if planes != 1 || compression != 0 || (bpp != 24 && bpp != 32) {
-        panic!("{} must be 24-bit or 32-bit uncompressed BMP", path.display());
+        return Err(format!(
+            "{} must be 24-bit or 32-bit uncompressed BMP",
+            path.display()
+        ));
     }
 
     let width = width as usize;
@@ -112,7 +128,7 @@ fn parse_bmp(bytes: &[u8], path: &Path) -> IconData {
     let row_stride = (width * bytes_per_pixel + 3) & !3;
     let required = data_offset + row_stride * height;
     if bytes.len() < required {
-        panic!("{} is truncated", path.display());
+        return Err(format!("{} is truncated", path.display()));
     }
 
     let mut pixels = Vec::with_capacity(width * height);
@@ -137,10 +153,18 @@ fn parse_bmp(bytes: &[u8], path: &Path) -> IconData {
         y += 1;
     }
 
-    IconData {
+    Ok(IconData {
         width,
         height,
         pixels,
+    })
+}
+
+fn empty_icon() -> IconData {
+    IconData {
+        width: 0,
+        height: 0,
+        pixels: Vec::new(),
     }
 }
 
