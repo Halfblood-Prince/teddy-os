@@ -836,14 +836,31 @@ setup_page_tables:
     mov dword [edi + edx * 8 + 4], 0
 
     mov eax, [boot_framebuffer_addr]
+    mov ebx, eax
     and eax, 0xFFE00000
-    or eax, 0x83
+    and ebx, 0x001FFFFF
+    movzx ecx, word [boot_framebuffer_pitch]
+    movzx edx, word [boot_framebuffer_height]
+    imul ecx, edx
+    add ecx, ebx
+    add ecx, 0x001FFFFF
+    shr ecx, 21
     mov edx, [boot_framebuffer_addr]
     shr edx, 21
     and edx, 0x1FF
     mov edi, framebuffer_pd_table
-    mov [edi + edx * 8], eax
+
+.map_framebuffer_pages:
+    test ecx, ecx
+    jz .done
+    mov ebx, eax
+    or ebx, 0x83
+    mov [edi + edx * 8], ebx
     mov dword [edi + edx * 8 + 4], 0
+    add eax, 0x00200000
+    inc edx
+    dec ecx
+    jmp .map_framebuffer_pages
 
 .done:
     ret
