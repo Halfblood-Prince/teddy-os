@@ -7,10 +7,13 @@ ORG 0x8000
 %define BOOT_INFO_SEG    0x1800
 %define MODE_INFO_ADDR   0x19000
 %define MODE_INFO_SEG    0x1900
+%define BOOT_CONFIG_ADDR 0x1A000
+%define BOOT_CONFIG_SEG  0x1A00
 %define KERNEL_LOAD_ADDR 0x20000
 %define KERNEL_LOAD_SEG  0x2000
 %define KERNEL_SECTORS   512
 %define KERNEL_LBA_START (1 + STAGE2_SECTORS)
+%define BOOT_CONFIG_LBA  8
 %define MODE13_FRAMEBUFFER 0x000A0000
 %define MODE13_WIDTH 320
 %define MODE13_HEIGHT 200
@@ -38,15 +41,12 @@ stage2_start:
     mov sp, 0x7000
     sti
     mov [boot_drive], dl
-
+    call auto_boot_kernel
     call redraw_shell_screen
-    mov byte [input_len], 0
-
-shell_loop:
-    call draw_prompt
-    call read_line
-    call execute_command
-    jmp shell_loop
+    mov si, kernel_fail_text
+    call print_string
+    call print_newline
+    jmp $
 
 draw_string:
     lodsb
@@ -306,6 +306,124 @@ execute_command:
     jmp .done
 
 .done:
+    ret
+
+auto_boot_kernel:
+    call load_boot_display_mode
+    cmp al, 1
+    je .boot_640
+    cmp al, 2
+    je .boot_800
+
+.boot_1024:
+    mov bx, VBE_MODE_1024X768X32
+    call set_kernel_vbe_mode
+    jnc .boot_ready
+    mov bx, VBE_MODE_1024X768X8
+    call set_kernel_vbe_mode
+    jnc .boot_ready
+    call set_kernel_graphics_mode
+    jmp .boot_ready
+
+.boot_640:
+    mov bx, VBE_MODE_640X480X32
+    call set_kernel_vbe_mode
+    jnc .boot_ready
+    mov bx, VBE_MODE_640X480X8
+    call set_kernel_vbe_mode
+    jnc .boot_ready
+    call set_kernel_graphics_mode
+    jmp .boot_ready
+
+.boot_800:
+    mov bx, VBE_MODE_800X600X32
+    call set_kernel_vbe_mode
+    jnc .boot_ready
+    mov bx, VBE_MODE_800X600X8
+    call set_kernel_vbe_mode
+    jnc .boot_ready
+    call set_kernel_graphics_mode
+
+.boot_ready:
+    mov byte [boot_video_mode], 1
+    call load_kernel_image
+    jc .failed
+    call write_boot_info
+    call enter_long_mode
+    jmp $
+
+.failed:
+    ret
+
+load_boot_display_mode:
+    push bx
+    push cx
+    push dx
+    push es
+
+    mov ax, BOOT_CONFIG_SEG
+    mov es, ax
+    xor bx, bx
+    mov ax, BOOT_CONFIG_LBA
+    call read_sector_into_esbx
+    jc .default_mode
+
+    mov si, boot_config_signature
+    xor bx, bx
+    mov cx, 8
+.check_signature:
+    mov al, [si]
+    cmp al, [es:bx]
+    jne .default_mode
+    inc si
+    inc bx
+    loop .check_signature
+
+    mov al, [es:8]
+    cmp al, 1
+    jne .default_mode
+    mov al, [es:9]
+    cmp al, 1
+    jb .default_mode
+    cmp al, 3
+    ja .default_mode
+    jmp .out
+
+.default_mode:
+    mov al, 3
+
+.out:
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+read_sector_into_esbx:
+    push ax
+    push bx
+    push cx
+    push dx
+
+    mov si, ax
+    call lba_to_chs
+
+    mov ah, 0x02
+    mov al, 0x01
+    mov dl, [boot_drive]
+    int 0x13
+    jc .error
+    clc
+    jmp .done
+
+.error:
+    stc
+
+.done:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 redraw_shell_screen:
@@ -954,6 +1072,7 @@ gfx_panel_title db "RESET GUI", 0
 gfx_panel_body db "Mode 13h online", 0
 gfx_footer db "Press any key to return", 0
 kernel_fail_text db "Rust kernel load failed.", 0
+boot_config_signature db "TDBOOT1", 0
 boot_info_signature db "TEDDYOS", 0
 vga_palette_data db 0,0,0, 0,0,42, 0,42,0, 0,42,42
                  db 42,0,0, 42,0,42, 42,21,0, 42,42,42

@@ -5,6 +5,7 @@ use core::arch::global_asm;
 use core::panic::PanicInfo;
 
 mod boot_info;
+mod boot_config;
 mod cpu;
 mod explorer;
 mod font;

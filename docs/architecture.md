@@ -61,3 +61,4 @@ The new baseline restores a known-good target:
 - Phase 12 reset: turn the Explorer scaffold into a more usable file browser with rename support, a richer panel layout, and window-scaled listings
 - Phase 13 reset: add real window state transitions for minimize, maximize/restore, taskbar-driven restore, and focus rules that ignore minimized windows
 - Phase 14 reset: add keyboard shortcuts plus mouse resize handles so window management is usable without depending only on title-bar dragging
+- Phase 15 reset: remove the intermediate BIOS command shell from the normal boot path and let the Settings app persist the next boot resolution for direct graphics startup

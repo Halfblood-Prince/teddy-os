@@ -10,30 +10,13 @@
 
 ## Expected Result
 
-You should see:
-
-- a black text-mode screen
-- a `TEDDY-OS` title
-- a `Legacy BIOS stage 2 online` status line
-- a `Boot OK - Stage 2 running` footer
-- a `>` shell prompt that responds to keyboard input
-
-Try `graphics` at the prompt. You should see a simple Teddy-OS graphics screen
-and return to the shell after pressing a key.
-
-Try `kernel` at the prompt. You should see Teddy-OS switch into a protected-mode
-64-bit Rust kernel desktop shell, arm hardware interrupts, and update live
-status fields.
-
-Try `kernelgfx` at the prompt for the new graphics prerequisite path. You
-should see Teddy-OS switch into a higher-resolution VBE framebuffer mode and
-render a graphical desktop scaffold driven by the kernel framebuffer code.
+You should see Teddy-OS boot directly into the graphics desktop without stopping
+at the old BIOS command shell.
 
 Additional graphics boot commands:
 
-- `kernelgfx` for preferred `640x480x32` with `640x480x8` fallback
-- `kernelgfx800` for preferred `800x600x32` with `800x600x8` fallback
-- `kernelgfx1024` for preferred `1024x768x32` with `1024x768x8` fallback
+- the Settings app can save `640x480`, `800x600`, or `1024x768` for the next boot
+- if no saved preference exists yet, Teddy-OS defaults to `1024x768`
 
 The kernel screen should include:
 
@@ -97,12 +80,10 @@ Expected persistence result:
 - reboot the VM
 - the created entries should still be present after returning to the kernel desktop
 
-## Graphics Scaffold Test
+## Graphics Desktop Test
 
-- boot to the BIOS shell
-- run `kernelgfx`
-- verify that the screen changes from text mode to a pixel UI
-- optionally retry with `kernelgfx800` or `kernelgfx1024`
+- boot the VM from the Teddy-OS ISO
+- verify that the screen goes directly to the pixel desktop
 - wait a few seconds and confirm the uptime changes
 - press a few keys and confirm the status area updates
 - move the mouse and confirm the cursor and `X` / `Y` values update
@@ -121,6 +102,7 @@ Expected persistence result:
 - in Explorer, click `HOME`, `UP`, `DIR`, `FILE`, `REN`, and `DEL` to exercise file operations
 - double-click a `.txt` file in Explorer and confirm it opens in `Teddy Write`
 - press `r` inside the focused Explorer window to rename the selected entry
+- open `Settings`, click `640`, `800`, or `1024`, reboot the VM, and confirm Teddy-OS comes back in that resolution
 - confirm the Settings window reflects the active resolution and color depth
 - click the other mouse buttons and confirm the `B` value changes
 

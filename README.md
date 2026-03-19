@@ -75,34 +75,11 @@ can:
 
 Expected result:
 
-- Teddy-OS text screen in BIOS mode
-- the message `Legacy BIOS stage 2 online`
-- the message `Boot OK - Stage 2 running`
-- a `>` prompt that accepts keyboard input
+- Teddy-OS boots directly from BIOS stage 2 into the graphics desktop
+- the Settings app controls which graphics boot mode is used on the next reboot
+- if no saved setting exists yet, Teddy-OS defaults to `1024x768`
 
-Example commands:
-
-- `help`
-- `info`
-- `clear`
-- `echo hello`
-- `graphics`
-- `kernel`
-- `kernelgfx`
-- `kernelgfx800`
-- `kernelgfx1024`
-- `reboot`
-
-When you run `kernel`, the current kernel MVP should show:
-
-- a Teddy-OS desktop header and themed background
-- a bottom taskbar with a live uptime clock
-- fallback text windows for welcome and system status
-- boot metadata from stage 2 inside the system window
-- live timer ticks plus the last keyboard scancode and ASCII value
-- a launcher panel you can open from the taskbar area
-
-When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
+The current kernel desktop should show:
 
 - a framebuffer graphics desktop
 - a graphical top bar and taskbar
@@ -115,9 +92,7 @@ When you run `kernelgfx`, Teddy-OS should boot a graphics-mode GUI scaffold:
 
 Graphics boot modes:
 
-- `kernelgfx` prefers `640x480x32` and falls back to `640x480x8` if needed
-- `kernelgfx800` prefers `800x600x32` and falls back to `800x600x8` if needed
-- `kernelgfx1024` prefers `1024x768x32` and falls back to `1024x768x8` if needed
+- the Settings app can save `640x480`, `800x600`, or `1024x768` for the next boot
 - if VMware BIOS rejects a VBE mode, Teddy-OS falls back to the stable `320x200x8` graphics path
 
 Kernel desktop controls:

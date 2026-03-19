@@ -1,4 +1,5 @@
 use crate::{
+    boot_config::{self, BootDisplayMode},
     boot_info::{BootInfo, FramebufferInfo},
     explorer::{ExplorerAction, ExplorerApp},
     font,
@@ -38,6 +39,9 @@ pub struct GraphicsShell {
     input: InputManager,
     uptime_seconds: u64,
     accent_phase: u8,
+    boot_display_mode: BootDisplayMode,
+    settings_status: [u8; 40],
+    settings_status_len: usize,
     terminal_window: WindowRect,
     explorer_window: WindowRect,
     writer_window: WindowRect,
@@ -146,6 +150,9 @@ impl GraphicsShell {
             input: InputManager::new(0, 0),
             uptime_seconds: 0,
             accent_phase: 0,
+            boot_display_mode: BootDisplayMode::Mode1024,
+            settings_status: [b' '; 40],
+            settings_status_len: 0,
             terminal_window: WindowRect {
                 x: 70,
                 y: 32,
@@ -249,6 +256,8 @@ impl GraphicsShell {
         trace::set_boot_stage(0x94);
         self.uptime_seconds = 0;
         self.accent_phase = 0;
+        self.boot_display_mode = boot_config::load_boot_display_mode();
+        self.set_settings_status("Boot to desktop enabled");
         self.terminal_open = false;
         self.explorer_open = false;
         self.writer_open = false;
@@ -943,11 +952,25 @@ impl GraphicsShell {
         self.draw_number(rect.x + self.sx(126), rect.y + self.sy(51), self.fb.height() as u32, 15);
 
         self.draw_text(rect.x + self.sx(12), rect.y + self.sy(68), 7, "Status");
-        self.draw_text(rect.x + self.sx(68), rect.y + self.sy(68), 14, "APPLY AT BOOT");
-        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(82), 7, "Modes");
-        self.draw_text(rect.x + self.sx(48), rect.y + self.sy(82), 15, "kernelgfx");
-        self.draw_text(rect.x + self.sx(48), rect.y + self.sy(90), 15, "kfg800");
-        self.draw_text(rect.x + self.sx(48), rect.y + self.sy(98), 15, "kfg1024");
+        self.draw_text_clipped(
+            rect.x + self.sx(58),
+            rect.y + self.sy(68),
+            rect.width - self.sx(70),
+            14,
+            self.settings_status(),
+        );
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(82), 7, "Boot mode");
+        self.draw_text_clipped(
+            rect.x + self.sx(72),
+            rect.y + self.sy(82),
+            rect.width - self.sx(84),
+            15,
+            self.boot_display_mode.label(),
+        );
+        self.draw_toolbar_button(rect.x + self.sx(12), rect.y + self.sy(92), self.sx(34), "640");
+        self.draw_toolbar_button(rect.x + self.sx(50), rect.y + self.sy(92), self.sx(34), "800");
+        self.draw_toolbar_button(rect.x + self.sx(88), rect.y + self.sy(92), self.sx(42), "1024");
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(108), 7, "Reboot to apply");
     }
 
     fn draw_writer_window(&self, focused: bool) {
@@ -1279,12 +1302,39 @@ impl GraphicsShell {
                 self.selected_icon = None;
                 Some(MouseRedraw::Panels)
             }
-            WindowKind::Settings => {
-                self.focus_window(WindowKind::Settings);
-                self.selected_icon = None;
-                Some(MouseRedraw::Panels)
+            WindowKind::Settings => self.handle_settings_click(x, y),
+        }
+    }
+
+    fn handle_settings_click(&mut self, x: i32, y: i32) -> Option<MouseRedraw> {
+        if !self.settings_open || !point_in_window(self.settings_window, x, y) {
+            return None;
+        }
+
+        self.focus_window(WindowKind::Settings);
+        self.selected_icon = None;
+
+        let rect = self.settings_window;
+        let next_mode = if point_in_rect(x, y, rect.x + self.sx(12), rect.y + self.sy(92), self.sx(34), self.sy(12)) {
+            Some(BootDisplayMode::Mode640)
+        } else if point_in_rect(x, y, rect.x + self.sx(50), rect.y + self.sy(92), self.sx(34), self.sy(12)) {
+            Some(BootDisplayMode::Mode800)
+        } else if point_in_rect(x, y, rect.x + self.sx(88), rect.y + self.sy(92), self.sx(42), self.sy(12)) {
+            Some(BootDisplayMode::Mode1024)
+        } else {
+            None
+        };
+
+        if let Some(mode) = next_mode {
+            self.boot_display_mode = mode;
+            if boot_config::save_boot_display_mode(mode) {
+                self.set_settings_status("Saved for next boot");
+            } else {
+                self.set_settings_status("Boot disk unavailable");
             }
         }
+
+        Some(MouseRedraw::Panels)
     }
 
     fn handle_writer_click(&mut self, x: i32, y: i32) -> Option<MouseRedraw> {
@@ -2167,6 +2217,22 @@ impl GraphicsShell {
         self.draw_char(x + (visible as i32 * step), y, b'.', color);
         self.draw_char(x + ((visible + 1) as i32 * step), y, b'.', color);
         self.draw_char(x + ((visible + 2) as i32 * step), y, b'.', color);
+    }
+
+    fn settings_status(&self) -> &str {
+        core::str::from_utf8(&self.settings_status[..self.settings_status_len]).unwrap_or("")
+    }
+
+    fn set_settings_status(&mut self, text: &str) {
+        self.settings_status = [b' '; 40];
+        self.settings_status_len = 0;
+        let bytes = text.as_bytes();
+        let mut index = 0usize;
+        while index < bytes.len() && index < self.settings_status.len() {
+            self.settings_status[index] = bytes[index];
+            self.settings_status_len += 1;
+            index += 1;
+        }
     }
 
     fn draw_char(&self, x: i32, y: i32, byte: u8, color: u8) {
