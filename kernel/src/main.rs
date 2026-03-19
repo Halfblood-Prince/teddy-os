@@ -50,20 +50,44 @@ _start:
     test eax, eax
     jz 1f
     mov rbx, rax
-    movzx ecx, byte ptr [rsi + 17]
-    cmp cl, 32
+    movzx ecx, word ptr [rsi + 22]
+    cmp ecx, 80
+    jbe 5f
+    mov ecx, 80
+5:
+    movzx r8d, word ptr [rsi + 24]
+    movzx r9d, word ptr [rsi + 20]
+    movzx edx, byte ptr [rsi + 17]
+6:
+    mov rdi, rbx
+    mov eax, r9d
+7:
+    cmp dl, 32
     je 2f
-    cmp cl, 24
+    cmp dl, 24
     je 3f
-    mov byte ptr [rbx], 0x0c
-    jmp 1f
+    mov byte ptr [rdi], 0x04
+    inc rdi
+    jmp 8f
 2:
-    mov dword ptr [rbx], 0x000055ff
-    jmp 1f
+    mov dword ptr [rdi], 0x000000ff
+    add rdi, 4
+    jmp 8f
 3:
-    mov byte ptr [rbx], 0xff
-    mov byte ptr [rbx + 1], 0x55
-    mov byte ptr [rbx + 2], 0x00
+    mov byte ptr [rdi], 0xff
+    mov byte ptr [rdi + 1], 0x00
+    mov byte ptr [rdi + 2], 0x00
+    add rdi, 3
+8:
+    dec eax
+    jnz 7b
+    add rbx, r8
+    dec ecx
+    jnz 6b
+    mov rcx, 0x18000000
+9:
+    dec rcx
+    jnz 9b
 1:
     call kernel_main
 4:

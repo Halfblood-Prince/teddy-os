@@ -878,6 +878,10 @@ protected_mode_entry:
     cld
 
     call draw_boot_marker32
+    mov ecx, 0x18000000
+.pm_delay:
+    dec ecx
+    jnz .pm_delay
 
     call enable_fpu_sse
     call setup_page_tables
@@ -999,7 +1003,7 @@ long_mode_entry:
     mov rsp, 0x180000
 
     call draw_boot_marker64
-    mov rcx, 0x08000000
+    mov rcx, 0x18000000
 .boot_delay:
     dec rcx
     jnz .boot_delay
@@ -1021,10 +1025,16 @@ draw_boot_marker32:
     movzx ebx, word [boot_framebuffer_pitch]
     movzx edx, byte [boot_framebuffer_bpp]
     mov esi, edi
-    mov ebp, 12
+    movzx eax, word [boot_framebuffer_height]
+    cmp eax, 80
+    jbe .rows_ready
+    mov eax, 80
+.rows_ready:
+    mov ebp, eax
 .row_loop:
     mov edi, esi
-    mov ecx, 96
+    movzx eax, word [boot_framebuffer_width]
+    mov ecx, eax
 .col_loop:
     cmp dl, 32
     je .pixel32
@@ -1115,11 +1125,16 @@ draw_boot_marker64:
     movzx ebx, word [boot_framebuffer_pitch]
     movzx edx, byte [boot_framebuffer_bpp]
     mov esi, edi
-    add esi, 256
-    mov ebp, 12
+    movzx eax, word [boot_framebuffer_height]
+    cmp eax, 80
+    jbe .rows_ready
+    mov eax, 80
+.rows_ready:
+    mov ebp, eax
 .row_loop:
     mov edi, esi
-    mov ecx, 96
+    movzx eax, word [boot_framebuffer_width]
+    mov ecx, eax
 .col_loop:
     cmp dl, 32
     je .pixel32
