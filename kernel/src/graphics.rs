@@ -41,10 +41,22 @@ pub struct GraphicsShell {
     explorer_window: WindowRect,
     writer_window: WindowRect,
     settings_window: WindowRect,
+    terminal_restore: WindowRect,
+    explorer_restore: WindowRect,
+    writer_restore: WindowRect,
+    settings_restore: WindowRect,
     terminal_open: bool,
     explorer_open: bool,
     writer_open: bool,
     settings_open: bool,
+    terminal_minimized: bool,
+    explorer_minimized: bool,
+    writer_minimized: bool,
+    settings_minimized: bool,
+    terminal_maximized: bool,
+    explorer_maximized: bool,
+    writer_maximized: bool,
+    settings_maximized: bool,
     focused_window: Option<WindowKind>,
     selected_icon: Option<DesktopIcon>,
     drag_state: DragState,
@@ -149,10 +161,42 @@ impl GraphicsShell {
                 width: 164,
                 height: 96,
             },
+            terminal_restore: WindowRect {
+                x: 70,
+                y: 32,
+                width: 168,
+                height: 96,
+            },
+            explorer_restore: WindowRect {
+                x: 126,
+                y: 46,
+                width: 168,
+                height: 104,
+            },
+            writer_restore: WindowRect {
+                x: 94,
+                y: 38,
+                width: 176,
+                height: 108,
+            },
+            settings_restore: WindowRect {
+                x: 92,
+                y: 58,
+                width: 164,
+                height: 96,
+            },
             terminal_open: false,
             explorer_open: false,
             writer_open: false,
             settings_open: false,
+            terminal_minimized: false,
+            explorer_minimized: false,
+            writer_minimized: false,
+            settings_minimized: false,
+            terminal_maximized: false,
+            explorer_maximized: false,
+            writer_maximized: false,
+            settings_maximized: false,
             focused_window: None,
             selected_icon: None,
             drag_state: DragState {
@@ -193,6 +237,14 @@ impl GraphicsShell {
         self.explorer_open = false;
         self.writer_open = false;
         self.settings_open = false;
+        self.terminal_minimized = false;
+        self.explorer_minimized = false;
+        self.writer_minimized = false;
+        self.settings_minimized = false;
+        self.terminal_maximized = false;
+        self.explorer_maximized = false;
+        self.writer_maximized = false;
+        self.settings_maximized = false;
         self.focused_window = None;
         self.selected_icon = None;
         self.drag_state = DragState {
@@ -248,6 +300,10 @@ impl GraphicsShell {
             width: (self.sx(164) + s * 12).max(240),
             height: (self.sy(96) + s * 10).max(150),
         };
+        self.terminal_restore = self.terminal_window;
+        self.explorer_restore = self.explorer_window;
+        self.writer_restore = self.writer_window;
+        self.settings_restore = self.settings_window;
     }
 
     pub fn render(&mut self) {
@@ -269,7 +325,7 @@ impl GraphicsShell {
     }
 
     pub fn handle_key(&mut self, ascii: u8) -> Option<GraphicsAction> {
-        if self.terminal_open && self.focused_window == Some(WindowKind::Terminal) {
+        if self.window_is_visible(WindowKind::Terminal) && self.focused_window == Some(WindowKind::Terminal) {
             let action = self.terminal.handle_key(ascii, &mut self.fs);
             if matches!(ascii, 8 | 0x20..=0x7E) {
                 self.redraw_terminal_input_strip();
@@ -283,13 +339,13 @@ impl GraphicsShell {
             };
         }
 
-        if self.explorer_open && self.focused_window == Some(WindowKind::Explorer) {
+        if self.window_is_visible(WindowKind::Explorer) && self.focused_window == Some(WindowKind::Explorer) {
             let action = self.explorer.handle_key(ascii, &mut self.fs);
             self.handle_explorer_action(action);
             return None;
         }
 
-        if self.writer_open && self.focused_window == Some(WindowKind::Writer) {
+        if self.window_is_visible(WindowKind::Writer) && self.focused_window == Some(WindowKind::Writer) {
             if self.writer.handle_key(ascii) {
                 self.redraw_window(WindowKind::Writer);
             }
@@ -346,6 +402,9 @@ impl GraphicsShell {
             Some(window) => window,
             None => return MouseRedraw::Overlay,
         };
+        if self.window_is_maximized(window) {
+            return MouseRedraw::Overlay;
+        }
 
         let bounds = self.window_bounds(window);
         let max_x = self.fb.width() as i32 - bounds.width - 1;
@@ -367,6 +426,27 @@ impl GraphicsShell {
             return MouseRedraw::Overlay;
         }
 
+        if let Some(window) = self.hit_minimize_button(state.x, state.y) {
+            let old_focus = self.focused_window;
+            self.minimize_window(window);
+            self.redraw_focus_change(old_focus, self.focused_window);
+            self.redraw_panels();
+            return MouseRedraw::None;
+        }
+
+        if let Some(window) = self.hit_maximize_button(state.x, state.y) {
+            let old_rect = self.window_bounds(window);
+            let old_focus = self.focused_window;
+            if self.window_is_maximized(window) {
+                self.restore_window(window);
+            } else {
+                self.maximize_window(window);
+            }
+            self.redraw_focus_change(old_focus, self.focused_window);
+            self.redraw_window_move(old_rect, self.window_bounds(window));
+            return MouseRedraw::None;
+        }
+
         if let Some(window) = self.hit_close_button(state.x, state.y) {
             let closed_rect = self.window_bounds(window);
             self.close_window(window);
@@ -378,10 +458,12 @@ impl GraphicsShell {
             let old_focus = self.focused_window;
             self.focus_window(window);
             let rect = self.window_bounds(window);
-            self.drag_state.active = true;
-            self.drag_state.window = Some(window);
-            self.drag_state.offset_x = state.x - rect.x;
-            self.drag_state.offset_y = state.y - rect.y;
+            if !self.window_is_maximized(window) {
+                self.drag_state.active = true;
+                self.drag_state.window = Some(window);
+                self.drag_state.offset_x = state.x - rect.x;
+                self.drag_state.offset_y = state.y - rect.y;
+            }
             self.redraw_focus_change(old_focus, Some(window));
             return MouseRedraw::None;
         }
@@ -478,7 +560,7 @@ impl GraphicsShell {
         let mut index = 0usize;
         while index < order.len() && count < rects.len() - 1 {
             if let Some(window) = order[index] {
-                if self.window_is_open(window) {
+                if self.window_is_visible(window) {
                     rects[count] = window_to_region(self.window_bounds(window));
                     count += 1;
                 }
@@ -631,7 +713,7 @@ impl GraphicsShell {
         while index > 0 {
             index -= 1;
             if let Some(window) = order[index] {
-                if !self.window_is_open(window) {
+                if !self.window_is_visible(window) {
                     continue;
                 }
                 let focused = self.focused_window == Some(window);
@@ -838,7 +920,7 @@ impl GraphicsShell {
         while order_index > 0 {
             order_index -= 1;
             if let Some(window) = order[order_index] {
-                if !self.window_is_open(window) {
+                if !self.window_is_visible(window) {
                     continue;
                 }
                 let window_region = window_to_region(self.window_bounds(window));
@@ -872,7 +954,7 @@ impl GraphicsShell {
     }
 
     fn redraw_window(&mut self, window: WindowKind) {
-        if self.window_is_open(window) {
+        if self.window_is_visible(window) {
             self.redraw_region(window_to_region(self.window_bounds(window)));
         }
     }
@@ -1204,10 +1286,10 @@ impl GraphicsShell {
         self.draw_rect(self.sx(6), y, self.sx(50), button_h, 15);
         self.draw_text(self.sx(14), y + self.sy(3), 15, "TEDDY");
 
-        self.draw_taskbar_button(self.sx(64), DesktopIcon::Terminal, self.terminal_open);
-        self.draw_taskbar_button(self.sx(112), DesktopIcon::Explorer, self.explorer_open);
-        self.draw_taskbar_button(self.sx(160), DesktopIcon::Writer, self.writer_open);
-        self.draw_taskbar_button(self.sx(208), DesktopIcon::Settings, self.settings_open);
+        self.draw_taskbar_button(self.sx(64), DesktopIcon::Terminal, WindowKind::Terminal);
+        self.draw_taskbar_button(self.sx(112), DesktopIcon::Explorer, WindowKind::Explorer);
+        self.draw_taskbar_button(self.sx(160), DesktopIcon::Writer, WindowKind::Writer);
+        self.draw_taskbar_button(self.sx(208), DesktopIcon::Settings, WindowKind::Settings);
 
         self.fill_rect(self.fb.width() as i32 - self.sx(60), y, self.sx(54), button_h, 1);
         self.draw_rect(self.fb.width() as i32 - self.sx(60), y, self.sx(54), button_h, 8);
@@ -1215,9 +1297,12 @@ impl GraphicsShell {
         self.draw_number(self.fb.width() as i32 - self.sx(36), y + self.sy(3), self.uptime_seconds as u32, 14);
     }
 
-    fn draw_taskbar_button(&self, x: i32, icon: DesktopIcon, active: bool) {
-        let fill = if active { 3 } else { 1 };
-        let edge = if active { 15 } else { 8 };
+    fn draw_taskbar_button(&self, x: i32, icon: DesktopIcon, window: WindowKind) {
+        let open = self.window_is_open(window);
+        let minimized = self.window_is_minimized(window);
+        let focused = self.focused_window == Some(window) && !minimized;
+        let fill = if focused { 3 } else if open { 8 } else { 1 };
+        let edge = if open { 15 } else { 8 };
         let label = match icon {
             DesktopIcon::Terminal => "TERM",
             DesktopIcon::Explorer => "FILES",
@@ -1228,6 +1313,9 @@ impl GraphicsShell {
         self.fill_rect(x, y, self.sx(42), self.sy(12), fill);
         self.draw_rect(x, y, self.sx(42), self.sy(12), edge);
         self.draw_text(x + self.sx(5), y + self.sy(3), 15, label);
+        if minimized {
+            self.fill_rect(x + self.sx(3), y + self.sy(9), self.sx(36), self.ui_scale(), 14);
+        }
     }
 
     fn fill_background_rect(&self, x: i32, y: i32, width: i32, height: i32) {
@@ -1346,7 +1434,7 @@ impl GraphicsShell {
         let mut index = 0usize;
         while index < order.len() {
             if let Some(window) = order[index] {
-                if self.window_is_open(window) && point_in_window(self.window_bounds(window), x, y) {
+                if self.window_is_visible(window) && point_in_window(self.window_bounds(window), x, y) {
                     return Some(window);
                 }
             }
@@ -1368,7 +1456,27 @@ impl GraphicsShell {
     fn hit_close_button(&self, x: i32, y: i32) -> Option<WindowKind> {
         let window = self.hit_window(x, y)?;
         let rect = self.window_bounds(window);
-        if point_in_rect(x, y, rect.x + rect.width - 18, rect.y + 4, 5, 5) {
+        if point_in_rect(x, y, rect.x + rect.width - self.sx(8), rect.y + self.sy(4), self.sx(5), self.sy(5)) {
+            Some(window)
+        } else {
+            None
+        }
+    }
+
+    fn hit_maximize_button(&self, x: i32, y: i32) -> Option<WindowKind> {
+        let window = self.hit_window(x, y)?;
+        let rect = self.window_bounds(window);
+        if point_in_rect(x, y, rect.x + rect.width - self.sx(16), rect.y + self.sy(4), self.sx(5), self.sy(5)) {
+            Some(window)
+        } else {
+            None
+        }
+    }
+
+    fn hit_minimize_button(&self, x: i32, y: i32) -> Option<WindowKind> {
+        let window = self.hit_window(x, y)?;
+        let rect = self.window_bounds(window);
+        if point_in_rect(x, y, rect.x + rect.width - self.sx(24), rect.y + self.sy(4), self.sx(5), self.sy(5)) {
             Some(window)
         } else {
             None
@@ -1379,18 +1487,22 @@ impl GraphicsShell {
         match icon {
             DesktopIcon::Terminal => {
                 self.terminal_open = true;
+                self.terminal_minimized = false;
                 self.focus_window(WindowKind::Terminal);
             }
             DesktopIcon::Explorer => {
                 self.explorer_open = true;
+                self.explorer_minimized = false;
                 self.focus_window(WindowKind::Explorer);
             }
             DesktopIcon::Writer => {
                 self.writer_open = true;
+                self.writer_minimized = false;
                 self.focus_window(WindowKind::Writer);
             }
             DesktopIcon::Settings => {
                 self.settings_open = true;
+                self.settings_minimized = false;
                 self.focus_window(WindowKind::Settings);
             }
         }
@@ -1399,39 +1511,31 @@ impl GraphicsShell {
     fn toggle_or_focus(&mut self, icon: DesktopIcon) {
         match icon {
             DesktopIcon::Terminal => {
-                if self.terminal_open && self.focused_window == Some(WindowKind::Terminal) {
-                    self.terminal_open = false;
-                    self.focused_window = self.next_visible_window(WindowKind::Terminal);
+                if self.terminal_open && !self.terminal_minimized && self.focused_window == Some(WindowKind::Terminal) {
+                    self.minimize_window(WindowKind::Terminal);
                 } else {
-                    self.terminal_open = true;
-                    self.focus_window(WindowKind::Terminal);
+                    self.restore_or_open_window(WindowKind::Terminal);
                 }
             }
             DesktopIcon::Explorer => {
-                if self.explorer_open && self.focused_window == Some(WindowKind::Explorer) {
-                    self.explorer_open = false;
-                    self.focused_window = self.next_visible_window(WindowKind::Explorer);
+                if self.explorer_open && !self.explorer_minimized && self.focused_window == Some(WindowKind::Explorer) {
+                    self.minimize_window(WindowKind::Explorer);
                 } else {
-                    self.explorer_open = true;
-                    self.focus_window(WindowKind::Explorer);
+                    self.restore_or_open_window(WindowKind::Explorer);
                 }
             }
             DesktopIcon::Writer => {
-                if self.writer_open && self.focused_window == Some(WindowKind::Writer) {
-                    self.writer_open = false;
-                    self.focused_window = self.next_visible_window(WindowKind::Writer);
+                if self.writer_open && !self.writer_minimized && self.focused_window == Some(WindowKind::Writer) {
+                    self.minimize_window(WindowKind::Writer);
                 } else {
-                    self.writer_open = true;
-                    self.focus_window(WindowKind::Writer);
+                    self.restore_or_open_window(WindowKind::Writer);
                 }
             }
             DesktopIcon::Settings => {
-                if self.settings_open && self.focused_window == Some(WindowKind::Settings) {
-                    self.settings_open = false;
-                    self.focused_window = self.next_visible_window(WindowKind::Settings);
+                if self.settings_open && !self.settings_minimized && self.focused_window == Some(WindowKind::Settings) {
+                    self.minimize_window(WindowKind::Settings);
                 } else {
-                    self.settings_open = true;
-                    self.focus_window(WindowKind::Settings);
+                    self.restore_or_open_window(WindowKind::Settings);
                 }
             }
         }
@@ -1439,14 +1543,87 @@ impl GraphicsShell {
 
     fn close_window(&mut self, window: WindowKind) {
         match window {
-            WindowKind::Terminal => self.terminal_open = false,
-            WindowKind::Explorer => self.explorer_open = false,
-            WindowKind::Writer => self.writer_open = false,
-            WindowKind::Settings => self.settings_open = false,
+            WindowKind::Terminal => {
+                self.terminal_open = false;
+                self.terminal_minimized = false;
+                self.terminal_maximized = false;
+            }
+            WindowKind::Explorer => {
+                self.explorer_open = false;
+                self.explorer_minimized = false;
+                self.explorer_maximized = false;
+            }
+            WindowKind::Writer => {
+                self.writer_open = false;
+                self.writer_minimized = false;
+                self.writer_maximized = false;
+            }
+            WindowKind::Settings => {
+                self.settings_open = false;
+                self.settings_minimized = false;
+                self.settings_maximized = false;
+            }
         }
         if self.focused_window == Some(window) {
             self.focused_window = self.next_visible_window(window);
         }
+    }
+
+    fn restore_or_open_window(&mut self, window: WindowKind) {
+        match window {
+            WindowKind::Terminal => self.terminal_open = true,
+            WindowKind::Explorer => self.explorer_open = true,
+            WindowKind::Writer => self.writer_open = true,
+            WindowKind::Settings => self.settings_open = true,
+        }
+        self.set_window_minimized(window, false);
+        self.focus_window(window);
+    }
+
+    fn minimize_window(&mut self, window: WindowKind) {
+        if !self.window_is_open(window) {
+            return;
+        }
+        self.set_window_minimized(window, true);
+        self.set_window_maximized(window, false);
+        if self.focused_window == Some(window) {
+            self.focused_window = self.next_visible_window(window);
+        }
+    }
+
+    fn maximize_window(&mut self, window: WindowKind) {
+        if !self.window_is_open(window) {
+            return;
+        }
+        if !self.window_is_maximized(window) {
+            *self.window_restore_rect_mut(window) = self.window_bounds(window);
+        }
+        let top = self.top_bar_height() + self.sy(6);
+        let taskbar = self.taskbar_y() - self.sy(6);
+        let next_x = self.sx(6);
+        let next_width = self.fb.width() as i32 - self.sx(12);
+        let next_height = taskbar - top;
+        let rect = self.window_rect_mut(window);
+        rect.x = next_x;
+        rect.y = top;
+        rect.width = next_width;
+        rect.height = next_height;
+        self.set_window_minimized(window, false);
+        self.set_window_maximized(window, true);
+        self.focus_window(window);
+    }
+
+    fn restore_window(&mut self, window: WindowKind) {
+        if !self.window_is_open(window) {
+            return;
+        }
+        if self.window_is_maximized(window) {
+            let restore = *self.window_restore_rect(window);
+            *self.window_rect_mut(window) = restore;
+        }
+        self.set_window_minimized(window, false);
+        self.set_window_maximized(window, false);
+        self.focus_window(window);
     }
 
     fn icon_is_open(&self, icon: DesktopIcon) -> bool {
@@ -1476,6 +1653,24 @@ impl GraphicsShell {
         }
     }
 
+    fn window_restore_rect(&self, window: WindowKind) -> &WindowRect {
+        match window {
+            WindowKind::Terminal => &self.terminal_restore,
+            WindowKind::Explorer => &self.explorer_restore,
+            WindowKind::Writer => &self.writer_restore,
+            WindowKind::Settings => &self.settings_restore,
+        }
+    }
+
+    fn window_restore_rect_mut(&mut self, window: WindowKind) -> &mut WindowRect {
+        match window {
+            WindowKind::Terminal => &mut self.terminal_restore,
+            WindowKind::Explorer => &mut self.explorer_restore,
+            WindowKind::Writer => &mut self.writer_restore,
+            WindowKind::Settings => &mut self.settings_restore,
+        }
+    }
+
     fn focus_window(&mut self, window: WindowKind) {
         self.focused_window = Some(window);
     }
@@ -1485,7 +1680,7 @@ impl GraphicsShell {
         let mut index = 0usize;
         while index < order.len() {
             if let Some(window) = order[index] {
-                if window != closed && self.window_is_open(window) {
+                if window != closed && self.window_is_visible(window) {
                     return Some(window);
                 }
             }
@@ -1500,6 +1695,46 @@ impl GraphicsShell {
             WindowKind::Explorer => self.explorer_open,
             WindowKind::Writer => self.writer_open,
             WindowKind::Settings => self.settings_open,
+        }
+    }
+
+    fn window_is_visible(&self, window: WindowKind) -> bool {
+        self.window_is_open(window) && !self.window_is_minimized(window)
+    }
+
+    fn window_is_minimized(&self, window: WindowKind) -> bool {
+        match window {
+            WindowKind::Terminal => self.terminal_minimized,
+            WindowKind::Explorer => self.explorer_minimized,
+            WindowKind::Writer => self.writer_minimized,
+            WindowKind::Settings => self.settings_minimized,
+        }
+    }
+
+    fn window_is_maximized(&self, window: WindowKind) -> bool {
+        match window {
+            WindowKind::Terminal => self.terminal_maximized,
+            WindowKind::Explorer => self.explorer_maximized,
+            WindowKind::Writer => self.writer_maximized,
+            WindowKind::Settings => self.settings_maximized,
+        }
+    }
+
+    fn set_window_minimized(&mut self, window: WindowKind, value: bool) {
+        match window {
+            WindowKind::Terminal => self.terminal_minimized = value,
+            WindowKind::Explorer => self.explorer_minimized = value,
+            WindowKind::Writer => self.writer_minimized = value,
+            WindowKind::Settings => self.settings_minimized = value,
+        }
+    }
+
+    fn set_window_maximized(&mut self, window: WindowKind, value: bool) {
+        match window {
+            WindowKind::Terminal => self.terminal_maximized = value,
+            WindowKind::Explorer => self.explorer_maximized = value,
+            WindowKind::Writer => self.writer_maximized = value,
+            WindowKind::Settings => self.settings_maximized = value,
         }
     }
 
@@ -1545,8 +1780,9 @@ impl GraphicsShell {
         self.fill_rect(rect.x + 1, rect.y + 1, rect.width - 2, self.title_bar_height(), title);
         self.fill_rect(rect.x + 1, rect.y + self.title_bar_height() + 1, rect.width - 2, 1, 8);
         self.draw_text(rect.x + self.sx(6), rect.y + self.sy(4), 15, label);
-        self.fill_rect(rect.x + rect.width - self.sx(18), rect.y + self.sy(4), self.sx(5), self.sy(5), 4);
-        self.fill_rect(rect.x + rect.width - self.sx(10), rect.y + self.sy(4), self.sx(5), self.sy(5), 8);
+        self.fill_rect(rect.x + rect.width - self.sx(24), rect.y + self.sy(4), self.sx(5), self.sy(5), 14);
+        self.fill_rect(rect.x + rect.width - self.sx(16), rect.y + self.sy(4), self.sx(5), self.sy(5), 11);
+        self.fill_rect(rect.x + rect.width - self.sx(8), rect.y + self.sy(4), self.sx(5), self.sy(5), 4);
     }
 
     fn handle_explorer_action(&mut self, action: ExplorerAction) {
@@ -1592,6 +1828,7 @@ impl GraphicsShell {
         let full_path = core::str::from_utf8(&path[..len]).unwrap_or("");
         if self.writer.open(full_path, &self.fs) {
             self.writer_open = true;
+            self.writer_minimized = false;
             self.focus_window(WindowKind::Writer);
         }
     }

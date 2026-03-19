@@ -196,8 +196,15 @@ Updated Explorer controls:
 - `r` renames the selected entry
 - `x` deletes the selected entry
 
+Windowing improvements in this phase:
+
+- title bars now have working minimize, maximize/restore, and close buttons
+- taskbar buttons now minimize the focused app and restore minimized apps
+- minimized windows stay open on the taskbar without intercepting hit-testing
+- maximized windows fill the desktop work area without overlapping the taskbar
+
 ## Next Step
 
-With the explorer now behaving more like a real file browser, the next
-recommended phase is to deepen the windowing model: minimize/maximize controls,
-better focus dispatch, and broader mouse-first interaction across all apps.
+With explorer and core window states in better shape, the next recommended
+phase is input polish: keyboard shortcuts, resize handles, and a more formal
+desktop event-dispatch layer shared by all apps.

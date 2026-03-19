@@ -53,6 +53,8 @@ The `kernelgfx` graphics screen should include:
 - a software cursor that follows VMware mouse movement
 - draggable `Terminal`, `File Explorer`, `Teddy Write`, and `Settings` windows when you hold the left mouse button on their title bars
 - a richer Explorer window with a path bar, toolbar, sidebar, entry list, and details strip
+- title-bar controls for minimize, maximize/restore, and close
+- taskbar buttons that restore minimized windows and minimize the focused one
 
 Press a few keys in VMware after the kernel screen appears:
 
@@ -105,6 +107,9 @@ Expected persistence result:
 - double-click the `TERMINAL`, `EXPLORER`, and `SETTINGS` desktop icons to open their windows
 - use the taskbar buttons to focus or hide those windows
 - hold the left mouse button on a window title bar and drag it
+- click the yellow title-bar button to minimize a window and confirm it stays on the taskbar
+- click the blue title-bar button to maximize and restore a window
+- click the same taskbar button again while a window is focused to minimize it
 - in Explorer, click `HOME`, `UP`, `DIR`, `FILE`, `REN`, and `DEL` to exercise file operations
 - double-click a `.txt` file in Explorer and confirm it opens in `Teddy Write`
 - press `r` inside the focused Explorer window to rename the selected entry
