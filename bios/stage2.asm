@@ -11,9 +11,10 @@ ORG 0x8000
 %define BOOT_CONFIG_SEG  0x1A00
 %define KERNEL_LOAD_ADDR 0x20000
 %define KERNEL_LOAD_SEG  0x2000
-; Keep the loaded kernel below the temporary long-mode entry stack at 0x80000.
-; 0x80000 - 0x20000 = 0x60000 bytes = 393216 bytes = 768 sectors.
-%define KERNEL_SECTORS   768
+; The floppy image can hold at most 2783 kernel sectors after boot + stage 2.
+; We reserve a smaller round-number window here for headroom and keep the
+; temporary long-mode stack above it.
+%define KERNEL_SECTORS   2048
 %define KERNEL_LBA_START (1 + STAGE2_SECTORS)
 %define BOOT_CONFIG_LBA  400
 %define MODE13_FRAMEBUFFER 0x000A0000
@@ -993,7 +994,7 @@ long_mode_entry:
     mov ss, ax
     mov fs, ax
     mov gs, ax
-    mov rsp, 0x80000
+    mov rsp, 0x180000
 
     mov rax, 0xB8002
     mov word [rax], 0x2F4C
