@@ -55,6 +55,8 @@ The `kernelgfx` graphics screen should include:
 - a richer Explorer window with a path bar, toolbar, sidebar, entry list, and details strip
 - title-bar controls for minimize, maximize/restore, and close
 - taskbar buttons that restore minimized windows and minimize the focused one
+- keyboard shortcuts for focus cycling, minimize, maximize/restore, and layout reset
+- lower-right resize grips for mouse-driven window resizing
 
 Press a few keys in VMware after the kernel screen appears:
 
@@ -110,6 +112,12 @@ Expected persistence result:
 - click the yellow title-bar button to minimize a window and confirm it stays on the taskbar
 - click the blue title-bar button to maximize and restore a window
 - click the same taskbar button again while a window is focused to minimize it
+- drag the lower-right corner of a window to resize it
+- press `F2` to cycle focus between visible windows
+- press `F3` to minimize the focused window
+- press `F4` to maximize and restore the focused window
+- press `F5` to reset the default layout
+- press `Esc` to clear focus back to the desktop
 - in Explorer, click `HOME`, `UP`, `DIR`, `FILE`, `REN`, and `DEL` to exercise file operations
 - double-click a `.txt` file in Explorer and confirm it opens in `Teddy Write`
 - press `r` inside the focused Explorer window to rename the selected entry

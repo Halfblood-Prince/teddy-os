@@ -202,9 +202,19 @@ Windowing improvements in this phase:
 - taskbar buttons now minimize the focused app and restore minimized apps
 - minimized windows stay open on the taskbar without intercepting hit-testing
 - maximized windows fill the desktop work area without overlapping the taskbar
+- lower-right resize grips now let you resize windows with the mouse
+- graphics desktop shortcuts now support focus cycling and window state changes
+
+Graphics desktop shortcuts:
+
+- `F2` cycles focus across visible windows
+- `F3` minimizes the focused window
+- `F4` maximizes or restores the focused window
+- `F5` resets the default window layout
+- `Esc` clears focus back to the desktop
 
 ## Next Step
 
-With explorer and core window states in better shape, the next recommended
-phase is input polish: keyboard shortcuts, resize handles, and a more formal
-desktop event-dispatch layer shared by all apps.
+With keyboard shortcuts and resize handles in place, the next recommended phase
+is a cleaner desktop event system: route focus, keyboard, mouse, and command
+events through shared app/window abstractions instead of ad hoc shell logic.

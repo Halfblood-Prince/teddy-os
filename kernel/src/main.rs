@@ -124,7 +124,7 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
         trace::set_boot_stage(0x83);
         while let Some(event) = interrupts::consume_keyboard_event() {
             trace::set_boot_stage(0x84);
-            if let Some(action) = shell.handle_key(event.ascii) {
+            if let Some(action) = shell.handle_key(event.scancode, event.ascii) {
                 match action {
                     graphics::GraphicsAction::Reboot => reboot_system(),
                     graphics::GraphicsAction::Shutdown => shutdown_system(),

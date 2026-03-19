@@ -103,8 +103,16 @@ struct Rect {
 struct DragState {
     active: bool,
     window: Option<WindowKind>,
+    mode: DragMode,
     offset_x: i32,
     offset_y: i32,
+    origin_rect: WindowRect,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DragMode {
+    Move,
+    Resize,
 }
 
 #[derive(Clone, Copy)]
@@ -202,8 +210,15 @@ impl GraphicsShell {
             drag_state: DragState {
                 active: false,
                 window: None,
+                mode: DragMode::Move,
                 offset_x: 0,
                 offset_y: 0,
+                origin_rect: WindowRect {
+                    x: 0,
+                    y: 0,
+                    width: 0,
+                    height: 0,
+                },
             },
             last_desktop_icon_click: None,
             last_explorer_click_tick: None,
@@ -250,8 +265,15 @@ impl GraphicsShell {
         self.drag_state = DragState {
             active: false,
             window: None,
+            mode: DragMode::Move,
             offset_x: 0,
             offset_y: 0,
+            origin_rect: WindowRect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            },
         };
         self.last_desktop_icon_click = None;
         self.last_explorer_click_tick = None;
@@ -324,7 +346,11 @@ impl GraphicsShell {
         }
     }
 
-    pub fn handle_key(&mut self, ascii: u8) -> Option<GraphicsAction> {
+    pub fn handle_key(&mut self, scancode: u8, ascii: u8) -> Option<GraphicsAction> {
+        if self.handle_global_shortcut(scancode, ascii) {
+            return None;
+        }
+
         if self.window_is_visible(WindowKind::Terminal) && self.focused_window == Some(WindowKind::Terminal) {
             let action = self.terminal.handle_key(ascii, &mut self.fs);
             if matches!(ascii, 8 | 0x20..=0x7E) {
@@ -357,6 +383,50 @@ impl GraphicsShell {
             self.redraw_hud();
         }
         None
+    }
+
+    fn handle_global_shortcut(&mut self, scancode: u8, ascii: u8) -> bool {
+        match scancode {
+            0x3C => {
+                self.focused_window = self.next_focus_window();
+                self.redraw_panels();
+                true
+            }
+            0x3D => {
+                if let Some(window) = self.focused_window {
+                    self.minimize_window(window);
+                    self.redraw_panels();
+                    true
+                } else {
+                    false
+                }
+            }
+            0x3E => {
+                if let Some(window) = self.focused_window {
+                    let old_rect = self.window_bounds(window);
+                    if self.window_is_maximized(window) {
+                        self.restore_window(window);
+                    } else {
+                        self.maximize_window(window);
+                    }
+                    self.redraw_window_move(old_rect, self.window_bounds(window));
+                    true
+                } else {
+                    false
+                }
+            }
+            0x3F => {
+                self.reset_layout();
+                self.redraw_panels();
+                true
+            }
+            _ if ascii == 27 => {
+                self.focused_window = None;
+                self.redraw_panels();
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn poll_input(&mut self) {
@@ -406,18 +476,41 @@ impl GraphicsShell {
             return MouseRedraw::Overlay;
         }
 
-        let bounds = self.window_bounds(window);
-        let max_x = self.fb.width() as i32 - bounds.width - 1;
-        let max_y = self.taskbar_y() - bounds.height - 2;
-        let next_x = clamp(state.x - self.drag_state.offset_x, 0, max_x);
-        let next_y = clamp(state.y - self.drag_state.offset_y, 20, max_y);
-
         let old_rect = self.window_bounds(window);
-        let rect = self.window_rect_mut(window);
-        rect.x = next_x;
-        rect.y = next_y;
-        let new_rect = *rect;
-        self.redraw_window_move(old_rect, new_rect);
+        let drag_mode = self.drag_state.mode;
+        let offset_x = self.drag_state.offset_x;
+        let offset_y = self.drag_state.offset_y;
+        let origin_rect = self.drag_state.origin_rect;
+        let next_rect = match drag_mode {
+            DragMode::Move => {
+                let max_x = self.fb.width() as i32 - old_rect.width - 1;
+                let max_y = self.taskbar_y() - old_rect.height - 2;
+                let next_x = clamp(state.x - offset_x, 0, max_x);
+                let next_y = clamp(state.y - offset_y, 20, max_y);
+                WindowRect {
+                    x: next_x,
+                    y: next_y,
+                    width: old_rect.width,
+                    height: old_rect.height,
+                }
+            }
+            DragMode::Resize => {
+                let min_width = self.min_window_width(window);
+                let min_height = self.min_window_height(window);
+                let max_width = self.fb.width() as i32 - origin_rect.x - 1;
+                let max_height = self.taskbar_y() - origin_rect.y - 2;
+                let next_width = clamp(origin_rect.width + (state.x - offset_x), min_width, max_width);
+                let next_height = clamp(origin_rect.height + (state.y - offset_y), min_height, max_height);
+                WindowRect {
+                    x: origin_rect.x,
+                    y: origin_rect.y,
+                    width: next_width,
+                    height: next_height,
+                }
+            }
+        };
+        *self.window_rect_mut(window) = next_rect;
+        self.redraw_window_move(old_rect, next_rect);
         MouseRedraw::None
     }
 
@@ -461,9 +554,25 @@ impl GraphicsShell {
             if !self.window_is_maximized(window) {
                 self.drag_state.active = true;
                 self.drag_state.window = Some(window);
+                self.drag_state.mode = DragMode::Move;
                 self.drag_state.offset_x = state.x - rect.x;
                 self.drag_state.offset_y = state.y - rect.y;
+                self.drag_state.origin_rect = rect;
             }
+            self.redraw_focus_change(old_focus, Some(window));
+            return MouseRedraw::None;
+        }
+
+        if let Some(window) = self.hit_resize_handle(state.x, state.y) {
+            let old_focus = self.focused_window;
+            let rect = self.window_bounds(window);
+            self.focus_window(window);
+            self.drag_state.active = true;
+            self.drag_state.window = Some(window);
+            self.drag_state.mode = DragMode::Resize;
+            self.drag_state.offset_x = state.x;
+            self.drag_state.offset_y = state.y;
+            self.drag_state.origin_rect = rect;
             self.redraw_focus_change(old_focus, Some(window));
             return MouseRedraw::None;
         }
@@ -523,6 +632,7 @@ impl GraphicsShell {
             let was_dragging = self.drag_state.active;
             self.drag_state.active = false;
             self.drag_state.window = None;
+            self.drag_state.mode = DragMode::Move;
             if was_dragging {
                 self.redraw_hud();
                 return MouseRedraw::None;
@@ -1483,6 +1593,26 @@ impl GraphicsShell {
         }
     }
 
+    fn hit_resize_handle(&self, x: i32, y: i32) -> Option<WindowKind> {
+        let window = self.hit_window(x, y)?;
+        if self.window_is_maximized(window) {
+            return None;
+        }
+        let rect = self.window_bounds(window);
+        if point_in_rect(
+            x,
+            y,
+            rect.x + rect.width - self.sx(10),
+            rect.y + rect.height - self.sy(10),
+            self.sx(8),
+            self.sy(8),
+        ) {
+            Some(window)
+        } else {
+            None
+        }
+    }
+
     fn open_window_for_icon(&mut self, icon: DesktopIcon) {
         match icon {
             DesktopIcon::Terminal => {
@@ -1689,6 +1819,28 @@ impl GraphicsShell {
         None
     }
 
+    fn next_focus_window(&self) -> Option<WindowKind> {
+        match self.focused_window {
+            Some(window) => self.next_visible_window(window).or(Some(window)),
+            None => {
+                let order = [
+                    WindowKind::Terminal,
+                    WindowKind::Explorer,
+                    WindowKind::Writer,
+                    WindowKind::Settings,
+                ];
+                let mut index = 0usize;
+                while index < order.len() {
+                    if self.window_is_visible(order[index]) {
+                        return Some(order[index]);
+                    }
+                    index += 1;
+                }
+                None
+            }
+        }
+    }
+
     fn window_is_open(&self, window: WindowKind) -> bool {
         match window {
             WindowKind::Terminal => self.terminal_open,
@@ -1738,6 +1890,24 @@ impl GraphicsShell {
         }
     }
 
+    fn min_window_width(&self, window: WindowKind) -> i32 {
+        match window {
+            WindowKind::Terminal => 220,
+            WindowKind::Explorer => 260,
+            WindowKind::Writer => 280,
+            WindowKind::Settings => 240,
+        }
+    }
+
+    fn min_window_height(&self, window: WindowKind) -> i32 {
+        match window {
+            WindowKind::Terminal => 140,
+            WindowKind::Explorer => 170,
+            WindowKind::Writer => 180,
+            WindowKind::Settings => 150,
+        }
+    }
+
     fn window_order(&self) -> [Option<WindowKind>; 4] {
         match self.focused_window {
             Some(WindowKind::Terminal) => [
@@ -1783,6 +1953,9 @@ impl GraphicsShell {
         self.fill_rect(rect.x + rect.width - self.sx(24), rect.y + self.sy(4), self.sx(5), self.sy(5), 14);
         self.fill_rect(rect.x + rect.width - self.sx(16), rect.y + self.sy(4), self.sx(5), self.sy(5), 11);
         self.fill_rect(rect.x + rect.width - self.sx(8), rect.y + self.sy(4), self.sx(5), self.sy(5), 4);
+        self.fill_rect(rect.x + rect.width - self.sx(8), rect.y + rect.height - self.sy(4), self.sx(2), self.ui_scale(), 8);
+        self.fill_rect(rect.x + rect.width - self.sx(12), rect.y + rect.height - self.sy(6), self.sx(2), self.ui_scale(), 8);
+        self.fill_rect(rect.x + rect.width - self.sx(16), rect.y + rect.height - self.sy(8), self.sx(2), self.ui_scale(), 8);
     }
 
     fn handle_explorer_action(&mut self, action: ExplorerAction) {
