@@ -38,7 +38,10 @@ $kernelElf = Join-Path (Join-Path $targetDir "x86_64-unknown-none\\$Profile") "t
 $kernelRaw = Join-Path $binDir "kernel.bin"
 $bootImg = Join-Path $isoRoot "boot.img"
 $stage2Size = 96 * 512
-$kernelSize = 512 * 512
+# Keep the raw kernel below the temporary boot stack at 0x80000.
+# The BIOS loader places the kernel at 0x20000, so the safe window is
+# 0x80000 - 0x20000 = 393216 bytes = 768 sectors.
+$kernelSize = 768 * 512
 
 Require-Command nasm
 Require-Command cargo
