@@ -55,11 +55,12 @@ _start:
 extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     let mut last_seen_second = 0u64;
     trace::set_boot_stage(1);
-    interrupts::init();
-    trace::set_boot_stage(2);
     if let Some(fb) = boot_info::framebuffer_hint(boot_info_addr) {
         trace::set_framebuffer(fb.addr(), fb.width(), fb.height(), fb.pitch(), fb.bpp());
     }
+    trace::set_boot_stage(2);
+    interrupts::init();
+    trace::set_boot_stage(3);
     let boot_info = boot_info::BootInfo::parse(boot_info_addr);
     if let Some(info) = boot_info {
         if info.graphics_mode_enabled() {
@@ -71,7 +72,7 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
             cpu::halt();
         }
     }
-    trace::set_boot_stage(3);
+    trace::set_boot_stage(4);
     let desktop = unsafe { &mut *core::ptr::addr_of_mut!(DESKTOP_SHELL) };
     trace::set_boot_stage(0x30);
     desktop.init(boot_info);
