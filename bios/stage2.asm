@@ -877,6 +877,8 @@ protected_mode_entry:
     mov esp, 0x7000
     cld
 
+    call draw_boot_marker32
+
     call enable_fpu_sse
     call setup_page_tables
 
@@ -996,12 +998,58 @@ long_mode_entry:
     mov gs, ax
     mov rsp, 0x180000
 
+    call draw_boot_marker64
+    mov rcx, 0x08000000
+.boot_delay:
+    dec rcx
+    jnz .boot_delay
+
     mov rax, 0xB8002
     mov word [rax], 0x2F4C
 
     mov rdi, BOOT_INFO_ADDR
     mov rax, KERNEL_LOAD_ADDR
     jmp rax
+
+BITS 32
+draw_boot_marker32:
+    cmp byte [boot_video_mode], 0
+    je .done
+    mov edi, [boot_framebuffer_addr]
+    test edi, edi
+    jz .done
+    movzx ebx, word [boot_framebuffer_pitch]
+    movzx edx, byte [boot_framebuffer_bpp]
+    mov esi, edi
+    mov ebp, 12
+.row_loop:
+    mov edi, esi
+    mov ecx, 96
+.col_loop:
+    cmp dl, 32
+    je .pixel32
+    cmp dl, 24
+    je .pixel24
+    mov byte [edi], 0x0F
+    inc edi
+    jmp .next
+.pixel24:
+    mov byte [edi], 0xFF
+    mov byte [edi + 1], 0xFF
+    mov byte [edi + 2], 0xFF
+    add edi, 3
+    jmp .next
+.pixel32:
+    mov dword [edi], 0x00FFFFFF
+    add edi, 4
+.next:
+    dec ecx
+    jnz .col_loop
+    add esi, ebx
+    dec ebp
+    jnz .row_loop
+.done:
+    ret
 
 BITS 16
 bios_warm_reboot:
@@ -1055,6 +1103,47 @@ starts_with:
 .out:
     pop di
     pop si
+    ret
+
+BITS 64
+draw_boot_marker64:
+    cmp byte [boot_video_mode], 0
+    je .done
+    mov edi, [boot_framebuffer_addr]
+    test edi, edi
+    jz .done
+    movzx ebx, word [boot_framebuffer_pitch]
+    movzx edx, byte [boot_framebuffer_bpp]
+    mov esi, edi
+    add esi, 256
+    mov ebp, 12
+.row_loop:
+    mov edi, esi
+    mov ecx, 96
+.col_loop:
+    cmp dl, 32
+    je .pixel32
+    cmp dl, 24
+    je .pixel24
+    mov byte [rdi], 0x0A
+    inc rdi
+    jmp .next
+.pixel24:
+    mov byte [rdi], 0x55
+    mov byte [rdi + 1], 0xFF
+    mov byte [rdi + 2], 0x55
+    add rdi, 3
+    jmp .next
+.pixel32:
+    mov dword [rdi], 0x0055FF55
+    add rdi, 4
+.next:
+    dec ecx
+    jnz .col_loop
+    add esi, ebx
+    dec ebp
+    jnz .row_loop
+.done:
     ret
 
 title_text db "TEDDY-OS", 0
