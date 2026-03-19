@@ -20,6 +20,15 @@ impl BootDisplayMode {
         }
     }
 
+    pub const fn from_dimensions(width: u16, height: u16) -> Self {
+        match (width, height) {
+            (640, 480) => Self::Mode640,
+            (800, 600) => Self::Mode800,
+            (1024, 768) => Self::Mode1024,
+            _ => Self::Mode1024,
+        }
+    }
+
     const fn code(self) -> u8 {
         match self {
             Self::Mode640 => 1,
@@ -27,32 +36,6 @@ impl BootDisplayMode {
             Self::Mode1024 => 3,
         }
     }
-
-    const fn from_code(code: u8) -> Option<Self> {
-        match code {
-            1 => Some(Self::Mode640),
-            2 => Some(Self::Mode800),
-            3 => Some(Self::Mode1024),
-            _ => None,
-        }
-    }
-}
-
-pub fn load_boot_display_mode() -> BootDisplayMode {
-    let mut sector = [0u8; 512];
-    if !storage::detect_primary_master() {
-        return BootDisplayMode::Mode1024;
-    }
-    if !storage::read_sector(BOOT_CONFIG_LBA, &mut sector) {
-        return BootDisplayMode::Mode1024;
-    }
-    if sector[..BOOT_CONFIG_SIGNATURE.len()] != BOOT_CONFIG_SIGNATURE {
-        return BootDisplayMode::Mode1024;
-    }
-    if sector[8] != BOOT_CONFIG_VERSION {
-        return BootDisplayMode::Mode1024;
-    }
-    BootDisplayMode::from_code(sector[9]).unwrap_or(BootDisplayMode::Mode1024)
 }
 
 pub fn save_boot_display_mode(mode: BootDisplayMode) -> bool {

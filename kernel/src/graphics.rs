@@ -281,7 +281,7 @@ impl GraphicsShell {
         trace::set_boot_stage(0x94);
         self.uptime_seconds = 0;
         self.accent_phase = 0;
-        self.boot_display_mode = boot_config::load_boot_display_mode();
+        self.boot_display_mode = BootDisplayMode::from_dimensions(self.fb.width(), self.fb.height());
         self.set_settings_status("Boot to desktop enabled");
         self.terminal_open = false;
         self.explorer_open = false;
