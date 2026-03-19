@@ -1,6 +1,6 @@
 use crate::storage;
 
-const BOOT_CONFIG_LBA: u32 = 8;
+const BOOT_CONFIG_LBA: u32 = 400;
 const BOOT_CONFIG_SIGNATURE: [u8; 8] = *b"TDBOOT1\0";
 const BOOT_CONFIG_VERSION: u8 = 1;
 

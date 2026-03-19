@@ -218,8 +218,13 @@ impl TerminalApp {
     fn push_file(&mut self, path: &str, fs: &FileSystem) -> Result<(), &'static str> {
         let mut buffer = [0u8; MAX_FILE_LEN];
         let len = fs.read_file_into(path, &mut buffer)?;
-        let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
-        self.push_line(text);
+        let mut line = HistoryLine::empty();
+        let mut index = 0usize;
+        while index < len {
+            line.push_byte(buffer[index]);
+            index += 1;
+        }
+        self.push_history(line);
         Ok(())
     }
 

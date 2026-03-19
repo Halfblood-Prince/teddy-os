@@ -30,11 +30,11 @@ The `kernelgfx` graphics screen should include:
 
 - a graphical Teddy-OS header
 - a bottom taskbar
-- desktop icons for `Terminal`, `Explorer`, and `Settings`
+- desktop icons for `Terminal`, `Explorer`, `Writer`, and `Settings`
 - window-like app panels with bitmap-rendered labels
 - a status strip showing uptime, last key, scancode, mouse coordinates, and button state
 - a software cursor that follows VMware mouse movement
-- draggable `Terminal`, `File Explorer`, `Teddy Write`, and `Settings` windows when you hold the left mouse button on their title bars
+- draggable `Terminal`, `File Explorer`, `Teddy Write`, `Image Viewer`, and `Settings` windows when you hold the left mouse button on their title bars
 - a richer Explorer window with a path bar, toolbar, sidebar, entry list, and details strip
 - title-bar controls for minimize, maximize/restore, and close
 - taskbar buttons that restore minimized windows and minimize the focused one
@@ -101,6 +101,8 @@ Expected persistence result:
 - press `Esc` to clear focus back to the desktop
 - in Explorer, click `HOME`, `UP`, `DIR`, `FILE`, `REN`, and `DEL` to exercise file operations
 - double-click a `.txt` file in Explorer and confirm it opens in `Teddy Write`
+- double-click `sample.timg` in Explorer and confirm it opens in `Image Viewer`
+- import a `.png`, `.jpg`, or `.svg` on the host with `python scripts/import-image.py`, place the resulting `.timg` where Teddy-OS can access it, then open it from Explorer and confirm it appears in `Image Viewer`
 - press `r` inside the focused Explorer window to rename the selected entry
 - open `Settings`, click `640`, `800`, or `1024`, reboot the VM, and confirm Teddy-OS comes back in that resolution
 - confirm the Settings window reflects the active resolution and color depth

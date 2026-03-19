@@ -9,6 +9,7 @@ pub enum ExplorerAction {
     None,
     Changed,
     OpenTextFile(NameText),
+    OpenImageFile(NameText),
 }
 
 pub struct ExplorerApp {
@@ -148,6 +149,9 @@ impl ExplorerApp {
                 if ends_with_txt(name.as_str()) {
                     self.set_status("Opening Teddy Write");
                     ExplorerAction::OpenTextFile(name)
+                } else if is_timg_file(name.as_str(), fs) {
+                    self.set_status("Opening Image Viewer");
+                    ExplorerAction::OpenImageFile(name)
                 } else {
                     let mut buffer = [0u8; MAX_FILE_LEN];
                     match fs.read_file_into(name.as_str(), &mut buffer) {
@@ -236,7 +240,7 @@ impl ExplorerApp {
     }
 
     pub fn delete_selected(&mut self, fs: &mut FileSystem) -> bool {
-        let mut name = [0u8; 12];
+        let mut name = [0u8; crate::fs::MAX_NAME_LEN];
         if let Some(name_len) = self.selected_name_into(fs, &mut name) {
             let entry_name = core::str::from_utf8(&name[..name_len]).unwrap_or("");
             match fs.remove(entry_name) {
@@ -299,7 +303,7 @@ impl ExplorerApp {
         fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes)
     }
 
-    pub fn selected_name_into(&self, fs: &FileSystem, out: &mut [u8; 12]) -> Option<usize> {
+    pub fn selected_name_into(&self, fs: &FileSystem, out: &mut [u8; crate::fs::MAX_NAME_LEN]) -> Option<usize> {
         let mut kinds = [EntryKind::File; MAX_FS_NODES];
         let mut names = [NameText::empty(); MAX_FS_NODES];
         let mut sizes = [0usize; MAX_FS_NODES];
@@ -378,4 +382,12 @@ fn sanitize(byte: u8) -> u8 {
 
 fn ends_with_txt(name: &str) -> bool {
     name.as_bytes().ends_with(b".txt")
+}
+
+fn is_timg_file(name: &str, fs: &FileSystem) -> bool {
+    let mut buffer = [0u8; MAX_FILE_LEN];
+    match fs.read_file_into(name, &mut buffer) {
+        Ok(len) => len >= 4 && buffer[..4] == *b"TIMG",
+        Err(_) => false,
+    }
 }

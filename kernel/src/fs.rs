@@ -1,13 +1,19 @@
-use crate::{storage::{self, PersistenceState}, trace};
+use crate::{
+    storage::{self, PersistenceState},
+    trace,
+};
 
 pub const MAX_FS_NODES: usize = 16;
-pub const MAX_NAME_LEN: usize = 12;
-pub const MAX_FILE_LEN: usize = 96;
-pub const MAX_PATH_LEN: usize = 58;
+pub const MAX_NAME_LEN: usize = 24;
+pub const MAX_FILE_LEN: usize = 8192;
+pub const MAX_PATH_LEN: usize = 96;
 const FS_SECTOR_SIZE: usize = 512;
 const FS_DISK_LBA_START: u32 = 1;
 const FS_SIGNATURE: [u8; 8] = *b"TEDDYFS1";
 const FS_VERSION: u8 = 1;
+const FS_NODE_META_SIZE: usize = 7 + MAX_NAME_LEN;
+const FS_NODE_RECORD_SIZE: usize = FS_NODE_META_SIZE + MAX_FILE_LEN;
+const FS_NODE_DATA_LBA_START: u32 = FS_DISK_LBA_START + 1;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
@@ -121,7 +127,7 @@ impl FsNode {
         let limit = core::cmp::min(bytes.len(), MAX_FILE_LEN);
         let mut index = 0usize;
         while index < limit {
-            self.data[self.data_len] = sanitize(bytes[index]);
+            self.data[self.data_len] = bytes[index];
             self.data_len += 1;
             index += 1;
         }
@@ -184,6 +190,19 @@ impl FileSystem {
         self.nodes[2].init_file(0, "readme.txt", "Teddy filesystem layer online.");
         self.nodes[3].init_file(1, "plan.txt", "Next: disk-backed persistence.");
         self.nodes[4].init_file(0, "notes.txt", "Terminal now uses kernel fs APIs.");
+        self.nodes[5].init_file(
+            0,
+            "sample.timg",
+            "TIMG\x08\x00\x08\x00\
+\x11\x11\x11\x11\
+\x16\x66\x66\x11\
+\x16\x33\x36\x11\
+\x16\x36\x36\x11\
+\x16\x36\x63\x11\
+\x16\x66\x66\x11\
+\x11\x11\x11\x11\
+\x11\x11\x11\x11",
+        );
         trace::set_boot_stage(0x53);
         self.refresh_cwd_path();
     }
@@ -241,7 +260,7 @@ impl FileSystem {
         let limit = core::cmp::min(bytes.len(), MAX_FILE_LEN);
         let mut index = 0usize;
         while index < limit {
-            entry.data[index] = sanitize(bytes[index]);
+            entry.data[index] = bytes[index];
             entry.data_len += 1;
             index += 1;
         }
@@ -566,32 +585,32 @@ impl FileSystem {
         }
 
         trace::set_boot_stage(0x5B);
-        let mut sector = [0u8; FS_SECTOR_SIZE];
         let mut node_index = 0usize;
         while node_index < MAX_FS_NODES {
-            let base = node_index * 128;
-            let sector_index = 1 + (base / FS_SECTOR_SIZE);
-            let offset = base % FS_SECTOR_SIZE;
-            if !storage::read_sector(FS_DISK_LBA_START + sector_index as u32, &mut sector) {
+            let base = node_index * FS_NODE_RECORD_SIZE;
+            let mut meta = [0u8; FS_NODE_META_SIZE];
+            if !read_disk_bytes(FS_NODE_DATA_LBA_START, base, &mut meta) {
                 return Err(PersistenceState::ReadError);
             }
 
-            self.nodes[node_index].used = sector[offset] != 0;
-            self.nodes[node_index].kind = if sector[offset + 1] == 1 { EntryKind::Dir } else { EntryKind::File };
-            self.nodes[node_index].parent = sector[offset + 2] as usize;
-            self.nodes[node_index].name_len = sector[offset + 3] as usize;
-            self.nodes[node_index].data_len = u16::from_le_bytes([sector[offset + 4], sector[offset + 5]]) as usize;
+            self.nodes[node_index].used = meta[0] != 0;
+            self.nodes[node_index].kind = if meta[1] == 1 { EntryKind::Dir } else { EntryKind::File };
+            self.nodes[node_index].parent = u16::from_le_bytes([meta[2], meta[3]]) as usize;
+            self.nodes[node_index].name_len = meta[4] as usize;
+            self.nodes[node_index].data_len = u16::from_le_bytes([meta[5], meta[6]]) as usize;
 
             let mut name_index = 0usize;
             while name_index < MAX_NAME_LEN {
-                self.nodes[node_index].name[name_index] = sector[offset + 6 + name_index];
+                self.nodes[node_index].name[name_index] = meta[7 + name_index];
                 name_index += 1;
             }
 
-            let mut file_index = 0usize;
-            while file_index < MAX_FILE_LEN {
-                self.nodes[node_index].data[file_index] = sector[offset + 18 + file_index];
-                file_index += 1;
+            if !read_disk_bytes(
+                FS_NODE_DATA_LBA_START,
+                base + FS_NODE_META_SIZE,
+                &mut self.nodes[node_index].data,
+            ) {
+                return Err(PersistenceState::ReadError);
             }
 
             if self.nodes[node_index].name_len > MAX_NAME_LEN || self.nodes[node_index].data_len > MAX_FILE_LEN {
@@ -621,36 +640,29 @@ impl FileSystem {
 
         let mut node_index = 0usize;
         while node_index < MAX_FS_NODES {
-            let base = node_index * 128;
-            let sector_index = 1 + (base / FS_SECTOR_SIZE);
-            let offset = base % FS_SECTOR_SIZE;
+            let base = node_index * FS_NODE_RECORD_SIZE;
             let entry = &self.nodes[node_index];
-            sector = [0u8; FS_SECTOR_SIZE];
-            if !storage::read_sector(FS_DISK_LBA_START + sector_index as u32, &mut sector) {
-                return false;
-            }
-
-            sector[offset] = if entry.used { 1 } else { 0 };
-            sector[offset + 1] = if entry.kind == EntryKind::Dir { 1 } else { 0 };
-            sector[offset + 2] = entry.parent as u8;
-            sector[offset + 3] = entry.name_len as u8;
+            let mut meta = [0u8; FS_NODE_META_SIZE];
+            meta[0] = if entry.used { 1 } else { 0 };
+            meta[1] = if entry.kind == EntryKind::Dir { 1 } else { 0 };
+            let parent = (entry.parent as u16).to_le_bytes();
+            meta[2] = parent[0];
+            meta[3] = parent[1];
+            meta[4] = entry.name_len as u8;
             let data_len = (entry.data_len as u16).to_le_bytes();
-            sector[offset + 4] = data_len[0];
-            sector[offset + 5] = data_len[1];
+            meta[5] = data_len[0];
+            meta[6] = data_len[1];
 
             let mut name_index = 0usize;
             while name_index < MAX_NAME_LEN {
-                sector[offset + 6 + name_index] = entry.name[name_index];
+                meta[7 + name_index] = entry.name[name_index];
                 name_index += 1;
             }
 
-            let mut data_index = 0usize;
-            while data_index < MAX_FILE_LEN {
-                sector[offset + 18 + data_index] = entry.data[data_index];
-                data_index += 1;
+            if !write_disk_bytes(FS_NODE_DATA_LBA_START, base, &meta) {
+                return false;
             }
-
-            if !storage::write_sector(FS_DISK_LBA_START + sector_index as u32, &sector) {
+            if !write_disk_bytes(FS_NODE_DATA_LBA_START, base + FS_NODE_META_SIZE, &entry.data) {
                 return false;
             }
             node_index += 1;
@@ -704,4 +716,51 @@ fn sanitize(byte: u8) -> u8 {
         0x20..=0x7E | b'\n' => byte,
         _ => b'?',
     }
+}
+
+fn read_disk_bytes(start_lba: u32, offset: usize, out: &mut [u8]) -> bool {
+    let mut sector = [0u8; FS_SECTOR_SIZE];
+    let mut cursor = offset;
+    let mut written = 0usize;
+    while written < out.len() {
+        let lba = start_lba + (cursor / FS_SECTOR_SIZE) as u32;
+        let sector_offset = cursor % FS_SECTOR_SIZE;
+        let take = core::cmp::min(out.len() - written, FS_SECTOR_SIZE - sector_offset);
+        if !storage::read_sector(lba, &mut sector) {
+            return false;
+        }
+        let mut index = 0usize;
+        while index < take {
+            out[written + index] = sector[sector_offset + index];
+            index += 1;
+        }
+        cursor += take;
+        written += take;
+    }
+    true
+}
+
+fn write_disk_bytes(start_lba: u32, offset: usize, input: &[u8]) -> bool {
+    let mut sector = [0u8; FS_SECTOR_SIZE];
+    let mut cursor = offset;
+    let mut read = 0usize;
+    while read < input.len() {
+        let lba = start_lba + (cursor / FS_SECTOR_SIZE) as u32;
+        let sector_offset = cursor % FS_SECTOR_SIZE;
+        let take = core::cmp::min(input.len() - read, FS_SECTOR_SIZE - sector_offset);
+        if !storage::read_sector(lba, &mut sector) {
+            sector = [0u8; FS_SECTOR_SIZE];
+        }
+        let mut index = 0usize;
+        while index < take {
+            sector[sector_offset + index] = input[read + index];
+            index += 1;
+        }
+        if !storage::write_sector(lba, &sector) {
+            return false;
+        }
+        cursor += take;
+        read += take;
+    }
+    true
 }

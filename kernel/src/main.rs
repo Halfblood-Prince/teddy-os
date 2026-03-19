@@ -11,6 +11,7 @@ mod explorer;
 mod font;
 mod fs;
 mod graphics;
+mod image_viewer;
 mod input;
 mod interrupts;
 mod port;

@@ -4,6 +4,7 @@ use crate::{
     explorer::{ExplorerAction, ExplorerApp},
     font,
     fs::FileSystem,
+    image_viewer::ImageViewerApp,
     input::{self, InputEvent, InputManager, MouseState},
     interrupts,
     terminal::{TerminalAction, TerminalApp},
@@ -36,6 +37,7 @@ pub struct GraphicsShell {
     terminal: TerminalApp,
     explorer: ExplorerApp,
     writer: WriterApp,
+    image_viewer: ImageViewerApp,
     input: InputManager,
     uptime_seconds: u64,
     accent_phase: u8,
@@ -45,22 +47,27 @@ pub struct GraphicsShell {
     terminal_window: WindowRect,
     explorer_window: WindowRect,
     writer_window: WindowRect,
+    image_window: WindowRect,
     settings_window: WindowRect,
     terminal_restore: WindowRect,
     explorer_restore: WindowRect,
     writer_restore: WindowRect,
+    image_restore: WindowRect,
     settings_restore: WindowRect,
     terminal_open: bool,
     explorer_open: bool,
     writer_open: bool,
+    image_open: bool,
     settings_open: bool,
     terminal_minimized: bool,
     explorer_minimized: bool,
     writer_minimized: bool,
+    image_minimized: bool,
     settings_minimized: bool,
     terminal_maximized: bool,
     explorer_maximized: bool,
     writer_maximized: bool,
+    image_maximized: bool,
     settings_maximized: bool,
     focused_window: Option<WindowKind>,
     selected_icon: Option<DesktopIcon>,
@@ -77,6 +84,7 @@ enum DesktopIcon {
     Terminal,
     Explorer,
     Writer,
+    Image,
     Settings,
 }
 
@@ -85,6 +93,7 @@ enum WindowKind {
     Terminal,
     Explorer,
     Writer,
+    Image,
     Settings,
 }
 
@@ -147,6 +156,7 @@ impl GraphicsShell {
             terminal: TerminalApp::empty(),
             explorer: ExplorerApp::empty(),
             writer: WriterApp::empty(),
+            image_viewer: ImageViewerApp::empty(),
             input: InputManager::new(0, 0),
             uptime_seconds: 0,
             accent_phase: 0,
@@ -170,6 +180,12 @@ impl GraphicsShell {
                 y: 38,
                 width: 176,
                 height: 108,
+            },
+            image_window: WindowRect {
+                x: 118,
+                y: 42,
+                width: 170,
+                height: 110,
             },
             settings_window: WindowRect {
                 x: 92,
@@ -195,6 +211,12 @@ impl GraphicsShell {
                 width: 176,
                 height: 108,
             },
+            image_restore: WindowRect {
+                x: 118,
+                y: 42,
+                width: 170,
+                height: 110,
+            },
             settings_restore: WindowRect {
                 x: 92,
                 y: 58,
@@ -204,14 +226,17 @@ impl GraphicsShell {
             terminal_open: false,
             explorer_open: false,
             writer_open: false,
+            image_open: false,
             settings_open: false,
             terminal_minimized: false,
             explorer_minimized: false,
             writer_minimized: false,
+            image_minimized: false,
             settings_minimized: false,
             terminal_maximized: false,
             explorer_maximized: false,
             writer_maximized: false,
+            image_maximized: false,
             settings_maximized: false,
             focused_window: None,
             selected_icon: None,
@@ -261,14 +286,17 @@ impl GraphicsShell {
         self.terminal_open = false;
         self.explorer_open = false;
         self.writer_open = false;
+        self.image_open = false;
         self.settings_open = false;
         self.terminal_minimized = false;
         self.explorer_minimized = false;
         self.writer_minimized = false;
+        self.image_minimized = false;
         self.settings_minimized = false;
         self.terminal_maximized = false;
         self.explorer_maximized = false;
         self.writer_maximized = false;
+        self.image_maximized = false;
         self.settings_maximized = false;
         self.focused_window = None;
         self.selected_icon = None;
@@ -298,6 +326,7 @@ impl GraphicsShell {
         self.explorer.init();
         trace::set_boot_stage(0x9B);
         self.writer.init();
+        self.image_viewer.init();
         trace::set_boot_stage(0x9C);
         true
     }
@@ -326,6 +355,12 @@ impl GraphicsShell {
             width: (self.sx(184) + s * 28).max(280),
             height: (self.sy(110) + s * 18).max(180),
         };
+        self.image_window = WindowRect {
+            x: clamp(self.sx(112), 12, width - self.sx(180) - 12),
+            y: clamp(self.sy(42), self.top_bar_height() + 12, taskbar_y - self.sy(112) - 8),
+            width: (self.sx(180) + s * 18).max(250),
+            height: (self.sy(112) + s * 20).max(180),
+        };
         self.settings_window = WindowRect {
             x: clamp(self.sx(92), 12, width - self.sx(164) - 12),
             y: clamp(self.sy(58), self.top_bar_height() + 12, taskbar_y - self.sy(96) - 8),
@@ -335,6 +370,7 @@ impl GraphicsShell {
         self.terminal_restore = self.terminal_window;
         self.explorer_restore = self.explorer_window;
         self.writer_restore = self.writer_window;
+        self.image_restore = self.image_window;
         self.settings_restore = self.settings_window;
     }
 
@@ -384,6 +420,13 @@ impl GraphicsShell {
         if self.window_is_visible(WindowKind::Writer) && self.focused_window == Some(WindowKind::Writer) {
             if self.writer.handle_key(ascii) {
                 self.redraw_window(WindowKind::Writer);
+            }
+            return None;
+        }
+
+        if self.window_is_visible(WindowKind::Image) && self.focused_window == Some(WindowKind::Image) {
+            if ascii != 0 {
+                self.redraw_window(WindowKind::Image);
             }
             return None;
         }
@@ -667,7 +710,7 @@ impl GraphicsShell {
     }
 
     fn redraw_panels(&mut self) {
-        let mut rects = [Rect { x: 0, y: 0, width: 0, height: 0 }; 6];
+        let mut rects = [Rect { x: 0, y: 0, width: 0, height: 0 }; 8];
         let mut count = 0usize;
         rects[count] = Rect {
             x: 0,
@@ -768,7 +811,8 @@ impl GraphicsShell {
         self.fill_background_rect(0, self.top_bar_height(), self.sidebar_width(), self.taskbar_y() - self.top_bar_height());
         self.draw_icon(self.sx(14), self.top_bar_height() + self.sy(10), DesktopIcon::Terminal, "TERMINAL");
         self.draw_icon(self.sx(14), self.top_bar_height() + self.sy(64), DesktopIcon::Explorer, "EXPLORER");
-        self.draw_icon(self.sx(14), self.top_bar_height() + self.sy(118), DesktopIcon::Settings, "SETTINGS");
+        self.draw_icon(self.sx(14), self.top_bar_height() + self.sy(118), DesktopIcon::Writer, "WRITER");
+        self.draw_icon(self.sx(14), self.top_bar_height() + self.sy(172), DesktopIcon::Settings, "SETTINGS");
     }
 
     fn draw_icon(&self, x: i32, y: i32, icon: DesktopIcon, label: &str) {
@@ -817,6 +861,13 @@ impl GraphicsShell {
                     self.draw_rect(x + self.sx(8), y + self.sy(8), self.sx(16), self.sy(16), 15);
                     self.fill_rect(x + self.sx(13), y + self.sy(13), self.sx(6), self.sy(6), 1);
                 }
+                DesktopIcon::Image => {
+                    self.fill_rect(x + self.sx(5), y + self.sy(7), self.sx(22), self.sy(18), 15);
+                    self.draw_rect(x + self.sx(5), y + self.sy(7), self.sx(22), self.sy(18), 8);
+                    self.fill_rect(x + self.sx(7), y + self.sy(9), self.sx(18), self.sy(14), 1);
+                    self.fill_rect(x + self.sx(10), y + self.sy(12), self.sx(4), self.sy(4), 14);
+                    self.fill_rect(x + self.sx(14), y + self.sy(17), self.sx(9), self.sy(4), 10);
+                }
             }
         }
 
@@ -841,6 +892,7 @@ impl GraphicsShell {
                     WindowKind::Terminal => self.draw_terminal_window(focused),
                     WindowKind::Explorer => self.draw_explorer_window(focused),
                     WindowKind::Writer => self.draw_writer_window(focused),
+                    WindowKind::Image => self.draw_image_window(focused),
                     WindowKind::Settings => self.draw_settings_window(focused),
                 }
             }
@@ -973,6 +1025,41 @@ impl GraphicsShell {
         self.draw_text(rect.x + self.sx(12), rect.y + self.sy(108), 7, "Reboot to apply");
     }
 
+    fn draw_image_window(&self, focused: bool) {
+        let rect = self.image_window;
+        let title = if focused { 3 } else { 8 };
+        self.draw_window_frame(rect, 1, title, "IMAGE VIEWER");
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), rect.height - self.sy(28), 1);
+
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), self.sy(12), 0);
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(24), 7, "FILE");
+        self.draw_text_clipped(
+            rect.x + self.sx(38),
+            rect.y + self.sy(24),
+            rect.width - self.sx(50),
+            15,
+            self.image_viewer.path(),
+        );
+
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(36), rect.width - self.sx(16), self.sy(12), 8);
+        self.draw_rect(rect.x + self.sx(8), rect.y + self.sy(36), rect.width - self.sx(16), self.sy(12), 15);
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(39), 15, "SIZE");
+        self.draw_number(rect.x + self.sx(44), rect.y + self.sy(39), self.image_viewer.width() as u32, 14);
+        self.draw_text(rect.x + self.sx(66), rect.y + self.sy(39), 15, "X");
+        self.draw_number(rect.x + self.sx(76), rect.y + self.sy(39), self.image_viewer.height() as u32, 14);
+
+        self.draw_image_surface(rect);
+
+        self.fill_rect(rect.x + self.sx(8), rect.y + rect.height - self.sy(16), rect.width - self.sx(16), self.sy(10), 0);
+        self.draw_text_clipped(
+            rect.x + self.sx(12),
+            rect.y + rect.height - self.sy(12),
+            rect.width - self.sx(24),
+            15,
+            self.image_viewer.status(),
+        );
+    }
+
     fn draw_writer_window(&self, focused: bool) {
         let rect = self.writer_window;
         let title = if focused { 3 } else { 8 };
@@ -1100,6 +1187,7 @@ impl GraphicsShell {
                     WindowKind::Terminal => self.draw_terminal_window(focused),
                     WindowKind::Explorer => self.draw_explorer_window(focused),
                     WindowKind::Writer => self.draw_writer_window(focused),
+                    WindowKind::Image => self.draw_image_window(focused),
                     WindowKind::Settings => self.draw_settings_window(focused),
                 }
             }
@@ -1302,6 +1390,11 @@ impl GraphicsShell {
                 self.selected_icon = None;
                 Some(MouseRedraw::Panels)
             }
+            WindowKind::Image => {
+                self.focus_window(WindowKind::Image);
+                self.selected_icon = None;
+                Some(MouseRedraw::Panels)
+            }
             WindowKind::Settings => self.handle_settings_click(x, y),
         }
     }
@@ -1481,7 +1574,8 @@ impl GraphicsShell {
         self.draw_taskbar_button(self.sx(64), DesktopIcon::Terminal, WindowKind::Terminal);
         self.draw_taskbar_button(self.sx(112), DesktopIcon::Explorer, WindowKind::Explorer);
         self.draw_taskbar_button(self.sx(160), DesktopIcon::Writer, WindowKind::Writer);
-        self.draw_taskbar_button(self.sx(208), DesktopIcon::Settings, WindowKind::Settings);
+        self.draw_taskbar_button(self.sx(208), DesktopIcon::Image, WindowKind::Image);
+        self.draw_taskbar_button(self.sx(256), DesktopIcon::Settings, WindowKind::Settings);
 
         self.fill_rect(self.fb.width() as i32 - self.sx(60), y, self.sx(54), button_h, 1);
         self.draw_rect(self.fb.width() as i32 - self.sx(60), y, self.sx(54), button_h, 8);
@@ -1499,6 +1593,7 @@ impl GraphicsShell {
             DesktopIcon::Terminal => "TERM",
             DesktopIcon::Explorer => "FILES",
             DesktopIcon::Writer => "WRITE",
+            DesktopIcon::Image => "IMAGE",
             DesktopIcon::Settings => "SET",
         };
         let y = self.taskbar_y() + self.sy(2);
@@ -1599,6 +1694,9 @@ impl GraphicsShell {
             return Some(DesktopIcon::Explorer);
         }
         if point_in_rect(x, y, self.sx(10), self.top_bar_height() + self.sy(114), self.sx(44), self.sy(54)) {
+            return Some(DesktopIcon::Writer);
+        }
+        if point_in_rect(x, y, self.sx(10), self.top_bar_height() + self.sy(168), self.sx(44), self.sy(54)) {
             return Some(DesktopIcon::Settings);
         }
         None
@@ -1616,6 +1714,9 @@ impl GraphicsShell {
             return Some(DesktopIcon::Writer);
         }
         if point_in_rect(x, y, self.sx(208), ty, self.sx(42), self.sy(12)) {
+            return Some(DesktopIcon::Image);
+        }
+        if point_in_rect(x, y, self.sx(256), ty, self.sx(42), self.sy(12)) {
             return Some(DesktopIcon::Settings);
         }
         None
@@ -1712,6 +1813,11 @@ impl GraphicsShell {
                 self.writer_minimized = false;
                 self.focus_window(WindowKind::Writer);
             }
+            DesktopIcon::Image => {
+                self.image_open = true;
+                self.image_minimized = false;
+                self.focus_window(WindowKind::Image);
+            }
             DesktopIcon::Settings => {
                 self.settings_open = true;
                 self.settings_minimized = false;
@@ -1743,6 +1849,13 @@ impl GraphicsShell {
                     self.restore_or_open_window(WindowKind::Writer);
                 }
             }
+            DesktopIcon::Image => {
+                if self.image_open && !self.image_minimized && self.focused_window == Some(WindowKind::Image) {
+                    self.minimize_window(WindowKind::Image);
+                } else {
+                    self.restore_or_open_window(WindowKind::Image);
+                }
+            }
             DesktopIcon::Settings => {
                 if self.settings_open && !self.settings_minimized && self.focused_window == Some(WindowKind::Settings) {
                     self.minimize_window(WindowKind::Settings);
@@ -1770,6 +1883,11 @@ impl GraphicsShell {
                 self.writer_minimized = false;
                 self.writer_maximized = false;
             }
+            WindowKind::Image => {
+                self.image_open = false;
+                self.image_minimized = false;
+                self.image_maximized = false;
+            }
             WindowKind::Settings => {
                 self.settings_open = false;
                 self.settings_minimized = false;
@@ -1786,6 +1904,7 @@ impl GraphicsShell {
             WindowKind::Terminal => self.terminal_open = true,
             WindowKind::Explorer => self.explorer_open = true,
             WindowKind::Writer => self.writer_open = true,
+            WindowKind::Image => self.image_open = true,
             WindowKind::Settings => self.settings_open = true,
         }
         self.set_window_minimized(window, false);
@@ -1843,6 +1962,7 @@ impl GraphicsShell {
             DesktopIcon::Terminal => self.terminal_open,
             DesktopIcon::Explorer => self.explorer_open,
             DesktopIcon::Writer => self.writer_open,
+            DesktopIcon::Image => self.image_open,
             DesktopIcon::Settings => self.settings_open,
         }
     }
@@ -1852,6 +1972,7 @@ impl GraphicsShell {
             WindowKind::Terminal => self.terminal_window,
             WindowKind::Explorer => self.explorer_window,
             WindowKind::Writer => self.writer_window,
+            WindowKind::Image => self.image_window,
             WindowKind::Settings => self.settings_window,
         }
     }
@@ -1861,6 +1982,7 @@ impl GraphicsShell {
             WindowKind::Terminal => &mut self.terminal_window,
             WindowKind::Explorer => &mut self.explorer_window,
             WindowKind::Writer => &mut self.writer_window,
+            WindowKind::Image => &mut self.image_window,
             WindowKind::Settings => &mut self.settings_window,
         }
     }
@@ -1870,6 +1992,7 @@ impl GraphicsShell {
             WindowKind::Terminal => &self.terminal_restore,
             WindowKind::Explorer => &self.explorer_restore,
             WindowKind::Writer => &self.writer_restore,
+            WindowKind::Image => &self.image_restore,
             WindowKind::Settings => &self.settings_restore,
         }
     }
@@ -1879,6 +2002,7 @@ impl GraphicsShell {
             WindowKind::Terminal => &mut self.terminal_restore,
             WindowKind::Explorer => &mut self.explorer_restore,
             WindowKind::Writer => &mut self.writer_restore,
+            WindowKind::Image => &mut self.image_restore,
             WindowKind::Settings => &mut self.settings_restore,
         }
     }
@@ -1909,6 +2033,7 @@ impl GraphicsShell {
                     WindowKind::Terminal,
                     WindowKind::Explorer,
                     WindowKind::Writer,
+                    WindowKind::Image,
                     WindowKind::Settings,
                 ];
                 let mut index = 0usize;
@@ -1928,6 +2053,7 @@ impl GraphicsShell {
             WindowKind::Terminal => self.terminal_open,
             WindowKind::Explorer => self.explorer_open,
             WindowKind::Writer => self.writer_open,
+            WindowKind::Image => self.image_open,
             WindowKind::Settings => self.settings_open,
         }
     }
@@ -1941,6 +2067,7 @@ impl GraphicsShell {
             WindowKind::Terminal => self.terminal_minimized,
             WindowKind::Explorer => self.explorer_minimized,
             WindowKind::Writer => self.writer_minimized,
+            WindowKind::Image => self.image_minimized,
             WindowKind::Settings => self.settings_minimized,
         }
     }
@@ -1950,6 +2077,7 @@ impl GraphicsShell {
             WindowKind::Terminal => self.terminal_maximized,
             WindowKind::Explorer => self.explorer_maximized,
             WindowKind::Writer => self.writer_maximized,
+            WindowKind::Image => self.image_maximized,
             WindowKind::Settings => self.settings_maximized,
         }
     }
@@ -1959,6 +2087,7 @@ impl GraphicsShell {
             WindowKind::Terminal => self.terminal_minimized = value,
             WindowKind::Explorer => self.explorer_minimized = value,
             WindowKind::Writer => self.writer_minimized = value,
+            WindowKind::Image => self.image_minimized = value,
             WindowKind::Settings => self.settings_minimized = value,
         }
     }
@@ -1968,6 +2097,7 @@ impl GraphicsShell {
             WindowKind::Terminal => self.terminal_maximized = value,
             WindowKind::Explorer => self.explorer_maximized = value,
             WindowKind::Writer => self.writer_maximized = value,
+            WindowKind::Image => self.image_maximized = value,
             WindowKind::Settings => self.settings_maximized = value,
         }
     }
@@ -1977,6 +2107,7 @@ impl GraphicsShell {
             WindowKind::Terminal => 220,
             WindowKind::Explorer => 260,
             WindowKind::Writer => 280,
+            WindowKind::Image => 250,
             WindowKind::Settings => 240,
         }
     }
@@ -1986,25 +2117,36 @@ impl GraphicsShell {
             WindowKind::Terminal => 140,
             WindowKind::Explorer => 170,
             WindowKind::Writer => 180,
+            WindowKind::Image => 180,
             WindowKind::Settings => 150,
         }
     }
 
-    fn window_order(&self) -> [Option<WindowKind>; 4] {
+    fn window_order(&self) -> [Option<WindowKind>; 5] {
         match self.focused_window {
             Some(WindowKind::Terminal) => [
                 Some(WindowKind::Terminal),
                 Some(WindowKind::Explorer),
                 Some(WindowKind::Writer),
+                Some(WindowKind::Image),
                 Some(WindowKind::Settings),
             ],
             Some(WindowKind::Explorer) => [
                 Some(WindowKind::Explorer),
                 Some(WindowKind::Writer),
+                Some(WindowKind::Image),
                 Some(WindowKind::Settings),
                 Some(WindowKind::Terminal),
             ],
             Some(WindowKind::Writer) => [
+                Some(WindowKind::Writer),
+                Some(WindowKind::Image),
+                Some(WindowKind::Explorer),
+                Some(WindowKind::Settings),
+                Some(WindowKind::Terminal),
+            ],
+            Some(WindowKind::Image) => [
+                Some(WindowKind::Image),
                 Some(WindowKind::Writer),
                 Some(WindowKind::Explorer),
                 Some(WindowKind::Settings),
@@ -2012,12 +2154,14 @@ impl GraphicsShell {
             ],
             Some(WindowKind::Settings) => [
                 Some(WindowKind::Settings),
+                Some(WindowKind::Image),
                 Some(WindowKind::Writer),
                 Some(WindowKind::Explorer),
                 Some(WindowKind::Terminal),
             ],
             None => [
                 Some(WindowKind::Settings),
+                Some(WindowKind::Image),
                 Some(WindowKind::Writer),
                 Some(WindowKind::Explorer),
                 Some(WindowKind::Terminal),
@@ -2048,43 +2192,117 @@ impl GraphicsShell {
                 self.open_writer_for_name(name.as_str());
                 self.redraw_panels();
             }
+            ExplorerAction::OpenImageFile(name) => {
+                self.open_image_for_name(name.as_str());
+                self.redraw_panels();
+            }
         }
     }
 
     fn open_writer_for_name(&mut self, name: &str) {
-        let mut path = [0u8; 72];
-        let cwd = self.fs.cwd_path().as_bytes();
-        let file = name.as_bytes();
-        let mut len = 0usize;
-
-        if cwd == b"/" {
-            path[len] = b'/';
-            len += 1;
-        } else {
-            let mut index = 0usize;
-            while index < cwd.len() && len < path.len() {
-                path[len] = cwd[index];
-                len += 1;
-                index += 1;
-            }
-            if len < path.len() && path[len - 1] != b'/' {
-                path[len] = b'/';
-                len += 1;
-            }
-        }
-
-        let mut index = 0usize;
-        while index < file.len() && len < path.len() {
-            path[len] = file[index];
-            len += 1;
-            index += 1;
-        }
-
+        let mut path = [0u8; 96];
+        let len = self.compose_child_path(name, &mut path);
         let full_path = core::str::from_utf8(&path[..len]).unwrap_or("");
         if self.writer.open(full_path, &self.fs) {
             self.writer_open = true;
             self.writer_minimized = false;
             self.focus_window(WindowKind::Writer);
+        }
+    }
+
+    fn open_image_for_name(&mut self, name: &str) {
+        let mut path = [0u8; 96];
+        let len = self.compose_child_path(name, &mut path);
+        let full_path = core::str::from_utf8(&path[..len]).unwrap_or("");
+        self.image_open = true;
+        self.image_minimized = false;
+        self.image_viewer.open(full_path, &self.fs);
+        self.focus_window(WindowKind::Image);
+    }
+
+    fn compose_child_path(&self, name: &str, out: &mut [u8; 96]) -> usize {
+        let cwd = self.fs.cwd_path().as_bytes();
+        let file = name.as_bytes();
+        let mut len = 0usize;
+
+        if cwd == b"/" {
+            out[len] = b'/';
+            len += 1;
+        } else {
+            let mut index = 0usize;
+            while index < cwd.len() && len < out.len() {
+                out[len] = cwd[index];
+                len += 1;
+                index += 1;
+            }
+            if len < out.len() && len > 0 && out[len - 1] != b'/' {
+                out[len] = b'/';
+                len += 1;
+            }
+        }
+
+        let mut index = 0usize;
+        while index < file.len() && len < out.len() {
+            out[len] = file[index];
+            len += 1;
+            index += 1;
+        }
+
+        len
+    }
+
+    fn draw_image_surface(&self, rect: WindowRect) {
+        let surface = Rect {
+            x: rect.x + self.sx(8),
+            y: rect.y + self.sy(52),
+            width: rect.width - self.sx(16),
+            height: rect.height - self.sy(74),
+        };
+        self.fill_rect(surface.x, surface.y, surface.width, surface.height, 0);
+        self.draw_rect(surface.x, surface.y, surface.width, surface.height, 8);
+
+        let image_width = self.image_viewer.width();
+        let image_height = self.image_viewer.height();
+        if image_width == 0 || image_height == 0 {
+            self.draw_text_clipped(
+                surface.x + self.sx(8),
+                surface.y + self.sy(8),
+                surface.width - self.sx(16),
+                7,
+                "No image loaded",
+            );
+            return;
+        }
+
+        let max_width = (surface.width - self.sx(8)).max(1) as usize;
+        let max_height = (surface.height - self.sy(8)).max(1) as usize;
+        let scale_x = max_width / image_width;
+        let scale_y = max_height / image_height;
+        let mut scale = core::cmp::min(scale_x, scale_y) as i32;
+        if scale <= 0 {
+            scale = 1;
+        }
+
+        let draw_width = image_width as i32 * scale;
+        let draw_height = image_height as i32 * scale;
+        let origin_x = surface.x + ((surface.width - draw_width) / 2);
+        let origin_y = surface.y + ((surface.height - draw_height) / 2);
+
+        let mut y = 0usize;
+        while y < image_height {
+            let mut x = 0usize;
+            while x < image_width {
+                let color = self.image_viewer.pixel(x, y);
+                self.fill_rect(
+                    origin_x + x as i32 * scale,
+                    origin_y + y as i32 * scale,
+                    scale,
+                    scale,
+                    color,
+                );
+                x += 1;
+            }
+            y += 1;
         }
     }
 
@@ -2467,26 +2685,31 @@ fn combine_redraw(current: MouseRedraw, next: MouseRedraw) -> MouseRedraw {
 }
 
 fn icon_asset(icon: DesktopIcon) -> IconAsset {
-        match icon {
-            DesktopIcon::Terminal => IconAsset {
-                width: generated_icons::TERMINAL_ICON_WIDTH,
-                height: generated_icons::TERMINAL_ICON_HEIGHT,
-                pixels: &generated_icons::TERMINAL_ICON_PIXELS,
-            },
-            DesktopIcon::Explorer => IconAsset {
-                width: generated_icons::EXPLORER_ICON_WIDTH,
-                height: generated_icons::EXPLORER_ICON_HEIGHT,
-                pixels: &generated_icons::EXPLORER_ICON_PIXELS,
-            },
-            DesktopIcon::Writer => IconAsset {
-                width: generated_icons::WRITER_ICON_WIDTH,
-                height: generated_icons::WRITER_ICON_HEIGHT,
-                pixels: &generated_icons::WRITER_ICON_PIXELS,
-            },
-            DesktopIcon::Settings => IconAsset {
-                width: generated_icons::SETTINGS_ICON_WIDTH,
-                height: generated_icons::SETTINGS_ICON_HEIGHT,
-                pixels: &generated_icons::SETTINGS_ICON_PIXELS,
+    match icon {
+        DesktopIcon::Terminal => IconAsset {
+            width: generated_icons::TERMINAL_ICON_WIDTH,
+            height: generated_icons::TERMINAL_ICON_HEIGHT,
+            pixels: &generated_icons::TERMINAL_ICON_PIXELS,
+        },
+        DesktopIcon::Explorer => IconAsset {
+            width: generated_icons::EXPLORER_ICON_WIDTH,
+            height: generated_icons::EXPLORER_ICON_HEIGHT,
+            pixels: &generated_icons::EXPLORER_ICON_PIXELS,
+        },
+        DesktopIcon::Writer => IconAsset {
+            width: generated_icons::WRITER_ICON_WIDTH,
+            height: generated_icons::WRITER_ICON_HEIGHT,
+            pixels: &generated_icons::WRITER_ICON_PIXELS,
+        },
+        DesktopIcon::Image => IconAsset {
+            width: 0,
+            height: 0,
+            pixels: &[],
+        },
+        DesktopIcon::Settings => IconAsset {
+            width: generated_icons::SETTINGS_ICON_WIDTH,
+            height: generated_icons::SETTINGS_ICON_HEIGHT,
+            pixels: &generated_icons::SETTINGS_ICON_PIXELS,
         },
     }
 }

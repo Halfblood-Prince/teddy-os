@@ -83,12 +83,12 @@ The current kernel desktop should show:
 
 - a framebuffer graphics desktop
 - a graphical top bar and taskbar
-- desktop icons for `Terminal`, `Explorer`, and `Settings`
+- desktop icons for `Terminal`, `Explorer`, `Writer`, and `Settings`
 - window-like GUI apps rendered by the kernel
 - bitmap text drawn by the new graphics layer
 - a status panel with uptime, keyboard state, mouse coordinates, and button state
 - a software mouse cursor driven by PS/2 IRQ12 input
-- draggable `Terminal`, `File Explorer`, and `Settings` windows
+- draggable `Terminal`, `File Explorer`, `Teddy Write`, `Image Viewer`, and `Settings` windows
 
 Graphics boot modes:
 
@@ -164,12 +164,33 @@ Updated Explorer controls:
 
 - `j` and `k` move the selection
 - `Enter` opens folders or opens `.txt` files in Teddy Write
+- `Enter` opens Teddy image files in Image Viewer
 - `b` goes to the parent directory
 - `h` returns to `/`
 - `n` creates a new folder
 - `t` creates a new file
 - `r` renames the selected entry
 - `x` deletes the selected entry
+
+Image support in this phase:
+
+- Teddy-OS now has a native runtime image format named `.timg`
+- the new Image Viewer app opens `.timg` files from Explorer
+- the seed filesystem now includes `sample.timg` so the viewer is testable immediately
+- host-side imports from `.png`, `.jpg`, `.jpeg`, and `.svg` are handled by `scripts/import-image.py`
+- `.svg` import uses a local headless Edge or Chrome install to rasterize before conversion
+
+Example image import:
+
+```powershell
+python scripts/import-image.py .\my-image.png -o .\my-image.timg
+python scripts/import-image.py .\logo.svg -o .\logo.timg --max-width 128 --max-height 96
+```
+
+Current image limitation:
+
+- Teddy-OS does not decode PNG, JPEG, or SVG directly inside the kernel yet
+- those formats are converted on the host into `.timg`, which the OS can then view reliably at runtime
 
 Windowing improvements in this phase:
 
