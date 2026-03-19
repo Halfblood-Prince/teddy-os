@@ -842,6 +842,7 @@ impl GraphicsShell {
         let title = if focused { 3 } else { 8 };
         let pad = self.sx(8);
         let line_step = self.sy(10);
+        let body_width = rect.width - self.sx(24);
         self.draw_window_frame(rect, 1, title, "TERMINAL");
         self.fill_rect(rect.x + pad, rect.y + self.sy(20), rect.width - pad * 2, rect.height - self.sy(28), 0);
         self.fill_rect(rect.x + pad, rect.y + self.sy(20), rect.width - pad * 2, self.sy(8), 1);
@@ -852,9 +853,10 @@ impl GraphicsShell {
         while line < TERMINAL_VIEW_LINES {
             let history_index = start + line;
             if history_index < self.terminal.history_len() {
-                self.draw_text(
+                self.draw_text_clipped(
                     rect.x + self.sx(12),
                     rect.y + self.sy(36) + (line as i32 * line_step),
+                    body_width,
                     15,
                     self.terminal.history_line(history_index),
                 );
@@ -863,20 +865,19 @@ impl GraphicsShell {
         }
 
         let cwd = self.terminal.cwd(&self.fs);
-        let text_step = self.text_step();
-        self.draw_text(rect.x + self.sx(12), rect.y + rect.height - self.sy(16), 15, cwd);
-        self.draw_text(rect.x + self.sx(12) + (cwd.len() as i32 * text_step), rect.y + rect.height - self.sy(16), 15, " $ ");
-        self.draw_text(
-            rect.x + self.sx(30) + (cwd.len() as i32 * text_step),
+        let mut prompt = [b' '; 120];
+        let mut prompt_len = 0usize;
+        prompt_len += copy_bytes(&mut prompt, prompt_len, cwd.as_bytes());
+        prompt_len += copy_bytes(&mut prompt, prompt_len, b" $ ");
+        prompt_len += copy_bytes(&mut prompt, prompt_len, self.terminal.input().as_bytes());
+        prompt_len += copy_bytes(&mut prompt, prompt_len, b"_");
+        let prompt_text = core::str::from_utf8(&prompt[..prompt_len]).unwrap_or("");
+        self.draw_text_clipped(
+            rect.x + self.sx(12),
             rect.y + rect.height - self.sy(16),
+            body_width,
             15,
-            self.terminal.input(),
-        );
-        self.draw_text(
-            rect.x + self.sx(30) + (cwd.len() as i32 * text_step) + (self.terminal.input().len() as i32 * text_step),
-            rect.y + rect.height - self.sy(16),
-            10,
-            "_",
+            prompt_text,
         );
     }
 
@@ -955,7 +956,13 @@ impl GraphicsShell {
         self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), rect.height - self.sy(28), 0);
 
         self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), self.sy(12), 1);
-        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(24), 15, self.writer.path());
+        self.draw_text_clipped(
+            rect.x + self.sx(12),
+            rect.y + self.sy(24),
+            rect.width - self.sx(84),
+            15,
+            self.writer.path(),
+        );
         self.draw_text(
             rect.x + rect.width - self.sx(70),
             rect.y + self.sy(24),
@@ -971,7 +978,13 @@ impl GraphicsShell {
         self.draw_writer_text(rect);
 
         self.fill_rect(rect.x + self.sx(8), rect.y + rect.height - self.sy(16), rect.width - self.sx(16), self.sy(10), 1);
-        self.draw_text(rect.x + self.sx(12), rect.y + rect.height - self.sy(12), 15, self.writer.status());
+        self.draw_text_clipped(
+            rect.x + self.sx(12),
+            rect.y + rect.height - self.sy(12),
+            rect.width - self.sx(24),
+            15,
+            self.writer.status(),
+        );
     }
 
     fn draw_explorer_toolbar(&self, rect: WindowRect) {
@@ -1088,25 +1101,19 @@ impl GraphicsShell {
         let rect = self.terminal_window;
         let pad = self.sx(8);
         let baseline = rect.y + rect.height - self.sy(16);
-        let text_step = self.text_step();
+        let body_width = rect.width - self.sx(24);
         self.restore_cursor_backing();
         self.fill_rect(rect.x + pad, rect.y + rect.height - self.sy(22), rect.width - pad * 2, self.sy(16), 0);
 
         let cwd = self.terminal.cwd(&self.fs);
-        self.draw_text(rect.x + self.sx(12), baseline, 15, cwd);
-        self.draw_text(rect.x + self.sx(12) + (cwd.len() as i32 * text_step), baseline, 15, " $ ");
-        self.draw_text(
-            rect.x + self.sx(30) + (cwd.len() as i32 * text_step),
-            baseline,
-            15,
-            self.terminal.input(),
-        );
-        self.draw_text(
-            rect.x + self.sx(30) + (cwd.len() as i32 * text_step) + (self.terminal.input().len() as i32 * text_step),
-            baseline,
-            10,
-            "_",
-        );
+        let mut prompt = [b' '; 120];
+        let mut prompt_len = 0usize;
+        prompt_len += copy_bytes(&mut prompt, prompt_len, cwd.as_bytes());
+        prompt_len += copy_bytes(&mut prompt, prompt_len, b" $ ");
+        prompt_len += copy_bytes(&mut prompt, prompt_len, self.terminal.input().as_bytes());
+        prompt_len += copy_bytes(&mut prompt, prompt_len, b"_");
+        let prompt_text = core::str::from_utf8(&prompt[..prompt_len]).unwrap_or("");
+        self.draw_text_clipped(rect.x + self.sx(12), baseline, body_width, 15, prompt_text);
         self.save_cursor_backing(self.input.mouse_state());
         self.draw_cursor();
     }
@@ -2492,6 +2499,15 @@ fn format_small_decimal(mut value: usize, buffer: &mut [u8; 10]) -> usize {
         index += 1;
     }
     len
+}
+
+fn copy_bytes(dest: &mut [u8], start: usize, src: &[u8]) -> usize {
+    let mut copied = 0usize;
+    while start + copied < dest.len() && copied < src.len() {
+        dest[start + copied] = src[copied];
+        copied += 1;
+    }
+    copied
 }
 
 fn glyph_for(byte: u8) -> [u8; 7] {
