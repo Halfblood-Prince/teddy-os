@@ -11,10 +11,10 @@ ORG 0x8000
 %define BOOT_CONFIG_SEG  0x1A00
 %define KERNEL_LOAD_ADDR 0x20000
 %define KERNEL_LOAD_SEG  0x2000
-; The floppy image can hold at most 2783 kernel sectors after boot + stage 2.
-; We reserve a smaller round-number window here for headroom and keep the
-; temporary long-mode stack above it.
-%define KERNEL_SECTORS   2048
+; The real-mode loader advances ES by 0x20 paragraphs per sector read.
+; Starting from KERNEL_LOAD_SEG = 0x2000, the largest no-wrap window is 1792
+; sectors; beyond that ES would wrap and overwrite the start of the kernel.
+%define KERNEL_SECTORS   1792
 %define KERNEL_LBA_START (1 + STAGE2_SECTORS)
 %define BOOT_CONFIG_LBA  400
 %define MODE13_FRAMEBUFFER 0x000A0000

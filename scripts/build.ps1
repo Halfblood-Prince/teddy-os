@@ -38,10 +38,11 @@ $kernelElf = Join-Path (Join-Path $targetDir "x86_64-unknown-none\\$Profile") "t
 $kernelRaw = Join-Path $binDir "kernel.bin"
 $bootImg = Join-Path $isoRoot "boot.img"
 $stage2Size = 96 * 512
-# The 1.44 MB boot image leaves 2783 sectors for the kernel after boot + stage 2.
-# We reserve a 2048-sector (1 MiB) kernel window for comfortable headroom while
-# staying below both the disk-image limit and the temporary boot stack address.
-$kernelSize = 2048 * 512
+# The floppy image leaves more room than the real-mode loader can actually use.
+# Stage 2 advances ES per sector starting from 0x2000, so 1792 sectors is the
+# largest kernel window that does not wrap the 16-bit segment and overwrite
+# earlier kernel bytes during loading.
+$kernelSize = 1792 * 512
 
 Require-Command nasm
 Require-Command cargo
