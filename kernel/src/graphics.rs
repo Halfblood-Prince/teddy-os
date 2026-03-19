@@ -887,7 +887,13 @@ impl GraphicsShell {
         self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), self.sy(12), 1);
         self.draw_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), self.sy(12), 8);
         self.draw_text(rect.x + self.sx(12), rect.y + self.sy(24), 7, "PATH");
-        self.draw_text(rect.x + self.sx(40), rect.y + self.sy(24), 15, self.fs.cwd_path());
+        self.draw_text_clipped(
+            rect.x + self.sx(40),
+            rect.y + self.sy(24),
+            rect.width - self.sx(52),
+            15,
+            self.fs.cwd_path(),
+        );
 
         self.draw_explorer_toolbar(rect);
 
@@ -905,7 +911,13 @@ impl GraphicsShell {
         self.draw_explorer_entries(rect);
         self.draw_explorer_details(rect);
         self.fill_rect(rect.x + self.sx(8), rect.y + rect.height - self.sy(16), rect.width - self.sx(16), self.sy(10), 1);
-        self.draw_text(rect.x + self.sx(12), rect.y + rect.height - self.sy(12), 15, self.explorer.status());
+        self.draw_text_clipped(
+            rect.x + self.sx(12),
+            rect.y + rect.height - self.sy(12),
+            rect.width - self.sx(24),
+            15,
+            self.explorer.status(),
+        );
     }
 
     fn draw_settings_window(&self, focused: bool) {
@@ -1162,7 +1174,7 @@ impl GraphicsShell {
             self.draw_rect(x, y, self.sx(9), self.sy(10), 8);
             self.fill_rect(x + self.sx(5), y, self.sx(4), self.sy(3), 7);
         }
-        self.draw_text(x + self.sx(14), y + s, 15, name);
+        self.draw_text_clipped(x + self.sx(14), y + s, self.sx(110), 15, name);
     }
 
     fn draw_explorer_entries(&self, rect: WindowRect) {
@@ -1217,11 +1229,23 @@ impl GraphicsShell {
         let mut sizes = [0usize; crate::fs::MAX_FS_NODES];
         let len = self.fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
         if self.explorer.selected_index() >= len {
-            self.draw_text(rect.x + self.sx(62), panel_y + self.sy(4), 7, "Select a file or folder");
+            self.draw_text_clipped(
+                rect.x + self.sx(62),
+                panel_y + self.sy(4),
+                rect.width - self.sx(74),
+                7,
+                "Select a file or folder",
+            );
             return;
         }
 
-        self.draw_text(rect.x + self.sx(62), panel_y + self.sy(4), 15, names[self.explorer.selected_index()].as_str());
+        self.draw_text_clipped(
+            rect.x + self.sx(62),
+            panel_y + self.sy(4),
+            self.sx(82),
+            15,
+            names[self.explorer.selected_index()].as_str(),
+        );
         self.draw_text(
             rect.x + self.sx(150),
             panel_y + self.sy(4),
@@ -2098,6 +2122,43 @@ impl GraphicsShell {
             self.draw_char(x + (index as i32 * step), y, bytes[index], color);
             index += 1;
         }
+    }
+
+    fn draw_text_clipped(&self, x: i32, y: i32, width: i32, color: u8, text: &str) {
+        if width <= 0 {
+            return;
+        }
+
+        let step = self.text_step();
+        let max_chars = (width / step).max(0) as usize;
+        if max_chars == 0 {
+            return;
+        }
+
+        let bytes = text.as_bytes();
+        if bytes.len() <= max_chars {
+            self.draw_text(x, y, color, text);
+            return;
+        }
+
+        if max_chars <= 3 {
+            let mut index = 0usize;
+            while index < max_chars {
+                self.draw_char(x + (index as i32 * step), y, b'.', color);
+                index += 1;
+            }
+            return;
+        }
+
+        let visible = max_chars - 3;
+        let mut index = 0usize;
+        while index < visible {
+            self.draw_char(x + (index as i32 * step), y, bytes[index], color);
+            index += 1;
+        }
+        self.draw_char(x + (visible as i32 * step), y, b'.', color);
+        self.draw_char(x + ((visible + 1) as i32 * step), y, b'.', color);
+        self.draw_char(x + ((visible + 2) as i32 * step), y, b'.', color);
     }
 
     fn draw_char(&self, x: i32, y: i32, byte: u8, color: u8) {
