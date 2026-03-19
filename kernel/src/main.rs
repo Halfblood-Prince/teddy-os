@@ -7,6 +7,7 @@ use core::panic::PanicInfo;
 mod boot_info;
 mod cpu;
 mod explorer;
+mod font;
 mod fs;
 mod graphics;
 mod input;
