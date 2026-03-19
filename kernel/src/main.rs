@@ -35,6 +35,7 @@ _start:
     mov rbx, 0xb8000
     mov ax, 0x2f4b
     mov [rbx], ax
+    mov rsi, rdi
     mov ax, 0x10
     mov ds, ax
     mov es, ax
@@ -43,10 +44,31 @@ _start:
     mov gs, ax
     mov rsp, {stack_top}
     and rsp, -16
-    call kernel_main
+    cmp byte ptr [rsi + 16], 0
+    je 1f
+    mov eax, dword ptr [rsi + 18]
+    test eax, eax
+    jz 1f
+    mov rbx, rax
+    movzx ecx, byte ptr [rsi + 17]
+    cmp cl, 32
+    je 2f
+    cmp cl, 24
+    je 3f
+    mov byte ptr [rbx], 0x0c
+    jmp 1f
+2:
+    mov dword ptr [rbx], 0x000055ff
+    jmp 1f
+3:
+    mov byte ptr [rbx], 0xff
+    mov byte ptr [rbx + 1], 0x55
+    mov byte ptr [rbx + 2], 0x00
 1:
+    call kernel_main
+4:
     pause
-    jmp 1b
+    jmp 4b
 "#,
     stack_top = const KERNEL_STACK_TOP
 );
