@@ -57,10 +57,18 @@ extern "C" fn kernel_main(boot_info_addr: usize) -> ! {
     trace::set_boot_stage(1);
     interrupts::init();
     trace::set_boot_stage(2);
+    if let Some(fb) = boot_info::framebuffer_hint(boot_info_addr) {
+        trace::set_framebuffer(fb.addr(), fb.width(), fb.height(), fb.pitch(), fb.bpp());
+    }
     let boot_info = boot_info::BootInfo::parse(boot_info_addr);
     if let Some(info) = boot_info {
         if info.graphics_mode_enabled() {
             run_graphics_shell(info);
+        }
+    } else if boot_info::framebuffer_hint(boot_info_addr).is_some() {
+        trace::render_graphics_panic("TEDDY-OS KERNEL PANIC", "BOOT INFO INVALID", "CHECK STAGE2 HANDOFF");
+        loop {
+            cpu::halt();
         }
     }
     trace::set_boot_stage(3);
@@ -104,6 +112,7 @@ fn run_graphics_shell(boot_info: boot_info::BootInfo) -> ! {
     let shell = unsafe { &mut *core::ptr::addr_of_mut!(GRAPHICS_SHELL) };
     trace::set_boot_stage(0x74);
     if !shell.init(boot_info) {
+        trace::render_graphics_panic("TEDDY-OS KERNEL PANIC", "GRAPHICS INIT FAILED", "CHECK BOOT STAGE");
         loop {
             cpu::halt();
         }

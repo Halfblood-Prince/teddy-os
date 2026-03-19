@@ -132,3 +132,27 @@ impl FramebufferInfo {
         self.bpp
     }
 }
+
+pub fn framebuffer_hint(addr: usize) -> Option<FramebufferInfo> {
+    let raw = unsafe { &*(addr as *const RawBootInfo) };
+    if raw.video_mode == 0 || raw.framebuffer_addr == 0 {
+        return None;
+    }
+
+    match raw.framebuffer_bpp {
+        8 | 24 | 32 => {}
+        _ => return None,
+    }
+
+    if raw.framebuffer_width == 0 || raw.framebuffer_height == 0 || raw.framebuffer_pitch == 0 {
+        return None;
+    }
+
+    Some(FramebufferInfo {
+        addr: raw.framebuffer_addr,
+        width: raw.framebuffer_width,
+        height: raw.framebuffer_height,
+        pitch: raw.framebuffer_pitch,
+        bpp: raw.framebuffer_bpp,
+    })
+}
