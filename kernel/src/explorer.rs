@@ -17,6 +17,8 @@ pub struct ExplorerApp {
     status_len: usize,
     created_dirs: u8,
     created_files: u8,
+    renamed_dirs: u8,
+    renamed_files: u8,
 }
 
 impl ExplorerApp {
@@ -27,6 +29,8 @@ impl ExplorerApp {
             status_len: 0,
             created_dirs: 0,
             created_files: 0,
+            renamed_dirs: 0,
+            renamed_files: 0,
         }
     }
 
@@ -38,8 +42,10 @@ impl ExplorerApp {
         self.status_len = 0;
         self.created_dirs = 0;
         self.created_files = 0;
+        self.renamed_dirs = 0;
+        self.renamed_files = 0;
         trace::set_boot_stage(0xA2);
-        self.set_status("J/K select  Enter open  B back  N dir  T file  X delete");
+        self.set_status("J/K select  Enter open  B up  H home  N/T make  R rename");
         trace::set_boot_stage(0xA3);
     }
 
@@ -65,6 +71,13 @@ impl ExplorerApp {
                     ExplorerAction::None
                 }
             }
+            b'h' => {
+                if self.go_home(fs) {
+                    ExplorerAction::Changed
+                } else {
+                    ExplorerAction::None
+                }
+            }
             b'n' => {
                 if self.create_folder(fs) {
                     ExplorerAction::Changed
@@ -81,6 +94,13 @@ impl ExplorerApp {
             }
             b'x' => {
                 if self.delete_selected(fs) {
+                    ExplorerAction::Changed
+                } else {
+                    ExplorerAction::None
+                }
+            }
+            b'r' => {
+                if self.rename_selected(fs) {
                     ExplorerAction::Changed
                 } else {
                     ExplorerAction::None
@@ -236,6 +256,34 @@ impl ExplorerApp {
         }
     }
 
+    pub fn rename_selected(&mut self, fs: &mut FileSystem) -> bool {
+        let mut kinds = [EntryKind::File; MAX_FS_NODES];
+        let mut names = [NameText::empty(); MAX_FS_NODES];
+        let mut sizes = [0usize; MAX_FS_NODES];
+        let len = fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
+        if self.selection >= len {
+            self.set_status("No entry selected");
+            return false;
+        }
+
+        let old_name = names[self.selection].as_str();
+        let new_name = match kinds[self.selection] {
+            EntryKind::Dir => next_rename("folder", &mut self.renamed_dirs),
+            EntryKind::File => next_rename("file", &mut self.renamed_files),
+        };
+
+        match fs.rename(old_name, new_name) {
+            Ok(()) => {
+                self.set_status("Entry renamed");
+                true
+            }
+            Err(message) => {
+                self.set_status(message);
+                false
+            }
+        }
+    }
+
     pub fn selected_index(&self) -> usize {
         self.selection
     }
@@ -304,6 +352,20 @@ fn next_name(prefix: &str, counter: &mut u8) -> &'static str {
         ("file", 2) => "file2.txt",
         ("file", 3) => "file3.txt",
         _ => "file4.txt",
+    }
+}
+
+fn next_rename(prefix: &str, counter: &mut u8) -> &'static str {
+    *counter = counter.wrapping_add(1);
+    match (prefix, *counter % 4) {
+        ("folder", 1) => "ren1",
+        ("folder", 2) => "ren2",
+        ("folder", 3) => "ren3",
+        ("folder", _) => "ren4",
+        ("file", 1) => "edit1.txt",
+        ("file", 2) => "edit2.txt",
+        ("file", 3) => "edit3.txt",
+        _ => "edit4.txt",
     }
 }
 

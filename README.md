@@ -177,8 +177,27 @@ Custom desktop icons:
 - rebuild after adding an icon; the kernel build converts it automatically
 - if an icon file is missing, Teddy-OS uses its built-in fallback icon
 
+Explorer improvements in this phase:
+
+- a clearer path bar and richer explorer layout on `kernelgfx*`
+- toolbar actions for `HOME`, `UP`, `DIR`, `FILE`, `REN`, and `DEL`
+- rename support in the shared filesystem layer and Explorer app
+- a details strip that shows the selected entry type and size
+- explorer rows now scale with the window height instead of being capped to four
+
+Updated Explorer controls:
+
+- `j` and `k` move the selection
+- `Enter` opens folders or opens `.txt` files in Teddy Write
+- `b` goes to the parent directory
+- `h` returns to `/`
+- `n` creates a new folder
+- `t` creates a new file
+- `r` renames the selected entry
+- `x` deletes the selected entry
+
 ## Next Step
 
-Once this persistence milestone is proven stable in VMware, the next phase is
-to improve the file explorer UI and then move toward broader app/windowing work
-on top of the now-persistent filesystem layer.
+With the explorer now behaving more like a real file browser, the next
+recommended phase is to deepen the windowing model: minimize/maximize controls,
+better focus dispatch, and broader mouse-first interaction across all apps.

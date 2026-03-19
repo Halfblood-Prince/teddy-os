@@ -291,6 +291,27 @@ impl FileSystem {
         Ok(())
     }
 
+    pub fn rename(&mut self, path: &str, new_name: &str) -> Result<(), &'static str> {
+        if !valid_name(new_name) {
+            return Err("rename: invalid name");
+        }
+
+        let index = self.resolve_path(path)?;
+        if index == 0 {
+            return Err("rename: cannot rename root");
+        }
+
+        let parent = self.nodes[index].parent;
+        if self.find_child(parent, new_name).is_some() {
+            return Err("rename: name already exists");
+        }
+
+        self.nodes[index].set_name(new_name);
+        self.refresh_cwd_path();
+        self.save_if_possible();
+        Ok(())
+    }
+
     pub fn persistence_label(&self) -> &'static str {
         self.persistence.label()
     }

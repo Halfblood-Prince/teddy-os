@@ -19,7 +19,6 @@ const TITLE_BAR_HEIGHT: i32 = 14;
 const CURSOR_SIZE: usize = 16;
 const DOUBLE_CLICK_TICKS: u64 = 40;
 const TERMINAL_VIEW_LINES: usize = 5;
-const EXPLORER_ROWS_VISIBLE: usize = 4;
 const TOP_BAR_HEIGHT: i32 = 18;
 const TASKBAR_HEIGHT: i32 = 18;
 
@@ -695,19 +694,24 @@ impl GraphicsShell {
         self.draw_window_frame(rect, 3, title, "FILE EXPLORER");
         self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), self.sy(12), 1);
         self.draw_rect(rect.x + self.sx(8), rect.y + self.sy(20), rect.width - self.sx(16), self.sy(12), 8);
-        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(24), 15, self.fs.cwd_path());
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(24), 7, "PATH");
+        self.draw_text(rect.x + self.sx(40), rect.y + self.sy(24), 15, self.fs.cwd_path());
 
         self.draw_explorer_toolbar(rect);
 
-        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(36), self.sx(42), rect.height - self.sy(46), 0);
-        self.draw_rect(rect.x + self.sx(8), rect.y + self.sy(36), self.sx(42), rect.height - self.sy(46), 8);
-        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(42), 15, "HOME");
-        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(54), 15, "DOCS");
-        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(66), 7, "SPACE");
+        self.fill_rect(rect.x + self.sx(8), rect.y + self.sy(52), self.sx(42), rect.height - self.sy(62), 0);
+        self.draw_rect(rect.x + self.sx(8), rect.y + self.sy(52), self.sx(42), rect.height - self.sy(62), 8);
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(58), 15, "HOME");
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(70), 15, "DOCS");
+        self.draw_text(rect.x + self.sx(12), rect.y + self.sy(82), 7, "ROOT");
+        self.draw_text(rect.x + self.sx(12), rect.y + rect.height - self.sy(28), 7, "STORE");
+        self.draw_text(rect.x + self.sx(12), rect.y + rect.height - self.sy(18), 15, self.fs.persistence_label());
 
-        self.fill_rect(rect.x + self.sx(56), rect.y + self.sy(36), rect.width - self.sx(64), rect.height - self.sy(46), 0);
-        self.draw_rect(rect.x + self.sx(56), rect.y + self.sy(36), rect.width - self.sx(64), rect.height - self.sy(46), 8);
+        self.fill_rect(rect.x + self.sx(56), rect.y + self.sy(52), rect.width - self.sx(64), rect.height - self.sy(78), 0);
+        self.draw_rect(rect.x + self.sx(56), rect.y + self.sy(52), rect.width - self.sx(64), rect.height - self.sy(78), 8);
+        self.draw_explorer_column_headers(rect);
         self.draw_explorer_entries(rect);
+        self.draw_explorer_details(rect);
         self.fill_rect(rect.x + self.sx(8), rect.y + rect.height - self.sy(16), rect.width - self.sx(16), self.sy(10), 1);
         self.draw_text(rect.x + self.sx(12), rect.y + rect.height - self.sy(12), 15, self.explorer.status());
     }
@@ -767,10 +771,18 @@ impl GraphicsShell {
     }
 
     fn draw_explorer_toolbar(&self, rect: WindowRect) {
-        self.draw_toolbar_button(rect.x + self.sx(56), rect.y + self.sy(20), self.sx(18), "UP");
-        self.draw_toolbar_button(rect.x + self.sx(78), rect.y + self.sy(20), self.sx(26), "DIR");
-        self.draw_toolbar_button(rect.x + self.sx(108), rect.y + self.sy(20), self.sx(30), "FILE");
-        self.draw_toolbar_button(rect.x + self.sx(142), rect.y + self.sy(20), self.sx(24), "DEL");
+        self.draw_toolbar_button(rect.x + self.sx(8), rect.y + self.sy(36), self.sx(20), "HOME");
+        self.draw_toolbar_button(rect.x + self.sx(32), rect.y + self.sy(36), self.sx(16), "UP");
+        self.draw_toolbar_button(rect.x + self.sx(56), rect.y + self.sy(36), self.sx(22), "DIR");
+        self.draw_toolbar_button(rect.x + self.sx(82), rect.y + self.sy(36), self.sx(26), "FILE");
+        self.draw_toolbar_button(rect.x + self.sx(112), rect.y + self.sy(36), self.sx(24), "REN");
+        self.draw_toolbar_button(rect.x + self.sx(140), rect.y + self.sy(36), self.sx(24), "DEL");
+    }
+
+    fn draw_explorer_column_headers(&self, rect: WindowRect) {
+        self.fill_rect(rect.x + self.sx(58), rect.y + self.sy(54), rect.width - self.sx(68), self.sy(10), 1);
+        self.draw_text(rect.x + self.sx(64), rect.y + self.sy(57), 15, "NAME");
+        self.draw_text(rect.x + rect.width - self.sx(40), rect.y + self.sy(57), 15, "SIZE");
     }
 
     fn draw_toolbar_button(&self, x: i32, y: i32, width: i32, label: &str) {
@@ -967,11 +979,11 @@ impl GraphicsShell {
         let mut sizes = [0usize; crate::fs::MAX_FS_NODES];
         let len = self.fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
         if len == 0 {
-            self.draw_text(rect.x + self.sx(68), rect.y + self.sy(48), 15, "(EMPTY)");
+            self.draw_text(rect.x + self.sx(68), rect.y + self.sy(72), 15, "(EMPTY)");
             return;
         }
 
-        let visible = core::cmp::min(len, 4);
+        let visible = core::cmp::min(len, self.explorer_rows_visible(rect));
         let start = if self.explorer.selected_index() >= visible {
             self.explorer.selected_index() + 1 - visible
         } else {
@@ -981,7 +993,7 @@ impl GraphicsShell {
         let mut row = 0usize;
         while row < visible {
             let index = start + row;
-            let y = rect.y + self.sy(42) + (row as i32 * self.sy(14));
+            let y = rect.y + self.sy(68) + (row as i32 * self.sy(14));
             let selected = index == self.explorer.selected_index();
             if selected {
                 self.fill_rect(rect.x + self.sx(58), y - self.sy(2), rect.width - self.sx(68), self.sy(12), 3);
@@ -1000,6 +1012,36 @@ impl GraphicsShell {
                 self.draw_text(rect.x + rect.width - self.sx(32), y + self.ui_scale(), 15, rendered);
             }
             row += 1;
+        }
+    }
+
+    fn draw_explorer_details(&self, rect: WindowRect) {
+        let panel_y = rect.y + rect.height - self.sy(38);
+        self.fill_rect(rect.x + self.sx(56), panel_y, rect.width - self.sx(64), self.sy(16), 1);
+        self.draw_rect(rect.x + self.sx(56), panel_y, rect.width - self.sx(64), self.sy(16), 8);
+
+        let mut kinds = [crate::fs::EntryKind::File; crate::fs::MAX_FS_NODES];
+        let mut names = [crate::fs::NameText::empty(); crate::fs::MAX_FS_NODES];
+        let mut sizes = [0usize; crate::fs::MAX_FS_NODES];
+        let len = self.fs.list_current_dir_into(&mut kinds, &mut names, &mut sizes);
+        if self.explorer.selected_index() >= len {
+            self.draw_text(rect.x + self.sx(62), panel_y + self.sy(4), 7, "Select a file or folder");
+            return;
+        }
+
+        self.draw_text(rect.x + self.sx(62), panel_y + self.sy(4), 15, names[self.explorer.selected_index()].as_str());
+        self.draw_text(
+            rect.x + self.sx(150),
+            panel_y + self.sy(4),
+            7,
+            if kinds[self.explorer.selected_index()] == crate::fs::EntryKind::Dir { "DIR" } else { "FILE" },
+        );
+        if kinds[self.explorer.selected_index()] == crate::fs::EntryKind::File {
+            let mut buffer = [b' '; 10];
+            let size_len = format_small_decimal(sizes[self.explorer.selected_index()], &mut buffer);
+            let rendered = core::str::from_utf8(&buffer[..size_len]).unwrap_or("");
+            self.draw_text(rect.x + rect.width - self.sx(56), panel_y + self.sy(4), 15, rendered);
+            self.draw_text(rect.x + rect.width - self.sx(26), panel_y + self.sy(4), 7, "BYTES");
         }
     }
 
@@ -1064,16 +1106,22 @@ impl GraphicsShell {
 
     fn handle_explorer_toolbar_click(&mut self, x: i32, y: i32) -> bool {
         let rect = self.explorer_window;
-        if point_in_rect(x, y, rect.x + self.sx(56), rect.y + self.sy(20), self.sx(18), self.sy(12)) {
+        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(36), self.sx(20), self.sy(12)) {
+            return self.explorer.go_home(&mut self.fs);
+        }
+        if point_in_rect(x, y, rect.x + self.sx(32), rect.y + self.sy(36), self.sx(16), self.sy(12)) {
             return self.explorer.go_parent(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + self.sx(78), rect.y + self.sy(20), self.sx(26), self.sy(12)) {
+        if point_in_rect(x, y, rect.x + self.sx(56), rect.y + self.sy(36), self.sx(22), self.sy(12)) {
             return self.explorer.create_folder(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + self.sx(108), rect.y + self.sy(20), self.sx(30), self.sy(12)) {
+        if point_in_rect(x, y, rect.x + self.sx(82), rect.y + self.sy(36), self.sx(26), self.sy(12)) {
             return self.explorer.create_file(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + self.sx(142), rect.y + self.sy(20), self.sx(24), self.sy(12)) {
+        if point_in_rect(x, y, rect.x + self.sx(112), rect.y + self.sy(36), self.sx(24), self.sy(12)) {
+            return self.explorer.rename_selected(&mut self.fs);
+        }
+        if point_in_rect(x, y, rect.x + self.sx(140), rect.y + self.sy(36), self.sx(24), self.sy(12)) {
             return self.explorer.delete_selected(&mut self.fs);
         }
         false
@@ -1081,13 +1129,13 @@ impl GraphicsShell {
 
     fn handle_explorer_sidebar_click(&mut self, x: i32, y: i32) -> bool {
         let rect = self.explorer_window;
-        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(36), self.sx(42), self.sy(12)) {
+        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(52), self.sx(42), self.sy(12)) {
             return self.explorer.go_home(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(48), self.sx(42), self.sy(12)) {
+        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(64), self.sx(42), self.sy(12)) {
             return self.explorer.go_docs(&mut self.fs);
         }
-        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(60), self.sx(42), self.sy(12)) {
+        if point_in_rect(x, y, rect.x + self.sx(8), rect.y + self.sy(76), self.sx(42), self.sy(12)) {
             return self.explorer.go_home(&mut self.fs);
         }
         false
@@ -1107,7 +1155,7 @@ impl GraphicsShell {
             return false;
         }
 
-        let visible = core::cmp::min(len, EXPLORER_ROWS_VISIBLE);
+        let visible = core::cmp::min(len, self.explorer_rows_visible(rect));
         let start = if self.explorer.selected_index() >= visible {
             self.explorer.selected_index() + 1 - visible
         } else {
@@ -1117,7 +1165,7 @@ impl GraphicsShell {
         let mut row = 0usize;
         while row < visible {
             let index = start + row;
-            let row_y = rect.y + self.sy(42) + (row as i32 * self.sy(14));
+            let row_y = rect.y + self.sy(68) + (row as i32 * self.sy(14));
             if point_in_rect(x, y, rect.x + self.sx(58), row_y - self.sy(2), rect.width - self.sx(68), self.sy(12)) {
                 let was_selected = index == self.explorer.selected_index();
                 self.explorer.select_index(index, &self.fs);
@@ -1140,6 +1188,12 @@ impl GraphicsShell {
         }
 
         false
+    }
+
+    fn explorer_rows_visible(&self, rect: WindowRect) -> usize {
+        let available = rect.height - self.sy(118);
+        let rows = (available / self.sy(14)).max(1) as usize;
+        rows.min(crate::fs::MAX_FS_NODES)
     }
 
     fn draw_taskbar(&self) {

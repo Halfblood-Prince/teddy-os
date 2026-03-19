@@ -51,7 +51,8 @@ The `kernelgfx` graphics screen should include:
 - window-like app panels with bitmap-rendered labels
 - a status strip showing uptime, last key, scancode, mouse coordinates, and button state
 - a software cursor that follows VMware mouse movement
-- draggable `Terminal`, `File Explorer`, and `Settings` windows when you hold the left mouse button on their title bars
+- draggable `Terminal`, `File Explorer`, `Teddy Write`, and `Settings` windows when you hold the left mouse button on their title bars
+- a richer Explorer window with a path bar, toolbar, sidebar, entry list, and details strip
 
 Press a few keys in VMware after the kernel screen appears:
 
@@ -104,11 +105,14 @@ Expected persistence result:
 - double-click the `TERMINAL`, `EXPLORER`, and `SETTINGS` desktop icons to open their windows
 - use the taskbar buttons to focus or hide those windows
 - hold the left mouse button on a window title bar and drag it
+- in Explorer, click `HOME`, `UP`, `DIR`, `FILE`, `REN`, and `DEL` to exercise file operations
+- double-click a `.txt` file in Explorer and confirm it opens in `Teddy Write`
+- press `r` inside the focused Explorer window to rename the selected entry
 - confirm the Settings window reflects the active resolution and color depth
 - click the other mouse buttons and confirm the `B` value changes
 
 Current limitation:
 
 - `kernelgfx` now has real mouse input and a basic Settings app, but it is still only the first interactive GUI scaffold
-- the real Terminal and Explorer apps now live on the `kernelgfx*` desktop path
+- the real Terminal, Explorer, and Teddy Write apps now live on the `kernelgfx*` desktop path
 - the older `kernel` desktop is now a text fallback shell
